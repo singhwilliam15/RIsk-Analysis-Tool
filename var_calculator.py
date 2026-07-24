@@ -5,7 +5,20 @@ Replicates and extends the exact quantitative methodology from VaR_Risk_Manageme
 
 import numpy as np
 import pandas as pd
-from scipy.stats import norm
+
+try:
+    from scipy.stats import norm
+except ImportError:
+    from statistics import NormalDist
+    class NormFallback:
+        @staticmethod
+        def ppf(p):
+            return NormalDist().inv_cdf(p)
+        @staticmethod
+        def pdf(x):
+            return NormalDist().pdf(x)
+    norm = NormFallback()
+
 
 def compute_returns(prices: pd.Series, log_returns: bool = False) -> pd.Series:
     """Compute simple or log daily returns from close price series."""

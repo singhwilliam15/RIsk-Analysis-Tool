@@ -1,0 +1,15 @@
+market,scenario,start,end,description
+NIFTY50,Global Financial Crisis,2008-01-01,2009-03-31,Lehman collapse and the global credit crunch
+NIFTY50,US credit downgrade,2011-07-01,2011-12-31,S&P downgrade of US debt and the euro-area debt crisis
+NIFTY50,Taper tantrum,2013-05-01,2013-09-30,Fed tapering signal and the rupee sell-off
+NIFTY50,Demonetisation,2016-11-08,2016-12-31,Withdrawal of Rs 500 and Rs 1000 notes (announced the evening of 8 Nov)
+NIFTY50,IL&FS crisis,2018-08-15,2018-11-30,IL&FS defaults and the NBFC liquidity squeeze
+NIFTY50,COVID-19 crash,2020-01-01,2020-04-30,Pandemic lockdowns
+NIFTY50,Rate hikes and Russia-Ukraine,2021-10-01,2022-07-31,Global monetary tightening and the war in Ukraine
+SP500,Global Financial Crisis,2007-10-01,2009-03-31,Lehman collapse and the global credit crunch
+SP500,US credit downgrade,2011-04-01,2011-12-31,S&P downgrade of US debt and the euro-area debt crisis
+SP500,Taper tantrum,2013-05-01,2013-07-31,Fed tapering signal
+SP500,China and oil sell-off,2015-07-01,2016-03-31,Yuan devaluation and the oil price collapse
+SP500,Q4 2018 sell-off,2018-09-01,2018-12-31,Fed tightening and trade-war fears
+SP500,COVID-19 crash,2020-01-01,2020-04-30,Pandemic lockdowns
+SP500,2022 rate-hike bear market,2022-01-01,2022-12-31,Fastest Fed tightening in four decades

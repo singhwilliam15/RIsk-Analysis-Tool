@@ -1,6 +1,6 @@
 # VaR Analysis Tool
 
-A Streamlit dashboard that measures the market risk of a single stock or a multi-stock portfolio and tests which risk model is reliable. It pulls daily prices from Yahoo Finance and estimates Value at Risk (VaR) and Expected Shortfall (ES) with eight models, from plain historical simulation up to GARCH(1,1)-t. Each model is backtested out of sample: VaR with the Kupiec and Christoffersen tests, ES with the McNeil-Frey test. Beta-adjusted crisis scenarios are run, and everything exports to a formatted Excel report.
+A Streamlit dashboard that measures the market risk of a single stock or a multi-stock portfolio and tests which risk model is reliable. It pulls daily prices from Yahoo Finance and estimates Value at Risk (VaR) and Expected Shortfall (ES) with eight models, from plain historical simulation up to GARCH(1,1)-t. Each model is backtested out of sample: VaR with the Kupiec and Christoffersen tests, ES with the McNeil-Frey test. Crisis scenarios are measured from real index data and replayed through the position's actual returns, and everything exports to a formatted Excel report.
 
 It started as an Excel VaR workbook. This project rebuilds it in Python, so any NSE, BSE or US ticker can be analysed in seconds, and adds the model-validation layer a spreadsheet makes hard.
 
@@ -43,16 +43,26 @@ For Historical, the app also shows the **empirical t-day VaR from overlapping co
 
 ## Portfolio mode
 
-Enter any number of tickers and weights (one currency). The portfolio is held at constant weights, rebalanced daily, on the dates every holding traded. All eight models, the backtests and the stress tests then run on the portfolio's return series. A **Portfolio Risk** tab shows where the risk comes from:
+Enter any number of tickers and weights (one currency), and choose **rebalanced daily** (weights reset to the targets each day) or **buy-and-hold** (shares bought once, weights drift with prices). The portfolio uses the dates on which every holding traded. The app names the holding that limits this shared history and how many days it cuts. All eight models, the backtests and the stress tests then run on the portfolio's return series.
 
-| Measure | Definition |
-| --- | --- |
-| **Standalone VaR** | Historical VaR of each holding on its own |
-| **Diversification benefit** | Sum of standalone VaRs − portfolio VaR: the loss diversification removes |
-| **Marginal VaR** | `∂VaR/∂wᵢ = z·(Σw)ᵢ/σₚ − μᵢ` (1-day): extra VaR per unit of extra weight |
-| **Component VaR** | `wᵢ·(z·(Σw)ᵢ/σₚ·√t − μᵢ·t)` (Euler allocation); the components add up exactly to the portfolio's parametric t-day VaR |
-| **Risk / weight** | Share of risk ÷ share of capital; above 1× means the holding adds more risk than capital |
-| **Correlation matrix** | Pairwise correlation of daily returns, as a heatmap |
+Portfolios are **long-only**. Short positions would need borrow costs, margin and a gross/net exposure definition that the tool does not model, and the app says so next to the holdings table.
+
+The **Portfolio Risk** tab splits risk across holdings on a basis you choose. On every basis, the components add up exactly to the total shown:
+
+| Basis | Component of holding i | Adds up to |
+| --- | --- | --- |
+| **Historical ES** (default) | `wᵢ·E[−rᵢ | portfolio return ≤ its α-quantile]`: the exact tail-conditional Euler estimator | Portfolio historical ES |
+| **Historical VaR** | `wᵢ·E[−rᵢ | portfolio return ≈ its α-quantile]`, averaged over the days ranked nearest the quantile (±0.25% of the sample, at least ±2 days), rescaled to the total | Portfolio historical VaR |
+| **Parametric VaR** | `wᵢ·(z·(Σw)ᵢ/σₚ·√t − μᵢ·t)`: the normal Euler allocation | Portfolio parametric VaR |
+
+The table also shows, on the same basis:
+- **standalone risk**: each holding on its own;
+- **incremental risk**: the portfolio with the holding minus without it, other positions unchanged;
+- **risk / weight**: above 1× means the holding adds more risk than capital;
+- the **diversification benefit**: sum of standalone − total;
+- a correlation heatmap.
+
+A **what-if panel** sets one holding to a new weight, or adds a new ticker, and shows the new Historical VaR, Historical ES and Parametric VaR against today's. The other holdings keep their relative sizes.
 
 ## Backtesting
 
@@ -84,8 +94,13 @@ The loss is lowest, on average, for the true quantile. The **recommended model**
 
 ## Stress testing
 
-- **Nine historical crises** (GFC 2008, COVID-19 2020, dot-com 2000–02, Black Monday 1987, etc.). Each market drawdown is scaled by the stock's **beta** to the Nifty 50 (Indian tickers) or S&P 500 (US tickers).
-- **A custom market-shock slider**, beta-adjusted in the same way.
+Nothing in the stress tests is hard-coded. The crisis windows live in [`stress_scenarios.csv`](stress_scenarios.csv): seven for the Nifty 50 (GFC 2008, 2011 US downgrade, 2013 taper tantrum, 2016 demonetisation, 2018 IL&FS, 2020 COVID, 2021–22 rate hikes and Russia–Ukraine) and seven US equivalents for the S&P 500.
+
+- **Measured, not assumed.** Each scenario's market fall is the largest peak-to-trough drawdown inside its window, computed from downloaded index prices. **Market recovery** is the number of trading days from the trough until the index regained its peak. Windows the index history does not cover are flagged and left out. Each window was checked against the data. For example, the Nifty's GFC fall is 6,288 on 8 Jan 2008 to 2,524 on 27 Oct 2008 (−59.9%), and demonetisation is measured from the 8 Nov 2016 announcement close.
+- **Historical replay first.** If the stock or portfolio has prices for the period, its result is its **actual** compounded return between the market's peak and trough dates, using the full price history regardless of the lookback window.
+- **β-proxy only when there is no data.** For a stock listed after the crisis, the market fall is multiplied by the **downside beta** and labelled β-proxy. Downside beta is the stock's sensitivity on the market's worst 10% of days: `Σ r_s·r_m / Σ r_m²` on those days. The app shows normal and downside beta side by side.
+- **Custom market move** from −60% to +40%: falls use the downside beta, rises the normal beta.
+- **Volatility shock:** VaR and ES re-run with returns scaled around their mean, `r′ = μ + k·(r − μ)`, for k = 1, 2, 3.
 - **Worst actual losses in the sample** over 1, 5, 10 and 21 days, for comparison against VaR.
 
 ## Example results
@@ -151,29 +166,46 @@ Breaches cluster for Asian Paints, so most models fail the independence test. Co
 | GARCH(1,1)-t | ₹19,593 | ₹25,473 | ₹34,467 | ₹36,922 |
 | Monte Carlo (GARCH-t, 5,000 sims) | ₹20,264 | ₹26,690 | ₹35,291 | ₹36,451 |
 
-Excess kurtosis is 3.19 and the Jarque-Bera test rejects normality (p < 0.0001). This is why the fat-tailed models give the highest 99% VaR; the Student-t maximum-likelihood fit gives ν = 3.2. The volatility models (EWMA, FHS, GARCH) sit lowest at 95%, because volatility today is below its 2-year average. The beta to the Nifty 50 is 0.87, so a 20% market fall maps to a 17.3% fall in the stock.
+Excess kurtosis is 3.19 and the Jarque-Bera test rejects normality (p < 0.0001). This is why the fat-tailed models give the highest 99% VaR; the Student-t maximum-likelihood fit gives ν = 3.2. The volatility models (EWMA, FHS, GARCH) sit lowest at 95%, because volatility today is below its 2-year average. Its beta to the Nifty 50 is 0.87, with a downside beta of 0.99.
 
-**Five-stock NSE portfolio: ₹10,00,000, 95% 1-day VaR, 2-year lookback (500 common days)**
+**Crisis replay, ASIANPAINT.NS (actual returns over each Nifty 50 peak-to-trough)**
 
-| Holding | Weight | Standalone VaR | Component VaR | Share of risk | Risk / weight |
-| --- | --- | --- | --- | --- | --- |
-| Reliance | 30% | ₹6,236 | ₹5,150 | 33.8% | 1.13× |
-| HDFC Bank | 25% | ₹5,038 | ₹3,620 | 23.7% | 0.95× |
-| TCS | 20% | ₹5,155 | ₹3,243 | 21.3% | 1.06× |
-| Asian Paints | 15% | ₹3,663 | ₹2,211 | 14.5% | 0.97× |
-| Britannia | 10% | ₹2,093 | ₹1,023 | 6.7% | 0.67× |
-| **Total** | 100% | **₹22,184** | **₹15,247** | 100% | |
+| Scenario | Peak → trough | Nifty 50 fall | Nifty recovery | Asian Paints |
+| --- | --- | --- | --- | --- |
+| Global Financial Crisis | 08 Jan 2008 → 27 Oct 2008 | −59.9% | 496 days | −25.2% |
+| US credit downgrade | 07 Jul 2011 → 20 Dec 2011 | −20.7% | 192 days | −17.0% |
+| Taper tantrum | 17 May 2013 → 28 Aug 2013 | −14.6% | 34 days | −17.9% |
+| Demonetisation | 08 Nov 2016 → 26 Dec 2016 | −7.4% | 22 days | −17.9% |
+| IL&FS crisis | 28 Aug 2018 → 26 Oct 2018 | −14.6% | 114 days | −15.4% |
+| COVID-19 crash | 14 Jan 2020 → 23 Mar 2020 | −38.4% | 158 days | −17.3% |
+| Rate hikes and Russia-Ukraine | 18 Oct 2021 → 17 Jun 2022 | −17.2% | 108 days | −19.8% |
 
-The portfolio's Historical VaR is ₹15,601, against ₹22,184 if each position's risk is added up separately. Diversification removes **₹6,583 (30%)** of the risk; the average correlation is only 0.26. Reliance contributes more risk than its weight because it is the most correlated with the others (0.41 with HDFC Bank). Britannia is the best diversifier.
+Replay shows what a single beta cannot. Asian Paints fell well under half as much as the market in the GFC and COVID, but more than twice as much in demonetisation, a consumption shock that hit consumer stocks directly. A beta-scaled shock (0.87 × −7.4% = −6.4%) would have badly understated that loss.
+
+**Five-stock NSE portfolio: ₹10,00,000, 95% 1-day, 2-year lookback, rebalanced daily**
+
+| Holding | Weight | Standalone ES | Component ES | Share of ES | Risk / weight | Incremental ES |
+| --- | --- | --- | --- | --- | --- | --- |
+| Reliance | 30% | ₹8,438 | ₹5,856 | 30.0% | 1.00× | ₹5,184 |
+| HDFC Bank | 25% | ₹7,028 | ₹5,103 | 26.2% | 1.05× | ₹4,052 |
+| TCS | 20% | ₹7,563 | ₹3,592 | 18.4% | 0.92× | ₹2,508 |
+| Asian Paints | 15% | ₹4,912 | ₹3,002 | 15.4% | 1.03× | ₹2,368 |
+| Britannia | 10% | ₹3,061 | ₹1,943 | 10.0% | 1.00× | ₹1,427 |
+| **Total** | 100% | **₹31,000** | **₹19,496** | 100% | | |
+
+- Diversification cuts Historical ES from ₹31,000 (positions added up separately) to **₹19,496**, a 37% reduction. The average correlation is 0.26.
+- On the ES basis, risk shares sit close to capital weights. On the parametric basis, Reliance carries 33.8% of the risk from a 30% weight.
+- The Historical VaR basis gives Asian Paints only 9.7%, against 15.4% on the ES basis. VaR-based allocations depend on the handful of days nearest the quantile, which is why Historical ES is the default.
+- **What-if:** cutting Reliance to 10%, with the other four scaled up, lowers Historical VaR by 4.9% but *raises* Historical ES by 1.3%. VaR and ES can disagree on the same trade because they measure different parts of the tail; adding INFY.NS at 15% raises both.
 
 ## Excel report
 
 One click exports a `.xlsx` workbook:
 
 - **Dashboard:** position settings, beta, risk-free assumption and data source, plus VaR at 90/95/97.5/99% and ES for every model, with each model's multi-day rule
-- **Portfolio Risk** (portfolio mode only): diversification summary, the component-VaR table with live `SUM` totals, and the correlation matrix
+- **Portfolio Risk** (portfolio mode only): the decomposition on the chosen basis (standalone, component and incremental risk, with live `SUM` totals), the diversification summary, the holding limiting the sample, and the correlation matrix
 - **Backtesting:** the recommended model, and the full model-comparison table with tick loss, PASS / FAIL / LOW POWER and the McNeil-Frey ES test
-- **Stress Testing:** beta-adjusted scenarios and worst actual losses
+- **Stress Testing:** measured crisis scenarios (peak, trough, market fall, recovery, replay or β-proxy, P&L), the volatility shock and worst actual losses
 - **Raw Data:** prices, simple and log returns, rolling volatility
 
 ## Run it locally
@@ -197,7 +229,7 @@ Use Yahoo Finance symbols: `.NS` for NSE (`RELIANCE.NS`), `.BO` for BSE, and no 
 pytest
 ```
 
-The 101 tests check each calculation against an independent reference. They need no network: market data is mocked.
+The 125 tests check each calculation against an independent reference. They need no network: market data is mocked.
 
 - GARCH(1,1)-t recovering the true parameters from simulated GARCH-t data; the variance filter, term structure and simulated paths checked against hand-written recursions; rolling GARCH forecasts never using future data; fallbacks counted
 - the unit-variance t quantile and ES against 3 million simulated draws
@@ -210,6 +242,9 @@ The 101 tests check each calculation against an independent reference. They need
 - CAGR from the compounded path, and Sortino downside deviation worked by hand
 - tick loss worked by hand, and lowest at the true quantile on simulated data
 - the recommended-model rule and the low-power threshold
+- portfolio components adding up to the total on every basis and horizon, matching the headline Historical/Parametric figures, agreeing with the normal Euler shares on 400,000 simulated days, and component ES worked by hand
+- incremental VaR, what-if weights, buy-and-hold values and the limiting-ticker report
+- stress testing: drawdown and recovery by hand, replay equal to the compounded actual return, proxy rows using downside beta, downside beta recovering a known crisis beta (and staying stable), scenario config well-formed, volatility shock scaling exactly with k
 - the data fetcher (mocked yfinance and Yahoo JSON): adjusted prices, a metadata failure keeping prices, exchange-timezone dates, and the suspicious-move check
 - the EWMA recursion worked by hand
 - Cornish-Fisher reducing to the normal model when skew and kurtosis are zero
@@ -228,7 +263,9 @@ The 101 tests check each calculation against an independent reference. They need
 app.py                 Streamlit dashboard
 var_calculator.py      VaR/ES models, rolling forecasts, backtests, beta and stress testing
 garch.py               GARCH(1,1)-t fitting, filtering, simulation; FHS
-portfolio.py           Portfolio construction, component VaR, diversification
+portfolio.py           Portfolio construction, risk decomposition, incremental VaR, what-if
+stress.py              Measured crisis scenarios, historical replay, downside beta, volatility shock
+stress_scenarios.csv   Editable crisis windows (Nifty 50 and S&P 500)
 data_fetcher.py        Yahoo Finance download, with a direct-HTTP fallback
 excel_exporter.py      Formatted Excel report
 test_*.py              Unit tests
@@ -236,8 +273,9 @@ test_*.py              Unit tests
 
 ## Limitations
 
-- **Portfolios are long-only, in a single currency, at constant weights.** There is no FX conversion and no short positions.
-- **Component VaR** decomposes the parametric (normal) VaR. The other models report a portfolio total only.
+- **Portfolios are long-only and in a single currency.** There is no FX conversion and no short positions.
+- **Risk decomposition** covers Historical ES, Historical VaR and Parametric VaR. The other models (GARCH, FHS, …) report a portfolio total only. Under buy-and-hold, the decomposition applies today's drifted weights to the history, so its total can differ from the headline figure, which follows the buy-and-hold path.
+- **Portfolio crisis replay needs every holding to have prices for the crisis.** One recently listed holding (for example LICI.NS, listed May 2022) switches the whole portfolio to β-proxy for older crises; the app says which holding causes it. Replaying holdings with data and proxying only the missing one would be more accurate.
 - **Correlations** are full-sample estimates. In a crisis, correlations usually rise, so the diversification benefit shrinks when it is needed most.
 - **Multi-day VaR** uses √t for volatility, which assumes independent returns. Volatility clusters, so long-horizon figures are approximate. The overlapping-window check shows by how much.
 - **The risk-free rate** is a user-set assumption, not a live market rate.
@@ -246,7 +284,7 @@ test_*.py              Unit tests
 - **Rolling backtest shortcuts for speed:** Student-t and GARCH are refitted every 20 days rather than daily, and GARCH uses at most 1,000 past days. A full-history run (for example AAPL `max`, about 11,000 days) takes about a minute.
 - **The Acerbi-Székely (2014) ES test** (the plan's stretch goal) is not implemented; McNeil-Frey is the only ES backtest.
 - **Monte Carlo at 1 day** adds nothing beyond GARCH-t, so it is excluded from the recommendation.
-- **Stress scenarios** use approximate index drawdowns scaled by a single beta. Real crisis betas are usually higher than normal-period betas.
+- **Stress scenarios** are historical. They cannot capture a crisis unlike past ones, and β-proxy rows assume the stock's crisis sensitivity in the lookback window would have held in earlier crises.
 
 ## Built with
 

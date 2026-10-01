@@ -58,13 +58,16 @@ def _write_table(ws, top_row: int, columns, rows, first_col: int = 2):
 def generate_excel_var_report(symbol: str, company_name: str, currency: str, investment: float,
                               confidence_level: float, holding_period: int, df_data: pd.DataFrame,
                               var_by_level: dict, backtest_table: pd.DataFrame, backtest_window: int,
-                              stress_df: pd.DataFrame, worst_df: pd.DataFrame,
+                              stress_table: pd.DataFrame, worst_df: pd.DataFrame,
                               benchmark_name: str, beta: float, portfolio: dict = None,
-                              recommendation: dict = None, data_note: str = None, risk_free_rate: float = None) -> bytes:
+                              recommendation: dict = None, data_note: str = None, risk_free_rate: float = None,
+                              vol_shock_table: pd.DataFrame = None, beta_down: float = float("nan")) -> bytes:
     """
     Generate the Excel risk report and return it as .xlsx bytes.
     `var_by_level` maps model name -> {confidence level -> VaR result dict}.
-    `portfolio` (optional) holds the component VaR table, diversification summary and correlation matrix.
+    `stress_table` comes from stress.run_scenarios (None if the market history was unavailable).
+    `portfolio` (optional) holds "decomposition" (portfolio.risk_decomposition), "diversification",
+    "correlation" and "alignment" (portfolio.alignment_report).
     """
     money = f'"{currency}" #,##0'
     wb = openpyxl.Workbook()
@@ -87,6 +90,7 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
         ("Selected Confidence Level", confidence_level, "0.0%"),
         ("Holding Period (Days)", holding_period, "0"),
         (f"Beta vs {benchmark_name}", beta if np.isfinite(beta) else "n/a", "0.00"),
+        ("Downside Beta (worst 10% of days)", beta_down if np.isfinite(beta_down) else "n/a", "0.00"),
         ("Risk-free Rate (assumption)", risk_free_rate if risk_free_rate is not None else "n/a", "0.00%"),
         ("Data Source", data_note or "n/a", "@"),
     ]
@@ -96,12 +100,12 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
         ws_dash[f"C{i}"].number_format = fmt
         ws_dash[f"C{i}"].font = BOLD_FONT
 
-    ws_dash["B13"] = f"VAR AND EXPECTED SHORTFALL BY MODEL ({holding_period}-DAY HORIZON)"
-    ws_dash["B13"].font = BOLD_FONT
+    ws_dash["B14"] = f"VAR AND EXPECTED SHORTFALL BY MODEL ({holding_period}-DAY HORIZON)"
+    ws_dash["B14"].font = BOLD_FONT
     cl_pct = f"{confidence_level * 100:g}%"
     levels_shown = sorted(next(iter(var_by_level.values())))
     _write_table(
-        ws_dash, 14,
+        ws_dash, 15,
         [("Model", "@")] + [(f"{cl * 100:g}% VaR", money) for cl in levels_shown]
         + [(f"{cl_pct} Expected Shortfall", money), ("Multi-day Rule", "@")],
         [
@@ -116,19 +120,23 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
     # -------------------------------------------------------------
     if portfolio is not None:
         ws_port = wb.create_sheet(title="Portfolio Risk")
-        ws_port["B2"] = f"🧩 PORTFOLIO RISK DECOMPOSITION ({cl_pct}, {holding_period}-DAY)"
+        decomposition = portfolio["decomposition"]
+        basis = decomposition["basis"]
+        ws_port["B2"] = f"🧩 PORTFOLIO RISK DECOMPOSITION — {basis.upper()} ({cl_pct}, {holding_period}-DAY)"
         ws_port["B2"].font = TITLE_FONT
-        ws_port["B3"] = "Component VaR is the Euler allocation of parametric VaR and sums to the portfolio total."
+        ws_port["B3"] = (f"Component {basis} is the Euler allocation and sums exactly to the portfolio total. "
+                         "Incremental = portfolio risk with the holding minus without it.")
         ws_port["B3"].font = SUBTITLE_FONT
 
         div = portfolio["diversification"]
+        alignment = portfolio.get("alignment") or {}
         summary_rows = [
-            ("Portfolio Historical VaR", div["portfolio_var"], money),
-            ("Sum of Standalone VaRs", div["undiversified_var"], money),
-            ("Diversification Benefit", div["diversification_benefit"], money),
-            ("Diversification Ratio", div["diversification_ratio"], "0.0%"),
+            (f"Portfolio {basis}", decomposition["total"], money),
+            ("Sum of Standalone", decomposition["standalone_sum"], money),
+            ("Diversification Benefit", decomposition["diversification_benefit"], money),
             ("Average Pairwise Correlation", div["average_correlation"], "0.00"),
             ("Common Trading Days", div["common_days"], "0"),
+            ("Holding Limiting the Sample", alignment.get("limiting_ticker", "n/a"), "@"),
         ]
         for i, (label, val, fmt) in enumerate(summary_rows, start=5):
             ws_port[f"B{i}"] = label
@@ -136,16 +144,16 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
             ws_port[f"C{i}"].number_format = fmt
             ws_port[f"C{i}"].font = BOLD_FONT
 
-        comp = portfolio["components"]
+        comp = decomposition["table"]
         comp_cols = [
             ("Ticker", "@"), ("Company", "@"), ("Weight", "0.0%"), ("Annualized Volatility", "0.0%"),
-            ("Standalone VaR", money), ("Marginal VaR", "0.00%"), ("Component VaR", money),
-            ("Contribution %", "0.0%"), ("Risk / Weight", "0.00"),
+            ("Standalone", money), ("Component", money), ("Contribution %", "0.0%"),
+            ("Risk / Weight", "0.00"), ("Incremental", money),
         ]
         next_row = _write_table(ws_port, 12, comp_cols, comp[[name for name, _ in comp_cols]].itertuples(index=False))
         total_row = next_row - 1
         ws_port.cell(row=total_row, column=2, value="TOTAL").font = BOLD_FONT
-        for name in ("Weight", "Component VaR", "Contribution %"):
+        for name in ("Weight", "Component", "Contribution %"):
             col = 2 + [n for n, _ in comp_cols].index(name)
             letter = get_column_letter(col)
             cell = ws_port.cell(row=total_row, column=col, value=f"=SUM({letter}13:{letter}{12 + len(comp)})")
@@ -200,17 +208,29 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
     ws_stress = wb.create_sheet(title="Stress Testing")
     ws_stress["B2"] = "⚡ STRESS TESTING — HISTORICAL CRISIS SCENARIOS"
     ws_stress["B2"].font = TITLE_FONT
-    beta_text = f"{beta:.2f}" if np.isfinite(beta) else "1.00 (assumed)"
-    ws_stress["B3"] = f"Market shocks scaled by beta to the {benchmark_name} (β = {beta_text}), capped at a 100% loss."
+    ws_stress["B3"] = (f"Market falls are measured peak to trough from downloaded {benchmark_name} prices. Historical replay = the "
+                       "position's actual return between the same dates; beta-proxy = market fall x downside beta, used only "
+                       "when the position has no prices for the period.")
     ws_stress["B3"].font = SUBTITLE_FONT
-    next_row = _write_table(
-        ws_stress, 5,
-        [("Scenario", "@"), ("Market Shock", "0.0%"), ("Beta", "0.00"), ("Stock Shock", "0.0%"),
-         ("Portfolio Impact", money), ("Post-Shock Value", money), ("Recovery (Days)", "0"),
-         ("Probability", "@"), ("Risk Level", "@")],
-        stress_df[["Scenario", "Shock", "Beta", "Stock_Shock", "Portfolio_Impact", "Post_Shock_Value",
-                   "Recovery_Days", "Probability", "Risk_Level"]].itertuples(index=False),
-    )
+    next_row = 5
+    if stress_table is not None and "Peak" in stress_table.columns:
+        covered = stress_table[stress_table["Peak"].notna()]
+        next_row = _write_table(
+            ws_stress, 5,
+            [("Scenario", "@"), ("Description", "@"), ("Peak", "@"), ("Trough", "@"), ("Market Drawdown", "0.0%"),
+             ("Market Recovery (Days)", "@"), ("Method", "@"), ("Position Return", "0.0%"), ("P&L", money),
+             ("Post-Shock Value", money)],
+            [(r["Scenario"], r["Description"], f"{r['Peak']:%Y-%m-%d}", f"{r['Trough']:%Y-%m-%d}", r["Market Drawdown"],
+              "not yet" if pd.isna(r["Market Recovery (days)"]) else int(r["Market Recovery (days)"]),
+              r["Method"], r["Position Return"], r["P&L"], r["Post-Shock Value"]) for _, r in covered.iterrows()],
+        )
+    if vol_shock_table is not None:
+        ws_stress.cell(row=next_row, column=2, value=f"VOLATILITY SHOCK ({cl_pct}, {holding_period}-DAY)").font = BOLD_FONT
+        next_row = _write_table(
+            ws_stress, next_row + 1,
+            [("Volatility", "@"), ("Historical VaR", money), ("Historical ES", money), ("Normal VaR", money), ("Normal ES", money)],
+            vol_shock_table[["Volatility", "Historical VaR", "Historical ES", "Normal VaR", "Normal ES"]].itertuples(index=False),
+        )
     ws_stress.cell(row=next_row, column=2, value="WORST ACTUAL LOSSES IN SAMPLE").font = BOLD_FONT
     window_end = df_data.loc[worst_df["Window End"], "Date"].dt.strftime("%Y-%m-%d").to_numpy() if len(worst_df) else []
     _write_table(

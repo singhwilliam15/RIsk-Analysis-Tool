@@ -19,7 +19,6 @@ from var_calculator import (
     perform_kupiec_backtest,
     rolling_historical_var,
     rolling_var_forecasts,
-    run_stress_testing,
 )
 
 
@@ -197,13 +196,6 @@ def test_beta_recovers_known_value():
     assert estimate_beta(stock, index) == pytest.approx(1.5, abs=0.02)
 
 
-def test_stress_scales_by_beta_and_caps_at_total_loss():
-    df = run_stress_testing(1_000_000, beta=2.0).set_index("Scenario")
-    assert df.loc["COVID-19 Crash (Mar 2020)", "Stock_Shock"] == pytest.approx(-0.68)
-    assert df.loc["Lehman / GFC Crash (2008)", "Stock_Shock"] == -1.0
-    assert df["Post_Shock_Value"].min() >= 0
-
-
 def test_worst_losses_compound_returns():
     returns = pd.Series([0.0, -0.1, -0.1, 0.05])
     table = historical_worst_losses(returns, 100, horizons=(1, 2)).set_index("Horizon")
@@ -227,13 +219,13 @@ def test_excel_report_contains_every_model_and_sheet(fat_tailed_returns):
         "TEST", "Test Co", "USD", 1_000_000, 0.99, 1, df,
         var_by_level={m: {cl: by_level[cl][m] for cl in by_level} for m in models},
         backtest_table=backtest_all_methods(returns, rolling_var_forecasts(returns, 0.99, 250, models=["Historical", "EWMA (RiskMetrics)"]), 0.99),
-        backtest_window=250, stress_df=run_stress_testing(1_000_000, 1.2),
+        backtest_window=250, stress_table=None,
         worst_df=historical_worst_losses(returns, 1_000_000), benchmark_name="S&P 500", beta=1.2)
 
     wb = openpyxl.load_workbook(io.BytesIO(xlsx))
     assert wb.sheetnames == ["Dashboard", "Backtesting", "Stress Testing", "Raw Data"]
     dash = wb["Dashboard"]
-    rows = {dash.cell(row=r, column=2).value: [dash.cell(row=r, column=c).value for c in range(3, 7)] for r in range(15, 15 + len(models))}
+    rows = {dash.cell(row=r, column=2).value: [dash.cell(row=r, column=c).value for c in range(3, 7)] for r in range(16, 16 + len(models))}
     assert list(rows) == models
     for m in models:
         assert rows[m][0] < rows[m][1] < rows[m][2]  # 90% < 95% < 99% VaR

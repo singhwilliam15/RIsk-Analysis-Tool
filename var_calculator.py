@@ -851,29 +851,3 @@ def historical_worst_losses(returns: pd.Series, investment: float, horizons=(1, 
             "Window End": window_return.idxmin(),
         })
     return pd.DataFrame(rows)
-
-
-def run_stress_testing(investment: float, beta: float = 1.0) -> pd.DataFrame:
-    """
-    Run predefined historical crisis scenarios against current portfolio value.
-    Shocks are approximate index drawdowns; each is scaled by the stock's beta to the
-    benchmark (capped at a 100% loss) to estimate the stock-level impact.
-    """
-    scenarios = [
-        {"Scenario": "COVID-19 Crash (Mar 2020)", "Shock": -0.34, "Recovery_Days": 60, "Probability": "Low", "Risk_Level": "HIGH"},
-        {"Scenario": "Lehman / GFC Crash (2008)", "Shock": -0.57, "Recovery_Days": 500, "Probability": "Very Low", "Risk_Level": "HIGH"},
-        {"Scenario": "Dot-com Bust (2000-02)", "Shock": -0.49, "Recovery_Days": 900, "Probability": "Very Low", "Risk_Level": "HIGH"},
-        {"Scenario": "Black Monday (1987)", "Shock": -0.22, "Recovery_Days": 120, "Probability": "Very Low", "Risk_Level": "HIGH"},
-        {"Scenario": "Asian Financial Crisis (1997)", "Shock": -0.18, "Recovery_Days": 180, "Probability": "Low", "Risk_Level": "MEDIUM"},
-        {"Scenario": "9/11 Market Shock (2001)", "Shock": -0.12, "Recovery_Days": 30, "Probability": "Low", "Risk_Level": "MEDIUM"},
-        {"Scenario": "Russian Ruble Crisis (1998)", "Shock": -0.15, "Recovery_Days": 90, "Probability": "Low", "Risk_Level": "MEDIUM"},
-        {"Scenario": "Mild Bear Market", "Shock": -0.10, "Recovery_Days": 45, "Probability": "Moderate", "Risk_Level": "LOW"},
-        {"Scenario": "Flash Crash Shock", "Shock": -0.05, "Recovery_Days": 2, "Probability": "Moderate", "Risk_Level": "LOW"}
-    ]
-    
-    df_stress = pd.DataFrame(scenarios)
-    df_stress["Beta"] = beta
-    df_stress["Stock_Shock"] = (df_stress["Shock"] * beta).clip(lower=-1.0)
-    df_stress["Portfolio_Impact"] = investment * df_stress["Stock_Shock"]
-    df_stress["Post_Shock_Value"] = investment + df_stress["Portfolio_Impact"]
-    return df_stress

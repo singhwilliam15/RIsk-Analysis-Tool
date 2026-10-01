@@ -1,178 +1,126 @@
 # VaR Analysis Tool
 
+[![tests](https://github.com/singhwilliam15/VaR-Analysis-Tool/actions/workflows/tests.yml/badge.svg)](https://github.com/singhwilliam15/VaR-Analysis-Tool/actions/workflows/tests.yml)
+![Python 3.11 | 3.12](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
 **Live demo:** _coming soon_. The link will be added here once the app is deployed on Streamlit Community Cloud.
 
-A Streamlit dashboard that measures the market risk of a single stock or a multi-stock portfolio and tests which risk model is reliable. It pulls daily prices from Yahoo Finance and estimates Value at Risk (VaR) and Expected Shortfall (ES) with eight models, from plain historical simulation up to GARCH(1,1)-t. Each model is backtested out of sample: VaR with the Kupiec and Christoffersen tests, ES with the McNeil-Frey test. Crisis scenarios are measured from real index data and replayed through the position's actual returns, and everything exports to a formatted Excel report.
+A market-risk dashboard for a single stock or a multi-stock portfolio on NSE, BSE or US markets. It estimates Value at Risk (VaR) and Expected Shortfall (ES) with eight models, from historical simulation to GARCH(1,1) with Student-t errors. It then **tests which model can be trusted**:
+- every model is backtested out of sample with the Kupiec, Christoffersen and McNeil-Frey (ES) tests;
+- models are ranked on tick loss, not p-values;
+- portfolio risk is split across holdings with an exact Euler allocation;
+- crisis scenarios are measured from real index data and replayed through the position's actual returns.
 
-It started as an Excel VaR workbook. This project rebuilds it in Python, so any NSE, BSE or US ticker can be analysed in seconds, and adds the model-validation layer a spreadsheet makes hard.
+Results export to a formatted Excel report. Built in Python with Streamlit, and covered by 135 offline tests in CI.
 
-## Models
+## Key findings
 
-| Model | How it estimates the loss quantile | Captures fat tails? | Reacts to recent volatility? |
-| --- | --- | --- | --- |
-| **Historical** | Empirical percentile of past returns | Yes, if they are in the sample | No |
-| **Parametric (Normal)** | `z·σ − μ` | No | No |
-| **Student-t** | t-distribution fitted by maximum likelihood (`scipy.stats.t.fit`); method of moments as fallback | Yes | No |
-| **Cornish-Fisher** | Normal quantile adjusted for skewness and kurtosis; flagged ⚠ outside its valid region | Yes | No |
-| **EWMA (RiskMetrics)** | Normal quantile on an exponentially weighted volatility forecast, λ = 0.94 | No | Yes |
-| **FHS (EWMA-filtered)** | Filtered Historical Simulation: empirical quantile of returns ÷ their EWMA volatility, rescaled by tomorrow's volatility | Yes | Yes |
-| **GARCH(1,1)-t** | `σ²ₜ = ω + α·ε²ₜ₋₁ + β·σ²ₜ₋₁` with unit-variance Student-t errors, fitted with `arch` on returns × 100 | Yes | Yes |
-| **Monte Carlo** | 1,000–10,000 simulated paths of the fitted GARCH(1,1)-t process | Yes | Yes |
+From live Yahoo Finance data, 5-year lookback, run on 1 Oct 2026:
 
-Each model reports VaR at 90%, 95%, 97.5% and 99%, plus Expected Shortfall. ES uses closed forms for the Normal, Student-t, EWMA and GARCH-t models, the empirical tail average for Historical, FHS and Monte Carlo, and numerical integration for Cornish-Fisher. **97.5%** is the Basel FRTB Expected Shortfall level.
+- **Model choice moves the number by 79%.** Apple's 1-day 99% VaR on US$1m ranges from $34,574 (EWMA) to $61,838 (Cornish-Fisher) across the eight models.
+- **GARCH(1,1)-t wins for Apple.** It is recommended at both 99% and 97.5%: the lowest out-of-sample tick loss among the models that pass every VaR test.
+- **The ES backtest catches what VaR tests miss.** At 97.5%, EWMA passes all three VaR tests on Apple, but its ES is rejected (p < 0.001). For both stocks at both levels, the ES test rejects exactly the two normal-tailed models, Normal and EWMA.
+- **√t overstates Apple's 10-day risk by 30%.** √t gives $152,071 against $116,860 from actual 10-day returns; a GARCH-t Monte Carlo gives $109,129.
+- **A single beta misses real crisis behaviour.** Replayed through actual prices, Asian Paints fell 25% in the 2008 crash (Nifty −60%) but 18% after demonetisation (Nifty −7%).
+- **Diversification cuts tail risk by 37%** in a five-stock NSE portfolio: Historical ES ₹31,000 → ₹19,496.
+- **The data are checked too.** Yahoo's full Reliance history contains a +337% one-day spike that reverses the next day; the app flags it as a likely data error.
 
-- **GARCH(1,1)-t** combines the two features the earlier results called for: volatility clustering, which EWMA has, and fat tails, which Student-t has. If the fit does not converge or is non-stationary (α + β ≥ 1), the app shows EWMA in its place and says so.
-- **Cornish-Fisher** is only a valid quantile function when the expansion is increasing in z. The app checks the Maillard (2012) condition on the sample's skewness S and excess kurtosis K: with `a = K/8 − S²/6`, `b = S/3` and `c = 1 − K/8 + 5S²/36`, it needs `a ≥ 0` and `b² − 4ac ≤ 0`. Outside that region the model is marked ⚠ "treat with caution". This happens, for example, for AAPL's full history (excess kurtosis 18.7) and ADANIENT.NS over 5 years (20.8).
-- **Monte Carlo** uses a seeded local random generator. The app warns when fewer than 50 simulated draws land in the tail, since ES is then very noisy (for example, 1,000 simulations at 99% leave only 10).
+<!--
+Screenshots (add the files to docs/images/, then remove this comment wrapper):
+![Model comparison](docs/images/model-comparison.png)
+![Backtesting](docs/images/backtesting.png)
+![Portfolio risk](docs/images/portfolio-risk.png)
+-->
 
-**Multi-day horizons (1–30 days)** follow one rule per model type:
+## What it does
 
-| Model type | t-day VaR / ES |
+| Area | What you get |
 | --- | --- |
-| Parametric (Normal, Student-t, Cornish-Fisher, EWMA) | `z·σ·√t − μ·t`: volatility grows with √t, the mean with t |
-| Historical, FHS | 1-day quantile × √t |
-| GARCH(1,1)-t | GARCH variance term structure: `σ²(t days) = Σ E[σ²(T+h)]`, with `E[σ²(T+h)] = ω + (α+β)·E[σ²(T+h−1)]` |
-| Monte Carlo | Simulated t-day GARCH-t paths, with volatility updating along each path (no √t) |
+| **Models** | Historical, Normal, Student-t (maximum likelihood), Cornish-Fisher (with a validity check), EWMA (RiskMetrics), Filtered Historical Simulation, GARCH(1,1)-t, and Monte Carlo on simulated GARCH-t paths. VaR at 90 / 95 / 97.5 / 99% and ES for each. |
+| **Horizons** | 1–30 days. √t only where appropriate: the parametric models use `z·σ·√t − μ·t`, GARCH uses its variance term structure, Monte Carlo simulates full paths. An empirical overlapping-window check is shown next to √t. |
+| **Backtesting** | Out-of-sample forecasts for every model, with the Kupiec, Christoffersen independence and conditional-coverage tests, the Basel traffic light and the McNeil-Frey ES test. The **recommended model** has the lowest tick loss among the models that pass. Verdicts show `LOW POWER` when there are too few test days. |
+| **Portfolio** | Daily rebalancing or buy-and-hold. Risk split on a Historical ES, Historical VaR or Parametric VaR basis, with components that add up exactly to the total. Standalone and incremental risk, diversification benefit, correlation heatmap, and a what-if panel to change a weight or add a ticker. |
+| **Stress testing** | 7 Indian and 7 US crises from an editable CSV, with drawdowns and recovery times measured from index data. Historical replay of the position, or a downside-beta proxy when it has no prices; a custom market move; a volatility shock. |
+| **Data quality** | Adjusted prices, exchange-timezone dates, a visible data source, and warnings for suspicious moves. Data are never altered silently. |
+| **Excel report** | Dashboard, Portfolio Risk, Backtesting, Stress Testing and Raw Data sheets. |
 
-For Historical, the app also shows the **empirical t-day VaR from overlapping compounded t-day returns**, so the √t assumption can be checked against the data. Overlapping windows share days, so treat that figure as a sense check, not a precise estimate.
-
-## Data and performance statistics
-
-- **Prices:** split- and dividend-adjusted closes from yfinance. If yfinance fails, the app calls Yahoo's chart API directly and uses its adjusted closes (raw closes only if none are returned). The source and price basis are shown under the page title. Dates are converted with the exchange's timezone, so they don't depend on where the app is hosted. If company metadata can't be fetched, the price history is kept and the ticker is used as the name.
-- **CAGR** is computed from the compounded return path. The arithmetic mean × 252 is reported separately as `ann_mean_return`.
-- **Data-quality check:** any daily move larger than 25% is listed in a warning. A move that the next day reverses (the price ends up back near where it started) is marked as a likely data error. The data are never altered. Example: Yahoo's full RELIANCE.NS history contains a +337% day on 28 Jul 2005 followed by −77% the next day, which pushes the sample's excess kurtosis to about 3,600; choose a shorter lookback to exclude it.
-- **Sharpe and Sortino** use an editable risk-free rate: 6.5% for INR and 4.0% for USD by default. These are **assumptions, not live rates**. Sortino divides by the downside deviation, `√mean(min(r − r_f, 0)²)`, taken over all days.
-
-## Portfolio mode
-
-Enter any number of tickers and weights (one currency), and choose **rebalanced daily** (weights reset to the targets each day) or **buy-and-hold** (shares bought once, weights drift with prices). The portfolio uses the dates on which every holding traded. The app names the holding that limits this shared history and how many days it cuts. All eight models, the backtests and the stress tests then run on the portfolio's return series.
-
-Portfolios are **long-only**. Short positions would need borrow costs, margin and a gross/net exposure definition that the tool does not model, and the app says so next to the holdings table.
-
-The **Portfolio Risk** tab splits risk across holdings on a basis you choose. On every basis, the components add up exactly to the total shown:
-
-| Basis | Component of holding i | Adds up to |
-| --- | --- | --- |
-| **Historical ES** (default) | `wᵢ·E[−rᵢ | portfolio return ≤ its α-quantile]`: the exact tail-conditional Euler estimator | Portfolio historical ES |
-| **Historical VaR** | `wᵢ·E[−rᵢ | portfolio return ≈ its α-quantile]`, averaged over the days ranked nearest the quantile (±0.25% of the sample, at least ±2 days), rescaled to the total | Portfolio historical VaR |
-| **Parametric VaR** | `wᵢ·(z·(Σw)ᵢ/σₚ·√t − μᵢ·t)`: the normal Euler allocation | Portfolio parametric VaR |
-
-The table also shows, on the same basis:
-- **standalone risk**: each holding on its own;
-- **incremental risk**: the portfolio with the holding minus without it, other positions unchanged;
-- **risk / weight**: above 1× means the holding adds more risk than capital;
-- the **diversification benefit**: sum of standalone − total;
-- a correlation heatmap.
-
-A **what-if panel** sets one holding to a new weight, or adds a new ticker, and shows the new Historical VaR, Historical ES and Parametric VaR against today's. The other holdings keep their relative sizes.
-
-## Backtesting
-
-Every model is tested **out of sample**: each day's VaR and ES are forecast from past data only and then compared with that day's actual return. All models are scored on the same days.
-
-- **Historical, Normal, Cornish-Fisher and FHS** re-estimate daily on the previous 250 days.
-- **Student-t** is refitted by maximum likelihood on the previous 250 days every 20 trading days.
-- **GARCH(1,1)-t and Monte Carlo** are refitted every 20 trading days on all earlier data (at most 1,000 days, since GARCH needs more than 250 to estimate well), and volatility is filtered daily with the latest parameters. A fit that does not converge falls back to EWMA for that 20-day block. The app reports how many fits fell back: 0 of 51 for AAPL over 5 years, 27 of 289 for ASIANPAINT.NS over its full history.
-
-| Test | Question it answers | Distribution |
-| --- | --- | --- |
-| **Kupiec POF** | Is the number of breaches right? | χ²(1) |
-| **Christoffersen independence** | Do breaches cluster on consecutive days? | χ²(1) |
-| **Conditional coverage** | Both together | χ²(2) |
-| **Basel traffic light** | Regulatory zone from the binomial distribution of breaches | Green < 95% ≤ Yellow < 99.99% ≤ Red |
-| **McNeil-Frey ES test** | On breach days, is the loss beyond VaR as large as the model's ES said? | Bootstrap, one-sided |
-
-A model passes when all three p-values are at least 0.05. The traffic-light rule reproduces the regulatory 0–4 / 5–9 / 10+ zones at 99% over 250 days, and it is applied correctly at any confidence level and sample length.
-
-**Choosing a model.** A higher p-value is not evidence of a better model, so the tool does not rank on p-values. It ranks on the **tick (quantile) loss** of each model's out-of-sample VaR:
-
-`L = mean[(α − 1{r < −VaR})·(r + VaR)]`
-
-The loss is lowest, on average, for the true quantile. The **recommended model** is the one with the lowest tick loss among the models that pass all three tests. If none pass, the app says so and shows the lowest-loss model with a warning. **Monte Carlo is scored but never recommended**: at a 1-day horizon it is the GARCH-t model plus simulation noise, so any edge over GARCH-t is luck. Its value is in multi-day paths.
-
-**Expected Shortfall backtest.** Basel FRTB sets capital on 97.5% ES, so ES needs its own test. The McNeil-Frey (2000) test takes each breach day's residual `(loss − ES)/σ`, which should average zero if ES is right. A positive mean means losses beyond VaR are bigger than the model's ES. The p-value is one-sided and comes from bootstrapping the t-statistic of the centred residuals (10,000 resamples). It needs at least 5 breaches. The ES result is shown separately and does not affect the VaR verdict.
-
-**Statistical power.** The estimation window is always 250 days. A verdict needs at least **250 test days at 99%** (2.5 expected breaches) and **100 at 90–95%**. With fewer, the verdict shows as `LOW POWER` and the app suggests a longer lookback. A 1-year lookback leaves almost no test days, so use 2y (95%) or 5y / max (99%).
-
-## Stress testing
-
-Nothing in the stress tests is hard-coded. The crisis windows live in [`stress_scenarios.csv`](stress_scenarios.csv): seven for the Nifty 50 (GFC 2008, 2011 US downgrade, 2013 taper tantrum, 2016 demonetisation, 2018 IL&FS, 2020 COVID, 2021–22 rate hikes and Russia–Ukraine) and seven US equivalents for the S&P 500.
-
-- **Measured, not assumed.** Each scenario's market fall is the largest peak-to-trough drawdown inside its window, computed from downloaded index prices. **Market recovery** is the number of trading days from the trough until the index regained its peak. Windows the index history does not cover are flagged and left out. Each window was checked against the data. For example, the Nifty's GFC fall is 6,288 on 8 Jan 2008 to 2,524 on 27 Oct 2008 (−59.9%), and demonetisation is measured from the 8 Nov 2016 announcement close.
-- **Historical replay first.** If the stock or portfolio has prices for the period, its result is its **actual** compounded return between the market's peak and trough dates, using the full price history regardless of the lookback window.
-- **β-proxy only when there is no data.** For a stock listed after the crisis, the market fall is multiplied by the **downside beta** and labelled β-proxy. Downside beta is the stock's sensitivity on the market's worst 10% of days: `Σ r_s·r_m / Σ r_m²` on those days. The app shows normal and downside beta side by side.
-- **Custom market move** from −60% to +40%: falls use the downside beta, rises the normal beta.
-- **Volatility shock:** VaR and ES re-run with returns scaled around their mean, `r′ = μ + k·(r − μ)`, for k = 1, 2, 3.
-- **Worst actual losses in the sample** over 1, 5, 10 and 21 days, for comparison against VaR.
+Every formula, test and design choice is in **[docs/methodology.md](docs/methodology.md)**, with references.
 
 ## Example results
 
-Live data, run on 1 Oct 2026.
+All figures are live data on 1 Oct 2026, for a US$1m / ₹10,00,000 position with a 5-year lookback, unless stated.
 
-**Apple (AAPL): 99% VaR, 5-year lookback, 1,003 out-of-sample test days (10 breaches expected)**
+### Apple (AAPL): 1,253 daily returns, 1,003 out-of-sample test days
 
-| Model | Breaches | Kupiec p | Indep. p | Cond. cov. p | VaR verdict | Tick loss (bp) | ES test (p) |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Historical | 13 | 0.367 | 0.156 | 0.244 | PASS | 6.438 | PASS (0.105) |
-| Parametric (Normal) | 15 | 0.142 | 0.218 | 0.159 | PASS | 6.563 | **FAIL (0.001)** |
-| Student-t | 11 | 0.762 | 0.106 | 0.258 | PASS | 6.556 | PASS (0.394) |
-| Cornish-Fisher | 11 | 0.762 | 0.106 | 0.258 | PASS | 7.122 | PASS (0.444) |
-| EWMA (RiskMetrics) | 19 | 0.011 | 0.049 | 0.006 | **FAIL** | 6.525 | **FAIL (0.000)** |
-| FHS (EWMA-filtered) | 15 | 0.142 | 0.500 | 0.271 | PASS | 6.647 | PASS (0.388) |
-| GARCH(1,1)-t | 13 | 0.367 | 0.156 | 0.244 | PASS | **6.236** | PASS (0.113) |
-| Monte Carlo (GARCH-t) | 12 | 0.544 | 0.130 | 0.264 | PASS | 6.191 | PASS (0.095) |
+| Model | 99% VaR | 97.5% VaR | 97.5% ES |
+| --- | --- | --- | --- |
+| Historical | $48,091 | $36,685 | $47,596 |
+| Parametric (Normal) | $40,277 | $33,799 | $40,480 |
+| Student-t | $47,331 | $34,340 | $50,967 |
+| Cornish-Fisher | $61,838 | $38,342 | $66,732 |
+| EWMA (RiskMetrics) | $34,574 | $29,129 | $34,744 |
+| FHS (EWMA-filtered) | $40,318 | $31,473 | $44,587 |
+| GARCH(1,1)-t | $39,847 | $29,770 | $42,091 |
+| Monte Carlo (GARCH-t) | $41,355 | $30,547 | $43,350 |
 
-- **GARCH(1,1)-t is recommended**, with the lowest tick loss among eligible passing models. Monte Carlo's slightly lower loss is simulation noise; see above.
-- **The ES test adds information the VaR tests miss.** The Normal model passes every VaR test, yet its ES is rejected (p = 0.001): when Apple breaks the 99% VaR, the losses are much bigger than a normal tail implies.
-- **EWMA fails both tests.** It reacts to volatility but keeps normal tails.
-- **FHS fixes EWMA's tails.** It uses the same volatility filter with an empirical tail, and passes everything.
+| Model | 99%: breaches (10.0 expected) | 99%: VaR tests | 99%: tick loss (bp) | 97.5%: breaches (25.1 expected) | 97.5%: VaR tests | 97.5%: ES test (p) |
+| --- | --- | --- | --- | --- | --- | --- |
+| Historical | 13 | PASS | 6.438 | 26 | FAIL | PASS (0.064) |
+| Parametric (Normal) | 15 | PASS | 6.563 | 29 | FAIL | **FAIL (0.002)** |
+| Student-t | 11 | PASS | 6.556 | 29 | FAIL | PASS (0.453) |
+| Cornish-Fisher | 11 | PASS | 7.122 | 24 | PASS | PASS (0.621) |
+| EWMA (RiskMetrics) | 19 | **FAIL** | 6.525 | 31 | PASS | **FAIL (0.000)** |
+| FHS (EWMA-filtered) | 15 | PASS | 6.647 | 26 | FAIL | PASS (0.092) |
+| GARCH(1,1)-t | 13 | PASS | **6.236** | 27 | PASS | PASS (0.112) |
+| Monte Carlo (GARCH-t) | 12 | PASS | 6.191 | 27 | PASS | PASS (0.195) |
 
-**Asian Paints (ASIANPAINT.NS): 97.5% VaR (FRTB level), 5-year lookback, 990 test days (24.8 breaches expected)**
+- **GARCH(1,1)-t is recommended at both levels.** Monte Carlo's slightly lower tick loss is simulation noise around the same model, which is why Monte Carlo is never recommended.
+- **EWMA reacts to volatility but has normal tails.** It fails the 99% VaR tests and both ES tests.
+- **Cornish-Fisher's VaR is far too conservative.** It ties with Student-t for the breach count closest to target at 99% (11 against 10), yet it has the highest tick loss. A breach count alone would not show that.
 
-| Model | Breaches | Kupiec p | Indep. p | Cond. cov. p | VaR verdict | Tick loss (bp) | ES test (p) |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Historical | 27 | 0.652 | 0.001 | 0.002 | FAIL | 9.632 | PASS (0.396) |
-| Parametric (Normal) | 31 | 0.221 | 0.000 | 0.001 | FAIL | 9.575 | **FAIL (0.000)** |
-| Student-t | 29 | 0.399 | 0.000 | 0.000 | FAIL | 9.626 | PASS (0.705) |
-| Cornish-Fisher | 22 | 0.568 | 0.093 | 0.207 | PASS | **10.131** | PASS (0.188) |
-| EWMA (RiskMetrics) | 41 | 0.002 | 0.001 | 0.000 | FAIL | 9.781 | **FAIL (0.000)** |
-| FHS (EWMA-filtered) | 29 | 0.399 | 0.009 | 0.023 | FAIL | 9.764 | PASS (0.463) |
-| GARCH(1,1)-t | 34 | 0.074 | 0.030 | 0.020 | FAIL | 9.457 | PASS (0.633) |
-| Monte Carlo (GARCH-t) | 30 | 0.301 | 0.070 | 0.113 | PASS | 9.381 | PASS (0.389) |
+### Asian Paints (ASIANPAINT.NS): 1,240 daily returns, 990 out-of-sample test days
 
-Breaches cluster for Asian Paints, so most models fail the independence test. Cornish-Fisher passes and is recommended, even though its tick loss is the highest: it is the only eligible model whose breaches are statistically acceptable. Its very conservative VaR spaces breaches out. The rule deliberately puts validity before accuracy. Again the ES test rejects only the normal-tailed models.
+| Model | 99% VaR | 97.5% VaR | 97.5% ES |
+| --- | --- | --- | --- |
+| Historical | ₹39,632 | ₹29,346 | ₹41,595 |
+| Parametric (Normal) | ₹32,502 | ₹27,397 | ₹32,662 |
+| Student-t | ₹39,838 | ₹28,520 | ₹43,465 |
+| Cornish-Fisher | ₹46,072 | ₹32,642 | ₹48,194 |
+| EWMA (RiskMetrics) | ₹27,683 | ₹23,323 | ₹27,819 |
+| FHS (EWMA-filtered) | ₹38,665 | ₹27,378 | ₹38,708 |
+| GARCH(1,1)-t | ₹34,050 | ₹24,969 | ₹36,515 |
+| Monte Carlo (GARCH-t) | ₹34,887 | ₹26,141 | ₹36,038 |
 
-**Asian Paints (ASIANPAINT.NS): 95% VaR, 5-year lookback, 990 test days.** Every model gets the breach **count** right (Kupiec p ≥ 0.10). But **all eight**, including GARCH and FHS, fail the **independence** test (p ≤ 0.025), with breaches arriving in clusters of 6–13 back-to-back pairs. The app reports "No model passes" and shows Parametric (Normal), the lowest tick loss, with a warning. A breach-count test alone would have passed all of them.
+| Model | 99%: breaches (9.9 expected) | 99%: VaR tests | 99%: tick loss (bp) | 97.5%: breaches (24.8 expected) | 97.5%: VaR tests | 97.5%: ES test (p) |
+| --- | --- | --- | --- | --- | --- | --- |
+| Historical | 11 | PASS | **4.869** | 27 | FAIL | PASS (0.396) |
+| Parametric (Normal) | 19 | **FAIL** | 5.100 | 31 | FAIL | **FAIL (0.000)** |
+| Student-t | 11 | PASS | 4.965 | 29 | FAIL | PASS (0.705) |
+| Cornish-Fisher | 11 | PASS | 5.418 | 22 | PASS | PASS (0.188) |
+| EWMA (RiskMetrics) | 22 | **FAIL** | 5.273 | 41 | FAIL | **FAIL (0.000)** |
+| FHS (EWMA-filtered) | 13 | PASS | 4.891 | 29 | FAIL | PASS (0.463) |
+| GARCH(1,1)-t | 12 | PASS | 4.931 | 34 | FAIL | PASS (0.633) |
+| Monte Carlo (GARCH-t) | 10 | PASS | 4.937 | 30 | PASS | PASS (0.389) |
 
-**Multi-day, 99% 10-day VaR, US$1m in AAPL (5y):**
+- **At 99%, Historical is recommended**, with the lowest tick loss among the passing models.
+- **At 97.5%, Asian Paints' breaches cluster**, so most models fail the independence test. Cornish-Fisher is the only eligible model that passes, and it is recommended despite its higher tick loss: the rule puts validity before accuracy.
+- **At 95%, all eight models fail**, GARCH and FHS included. They get the breach count right (Kupiec p ≥ 0.10) but the breaches arrive in clusters, and the app says "No model passes" rather than naming a winner.
+
+### Multi-day: Apple, 99% 10-day VaR
 
 | Method | 10-day VaR |
 | --- | --- |
-| Actual overlapping 10-day returns (Historical check) | $116,868 |
-| Historical × √10 | $152,076 |
-| GARCH(1,1)-t, variance term structure | $122,147 |
-| **Monte Carlo, simulated GARCH-t paths** | **$106,051** |
+| Actual overlapping 10-day returns (check) | $116,860 |
+| Historical × √10 | $152,071 |
+| GARCH(1,1)-t, variance term structure | $120,551 |
+| **Monte Carlo, simulated GARCH-t paths** | **$109,129** |
 
-√t overstates Apple's 10-day risk by 30%. The GARCH-based figures are much closer to what actually happened. Monte Carlo is lower than the GARCH formula because fat daily tails partly average out over 10 days: the simulation captures this, while applying a 1-day t-quantile to 10-day volatility does not. For ASIANPAINT.NS over 5 years, √t goes the other way: ₹1,25,327 against ₹1,35,912 actual.
+√t overstates Apple's 10-day risk by 30%. For Asian Paints it understates it: ₹1,25,327 from √t against ₹1,35,912 actual.
 
-**Asian Paints (ASIANPAINT.NS): ₹10,00,000 position, 1-day horizon, 2-year lookback**
+### Crisis replay: Asian Paints through each Nifty 50 crisis
 
-| Model | 95% VaR | 97.5% VaR | 99% VaR | 97.5% ES |
-| --- | --- | --- | --- | --- |
-| Historical | ₹24,420 | ₹29,219 | ₹34,732 | ₹38,485 |
-| Parametric (Normal) | ₹23,847 | ₹28,324 | ₹33,531 | ₹33,693 |
-| Student-t | ₹22,582 | ₹29,981 | ₹41,824 | ₹45,767 |
-| Cornish-Fisher | ₹23,271 | ₹31,999 | ₹44,991 | ₹47,129 |
-| EWMA (RiskMetrics) | ₹19,573 | ₹23,323 | ₹27,683 | ₹27,819 |
-| FHS (EWMA-filtered) | ₹22,201 | ₹25,763 | ₹31,112 | ₹32,996 |
-| GARCH(1,1)-t | ₹19,593 | ₹25,473 | ₹34,467 | ₹36,922 |
-| Monte Carlo (GARCH-t, 5,000 sims) | ₹20,264 | ₹26,690 | ₹35,291 | ₹36,451 |
-
-Excess kurtosis is 3.19 and the Jarque-Bera test rejects normality (p < 0.0001). This is why the fat-tailed models give the highest 99% VaR; the Student-t maximum-likelihood fit gives ν = 3.2. The volatility models (EWMA, FHS, GARCH) sit lowest at 95%, because volatility today is below its 2-year average. Its beta to the Nifty 50 is 0.87, with a downside beta of 0.99.
-
-**Crisis replay, ASIANPAINT.NS (actual returns over each Nifty 50 peak-to-trough)**
-
-| Scenario | Peak → trough | Nifty 50 fall | Nifty recovery | Asian Paints |
+| Scenario | Peak → trough | Nifty 50 fall | Nifty recovery | Asian Paints (actual) |
 | --- | --- | --- | --- | --- |
 | Global Financial Crisis | 08 Jan 2008 → 27 Oct 2008 | −59.9% | 496 days | −25.2% |
 | US credit downgrade | 07 Jul 2011 → 20 Dec 2011 | −20.7% | 192 days | −17.0% |
@@ -182,37 +130,25 @@ Excess kurtosis is 3.19 and the Jarque-Bera test rejects normality (p < 0.0001).
 | COVID-19 crash | 14 Jan 2020 → 23 Mar 2020 | −38.4% | 158 days | −17.3% |
 | Rate hikes and Russia-Ukraine | 18 Oct 2021 → 17 Jun 2022 | −17.2% | 108 days | −19.8% |
 
-Replay shows what a single beta cannot. Asian Paints fell well under half as much as the market in the GFC and COVID, but more than twice as much in demonetisation, a consumption shock that hit consumer stocks directly. A beta-scaled shock (0.87 × −7.4% = −6.4%) would have badly understated that loss.
+Asian Paints fell under half as much as the market in the GFC and COVID, but more than twice as much after demonetisation, a consumption shock. A beta-scaled shock (0.87 × −7.4% = −6.4%) would have badly understated that loss.
 
-**Five-stock NSE portfolio: ₹10,00,000, 95% 1-day, 2-year lookback, rebalanced daily**
+### Portfolio: five NSE stocks, 95% 1-day, 2-year lookback, rebalanced daily
 
-| Holding | Weight | Standalone ES | Component ES | Share of ES | Risk / weight | Incremental ES |
-| --- | --- | --- | --- | --- | --- | --- |
-| Reliance | 30% | ₹8,438 | ₹5,856 | 30.0% | 1.00× | ₹5,184 |
-| HDFC Bank | 25% | ₹7,028 | ₹5,103 | 26.2% | 1.05× | ₹4,052 |
-| TCS | 20% | ₹7,563 | ₹3,592 | 18.4% | 0.92× | ₹2,508 |
-| Asian Paints | 15% | ₹4,912 | ₹3,002 | 15.4% | 1.03× | ₹2,368 |
-| Britannia | 10% | ₹3,061 | ₹1,943 | 10.0% | 1.00× | ₹1,427 |
-| **Total** | 100% | **₹31,000** | **₹19,496** | 100% | | |
+| Holding | Weight | Standalone ES | Component ES | Share of ES | Incremental ES |
+| --- | --- | --- | --- | --- | --- |
+| Reliance | 30% | ₹8,438 | ₹5,856 | 30.0% | ₹5,184 |
+| HDFC Bank | 25% | ₹7,028 | ₹5,103 | 26.2% | ₹4,052 |
+| TCS | 20% | ₹7,563 | ₹3,592 | 18.4% | ₹2,508 |
+| Asian Paints | 15% | ₹4,912 | ₹3,002 | 15.4% | ₹2,368 |
+| Britannia | 10% | ₹3,061 | ₹1,943 | 10.0% | ₹1,427 |
+| **Total** | 100% | **₹31,000** | **₹19,496** | 100% | |
 
-- Diversification cuts Historical ES from ₹31,000 (positions added up separately) to **₹19,496**, a 37% reduction. The average correlation is 0.26.
-- On the ES basis, risk shares sit close to capital weights. On the parametric basis, Reliance carries 33.8% of the risk from a 30% weight.
-- The Historical VaR basis gives Asian Paints only 9.7%, against 15.4% on the ES basis. VaR-based allocations depend on the handful of days nearest the quantile, which is why Historical ES is the default.
-- **What-if:** cutting Reliance to 10%, with the other four scaled up, lowers Historical VaR by 4.9% but *raises* Historical ES by 1.3%. VaR and ES can disagree on the same trade because they measure different parts of the tail; adding INFY.NS at 15% raises both.
-
-## Excel report
-
-One click exports a `.xlsx` workbook:
-
-- **Dashboard:** position settings, beta, risk-free assumption and data source, plus VaR at 90/95/97.5/99% and ES for every model, with each model's multi-day rule
-- **Portfolio Risk** (portfolio mode only): the decomposition on the chosen basis (standalone, component and incremental risk, with live `SUM` totals), the diversification summary, the holding limiting the sample, and the correlation matrix
-- **Backtesting:** the recommended model, and the full model-comparison table with tick loss, PASS / FAIL / LOW POWER and the McNeil-Frey ES test
-- **Stress Testing:** measured crisis scenarios (peak, trough, market fall, recovery, replay or β-proxy, P&L), the volatility shock and worst actual losses
-- **Raw Data:** prices, simple and log returns, rolling volatility
+- **Diversification cuts ES by 37%.** The average pairwise correlation is 0.26.
+- **VaR and ES can disagree on the same trade.** Cutting Reliance to 10%, with the others scaled up, lowers Historical VaR by 4.9% but raises Historical ES by 1.3%.
 
 ## Run it locally
 
-Requires Python 3.11 or 3.12. `requirements.txt` pins the exact versions the tests pass with; numpy and scipy use slightly older pins on 3.11, because the newest releases no longer support it.
+Requires Python 3.11 or 3.12.
 
 ```bash
 git clone https://github.com/singhwilliam15/VaR-Analysis-Tool.git
@@ -221,22 +157,22 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-On Windows you can double-click `run_app.bat` instead. The project also opens directly in GitHub Codespaces: the dev container installs the requirements and starts the app on port 8501. A dark theme is set in `.streamlit/config.toml`.
-
-Heavy results (GARCH and Student-t fits, rolling forecasts, backtests, crisis replays) are cached on their inputs, so changing an unrelated setting doesn't recompute everything. On a 2,600-day history, the first run takes about 10 s; changing the position size takes about 1 s, and changing the confidence level about 2 s.
+- **On Windows**, you can double-click `run_app.bat` instead.
+- **In GitHub Codespaces**, the dev container installs everything and starts the app on port 8501.
+- **Tickers** use Yahoo Finance symbols: `.NS` for NSE (`RELIANCE.NS`), `.BO` for BSE, and no suffix for US stocks (`AAPL`).
+- **Pinned versions:** `requirements.txt` pins the exact versions the tests pass with. On Python 3.11, numpy and scipy use slightly older pins, because their newest releases no longer support it.
+- **Caching:** heavy results (model fits, rolling forecasts, backtests, crisis replays) are cached. On a 2,600-day history the first run takes about 10 s, and changing the position size or confidence level takes 1–2 s.
 
 ## Deploy (Streamlit Community Cloud)
 
-The app runs on Community Cloud as it is: the entry point is `app.py`, the requirements are pinned and no secrets are needed.
+The entry point is `app.py`, the requirements are pinned and no secrets are needed.
 
 1. Sign in at [share.streamlit.io](https://share.streamlit.io) with the GitHub account that owns this repository.
 2. Click **Create app**, then choose **Deploy a public app from GitHub**.
-3. Pick the repository `singhwilliam15/VaR-Analysis-Tool`, the branch `main` and the main file `app.py`.
+3. Pick `singhwilliam15/VaR-Analysis-Tool`, branch `main`, main file `app.py`.
 4. Under **Advanced settings**, choose **Python 3.12**.
-5. Click **Deploy**. The first build installs the requirements and takes a few minutes.
-6. Copy the app's URL (`https://….streamlit.app`) into the **Live demo** line at the top of this README.
-
-Use Yahoo Finance symbols: `.NS` for NSE (`RELIANCE.NS`), `.BO` for BSE, and no suffix for US stocks (`AAPL`).
+5. Click **Deploy**. The first build takes a few minutes.
+6. Paste the app's URL into the **Live demo** line at the top of this README.
 
 ## Tests
 
@@ -245,69 +181,56 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-The 135 tests run on every push and pull request through GitHub Actions, on Python 3.11 and 3.12 (`.github/workflows/tests.yml`). They run **offline**: `conftest.py` blocks every outbound connection, and market data comes from a deterministic synthetic generator or mocked Yahoo responses. Each calculation is checked against an independent reference:
-
-- the Streamlit app itself (`test_app.py`), loaded in single-stock and portfolio modes with synthetic prices, driving the decomposition bases, what-if panel, buy-and-hold, a short history and the error paths
-
-- GARCH(1,1)-t recovering the true parameters from simulated GARCH-t data; the variance filter, term structure and simulated paths checked against hand-written recursions; rolling GARCH forecasts never using future data; fallbacks counted
-- the unit-variance t quantile and ES against 3 million simulated draws
-- GARCH Monte Carlo matching the analytic GARCH-t VaR/ES at 1 day; FHS worked by hand
-- Student-t maximum likelihood recovering known parameters, with a fallback when the optimiser fails
-- the Cornish-Fisher validity condition against a brute-force monotonicity check
-- the McNeil-Frey test passing a correct model and rejecting ES understated by 30%
-- Student-t VaR and ES against 2 million simulated draws
-- t-day parametric VaR equal to `z·σ·√t − μ·t`, and overlapping t-day VaR worked by hand
-- CAGR from the compounded path, and Sortino downside deviation worked by hand
-- tick loss worked by hand, and lowest at the true quantile on simulated data
-- the recommended-model rule and the low-power threshold
-- portfolio components adding up to the total on every basis and horizon, matching the headline Historical/Parametric figures, agreeing with the normal Euler shares on 400,000 simulated days, and component ES worked by hand
-- incremental VaR, what-if weights, buy-and-hold values and the limiting-ticker report
-- stress testing: drawdown and recovery by hand, replay equal to the compounded actual return, proxy rows using downside beta, downside beta recovering a known crisis beta (and staying stable), scenario config well-formed, volatility shock scaling exactly with k
-- the data fetcher (mocked yfinance and Yahoo JSON): adjusted prices, a metadata failure keeping prices, exchange-timezone dates, and the suspicious-move check
-- the EWMA recursion worked by hand
-- Cornish-Fisher reducing to the normal model when skew and kurtosis are zero
-- the Kupiec and Christoffersen statistics against known values
-- the Basel zones against the regulatory table
-- that rolling forecasts never use future data
-- beta recovery on synthetic data
-- component VaR summing to portfolio VaR
-- marginal VaR against a finite-difference derivative
-- zero diversification benefit for perfectly correlated assets
-- the Excel report's contents
+The 135 tests run on every push and pull request through GitHub Actions, on Python 3.11 and 3.12. They run **offline**: `conftest.py` blocks outbound connections, and market data comes from a deterministic synthetic generator or mocked Yahoo responses. Every calculation is checked against an independent reference: a closed form, a simulation, a hand-worked example or known true parameters. Highlights:
+- **GARCH:** recovers the true parameters from simulated GARCH-t data.
+- **Student-t ES:** matches 2 million simulated draws.
+- **Portfolio:** components add up exactly on every basis, and match the normal Euler shares on 400,000 simulated days.
+- **No look-ahead:** rolling forecasts never use future data.
+- **Basel traffic light:** reproduces the regulatory table.
+- **McNeil-Frey:** rejects an ES understated by 30%.
+- **App smoke tests:** `test_app.py` drives the full Streamlit app in both modes, including the error paths.
 
 ## Project structure
 
 ```text
 app.py                 Entry point: wires the UI sections together
 ui/                    Streamlit UI: sidebar, data loading, calculations, overview, one module per tab, cache
-var_calculator.py      VaR/ES models, rolling forecasts, backtests, beta and stress testing
+var_calculator.py      VaR/ES models, rolling forecasts, backtests, statistics
 garch.py               GARCH(1,1)-t fitting, filtering, simulation; FHS
 portfolio.py           Portfolio construction, risk decomposition, incremental VaR, what-if
 stress.py              Measured crisis scenarios, historical replay, downside beta, volatility shock
 stress_scenarios.csv   Editable crisis windows (Nifty 50 and S&P 500)
-data_fetcher.py        Yahoo Finance download, with a direct-HTTP fallback
+data_fetcher.py        Yahoo Finance download with a direct-HTTP fallback; data-quality checks
 excel_exporter.py      Formatted Excel report
+docs/methodology.md    Formulas, tests, design choices and references
 test_*.py, conftest.py Tests, synthetic market data and the network guard
 .github/workflows/     CI: pytest on Python 3.11 and 3.12
-.streamlit/config.toml Dark theme
-.devcontainer/         GitHub Codespaces setup
 ```
 
 ## Limitations
 
-- **Portfolios are long-only and in a single currency.** There is no FX conversion and no short positions.
-- **Risk decomposition** covers Historical ES, Historical VaR and Parametric VaR. The other models (GARCH, FHS, …) report a portfolio total only. Under buy-and-hold, the decomposition applies today's drifted weights to the history, so its total can differ from the headline figure, which follows the buy-and-hold path.
-- **Portfolio crisis replay needs every holding to have prices for the crisis.** One recently listed holding (for example LICI.NS, listed May 2022) switches the whole portfolio to β-proxy for older crises; the app says which holding causes it. Replaying holdings with data and proxying only the missing one would be more accurate.
-- **Correlations** are full-sample estimates. In a crisis, correlations usually rise, so the diversification benefit shrinks when it is needed most.
-- **Multi-day VaR** uses √t for volatility, which assumes independent returns. Volatility clusters, so long-horizon figures are approximate. The overlapping-window check shows by how much.
-- **The risk-free rate** is a user-set assumption, not a live market rate.
-- **Cornish-Fisher** is an approximation. Even inside its valid region it can overstate the 99% tail and understate the 90% one.
-- **GARCH(1,1)-t** has a constant mean and symmetric response to shocks (no leverage term such as GJR or EGARCH). Its multi-day formula applies a 1-day t-quantile to the summed variance, which overstates the t-day tail; Monte Carlo is the better multi-day estimate.
-- **Rolling backtest shortcuts for speed:** Student-t and GARCH are refitted every 20 days rather than daily, and GARCH uses at most 1,000 past days. The first full-history run of a long-listed stock (for example AAPL `max`, about 11,000 days) still takes about a minute; later reruns reuse the cached fits.
-- **The Acerbi-Székely (2014) ES test** (the plan's stretch goal) is not implemented; McNeil-Frey is the only ES backtest.
-- **Monte Carlo at 1 day** adds nothing beyond GARCH-t, so it is excluded from the recommendation.
-- **Stress scenarios** are historical. They cannot capture a crisis unlike past ones, and β-proxy rows assume the stock's crisis sensitivity in the lookback window would have held in earlier crises.
+**Already addressed** by a structured code review, worked through in five phases:
+- **Data:** the fallback source now uses adjusted prices, and dates use the exchange's timezone.
+- **Multi-day scaling:** the mean now scales with t, not √t.
+- **Model selection:** models are ranked by tick loss, not p-values, and verdicts show `LOW POWER` when there are too few test days.
+- **Models:** GARCH-t and FHS were added, and Monte Carlo is no longer a copy of the Normal model.
+- **ES:** an Expected Shortfall backtest and the 97.5% level were added.
+- **Portfolio:** the risk decomposition is consistent with the headline figures.
+- **Stress tests:** measured from data instead of hard-coded.
+- **Engineering:** CI, pinned dependencies and a modular app.
 
-## Built with
+**What remains:**
+- **Portfolios** are long-only and in one currency (no FX conversion or short positions).
+- **Portfolio crisis replay** needs every holding to have prices for the crisis. One recently listed holding (for example LICI.NS, listed May 2022) switches the whole portfolio to the β-proxy for older crises.
+- **Risk decomposition** covers Historical ES, Historical VaR and Parametric VaR only. Under buy-and-hold it applies today's drifted weights, so its total can differ from the headline figure.
+- **Correlations and betas** are estimated on the lookback window. In crises correlations usually rise, so the diversification benefit shrinks when it is needed most.
+- **√t scaling** (Historical, FHS) assumes independent returns. Compare it with the overlapping check, or use Monte Carlo.
+- **GARCH(1,1)-t** has a constant mean and a symmetric response to shocks (no GJR/EGARCH leverage term). Its multi-day formula overstates the t-day tail; Monte Carlo is the better multi-day estimate.
+- **Rolling backtests** refit Student-t and GARCH every 20 days, not daily. The first full-history run of a long-listed stock (for example AAPL `max`, about 11,000 days) takes about a minute.
+- **The Acerbi-Székely (2014) ES test** is not implemented.
+- **Stress scenarios** are historical. β-proxy rows assume today's crisis sensitivity held in past crises.
+- **The risk-free rate** is a user-set assumption, not a live rate.
 
-Python, pandas, NumPy, SciPy, arch, Streamlit, Plotly, openpyxl, yfinance, pytest
+## License
+
+[MIT](LICENSE)

@@ -107,7 +107,7 @@ def test_excel_portfolio_sheet(asset_returns, weights):
     xlsx = generate_excel_var_report(
         "PORTFOLIO", "3-stock portfolio", "USD", 1e6, 0.95, 1, frame,
         {m: {cl: by_level[cl][m] for cl in by_level} for m in by_level[0.95]},
-        backtest_all_methods(r, rolling_var_forecasts(r, 0.95, 250), 0.95), 250,
+        backtest_all_methods(r, rolling_var_forecasts(r, 0.95, 250, models=["Historical", "EWMA (RiskMetrics)"]), 0.95), 250,
         run_stress_testing(1e6), historical_worst_losses(r, 1e6), "S&P 500", 1.0,
         portfolio={"components": comp, "diversification": diversification_summary(asset_returns, weights, 1e6, 0.95),
                    "correlation": asset_returns.corr()})

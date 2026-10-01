@@ -98,14 +98,14 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
 
     ws_dash["B13"] = f"VAR AND EXPECTED SHORTFALL BY MODEL ({holding_period}-DAY HORIZON)"
     ws_dash["B13"].font = BOLD_FONT
-    cl_pct = f"{int(confidence_level * 100)}%"
+    cl_pct = f"{confidence_level * 100:g}%"
+    levels_shown = sorted(next(iter(var_by_level.values())))
     _write_table(
         ws_dash, 14,
-        [("Model", "@"), ("90% VaR", money), ("95% VaR", money), ("99% VaR", money),
-         (f"{cl_pct} Expected Shortfall", money), ("Multi-day Rule", "@")],
+        [("Model", "@")] + [(f"{cl * 100:g}% VaR", money) for cl in levels_shown]
+        + [(f"{cl_pct} Expected Shortfall", money), ("Multi-day Rule", "@")],
         [
-            (model, levels[0.90]["var_scaled_amount"], levels[0.95]["var_scaled_amount"],
-             levels[0.99]["var_scaled_amount"], levels[confidence_level]["cvar_scaled_amount"],
+            (model, *[levels[cl]["var_scaled_amount"] for cl in levels_shown], levels[confidence_level]["cvar_scaled_amount"],
              levels[confidence_level]["scaling_rule"] if holding_period > 1 else "1 day")
             for model, levels in var_by_level.items()
         ],
@@ -168,7 +168,8 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
     ws_back["B2"].font = TITLE_FONT
     ws_back["B3"] = ("Kupiec: correct breach count. Christoffersen: breaches independent. "
                      "Conditional coverage: both. PASS requires every p-value >= 0.05. "
-                     "Recommended = lowest tick loss among PASS models.")
+                     "Recommended = lowest tick loss among PASS models. "
+                     "ES test (McNeil-Frey): breach-day (loss - ES)/sigma should average zero; low p = ES too small.")
     ws_back["B3"].font = SUBTITLE_FONT
     rec = recommendation or {"model": None, "status": "low_power"}
     ws_back["B4"] = {
@@ -183,6 +184,8 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
             ("Independence p-value", "0.000"), ("Conditional Coverage p-value", "0.000"),
             ("Back-to-Back Breaches", "0"), ("Traffic Light", "@"), ("Avg VaR", "0.00%"),
         ]
+        if "ES Test" in backtest_table.columns:
+            backtest_cols += [("ES Test", "@"), ("ES p-value", "0.000"), ("ES Mean Residual", "0.000")]
         _write_table(ws_back, 6, backtest_cols, backtest_table[[name for name, _ in backtest_cols]].itertuples(index=False))
         verdict_col = 2 + [name for name, _ in backtest_cols].index("Verdict")
         for r in range(7, 7 + len(backtest_table)):

@@ -9,6 +9,17 @@ import math
 import numpy as np
 import pandas as pd
 
+from garch import (
+    PCT,
+    fhs_var_es,
+    fit_garch_t,
+    garch_filter,
+    garch_variance_term_structure,
+    simulate_garch_paths,
+    standardized_t_es,
+    standardized_t_quantile,
+)
+
 try:
     from scipy.stats import norm
 except ImportError:
@@ -195,29 +206,68 @@ def calculate_parametric_var(returns: pd.Series, investment: float, confidence_l
 MIN_TAIL_DRAWS = 50
 
 
-def calculate_monte_carlo_var(returns: pd.Series, investment: float, confidence_level: float, holding_period: int = 1, num_simulations: int = 5000, seed: int = None) -> dict:
-    """
-    Calculate Monte Carlo Simulation VaR by sampling returns from a fitted normal distribution.
-    Uses a local random generator (no global seed side effect); multi-day figures use √t scaling.
-    """
-    rng = np.random.default_rng(seed)
-    mu = returns.mean()
-    sigma = returns.std(ddof=1)
-    simulated_returns = rng.normal(mu, sigma, num_simulations)
+SCALING_GARCH = "GARCH variance term structure"
+SCALING_SIMULATED = "simulated t-day GARCH-t paths"
 
+
+def _set_horizon(result: dict, var_t: float, cvar_t: float, investment: float, scaling_rule: str) -> dict:
+    """Overwrite the multi-day figures for models that build their own t-day distribution."""
+    result.update({
+        "scaling_rule": scaling_rule,
+        "var_scaled_pct": var_t,
+        "cvar_scaled_pct": cvar_t,
+        "var_scaled_amount": var_t * investment,
+        "cvar_scaled_amount": cvar_t * investment,
+    })
+    return result
+
+
+def fit_models(returns: pd.Series) -> dict:
+    """
+    Fit the estimated models once, so they can be reused across confidence levels:
+    GARCH(1,1)-t (also drives Monte Carlo) and the Student-t maximum-likelihood fit.
+    """
+    return {"garch": fit_garch_t(returns), "student_t": fit_student_t(returns)}
+
+
+def calculate_monte_carlo_var(returns: pd.Series, investment: float, confidence_level: float, holding_period: int = 1,
+                              num_simulations: int = 5000, seed: int = None, fit: dict = None) -> dict:
+    """
+    Monte Carlo VaR/ES from the fitted GARCH(1,1)-t process. Multi-day figures come from simulated
+    t-day paths with volatility updating along each path, not from √t. If GARCH does not converge,
+    falls back to sampling a fitted normal distribution (flagged with fallback=True).
+    Uses a local random generator, so there is no global seed side effect.
+    """
+    fit = fit if fit is not None else fit_garch_t(returns)
     alpha = 1.0 - confidence_level
-    var_daily_pct, cvar_daily_pct = _empirical_var_es(simulated_returns, alpha)
     tail_draws = int(np.floor(num_simulations * alpha))
+    common = {"num_simulations": num_simulations, "tail_draws": tail_draws, "few_tail_draws": tail_draws < MIN_TAIL_DRAWS}
+
+    if fit["converged"]:
+        params = fit["params"]
+        sigma_next = garch_filter(returns, params)[-1]
+        paths = simulate_garch_paths(params, sigma_next ** 2, holding_period, num_simulations, seed)
+        one_day = paths[:, 0]
+        var_daily_pct, cvar_daily_pct = _empirical_var_es(one_day, alpha)
+        result = _scaled_result(var_daily_pct, cvar_daily_pct, investment, confidence_level, holding_period,
+                                simulated_returns=one_day, process="GARCH(1,1)-t", fallback=False, **common)
+        horizon_returns = np.prod(1 + paths, axis=1) - 1
+        var_t, cvar_t = _empirical_var_es(horizon_returns, alpha)
+        return _set_horizon(result, var_t, cvar_t, investment, SCALING_SIMULATED)
+
+    rng = np.random.default_rng(seed)
+    simulated_returns = rng.normal(returns.mean(), returns.std(ddof=1), num_simulations)
+    var_daily_pct, cvar_daily_pct = _empirical_var_es(simulated_returns, alpha)
     return _scaled_result(var_daily_pct, cvar_daily_pct, investment, confidence_level, holding_period,
-                          num_simulations=num_simulations, simulated_returns=simulated_returns,
-                          tail_draws=tail_draws, few_tail_draws=tail_draws < MIN_TAIL_DRAWS)
+                          simulated_returns=simulated_returns, process="Normal (GARCH fit failed)",
+                          fallback=True, fallback_reason=fit["error"], **common)
 
 
 def student_t_dof(excess_kurtosis):
     """
     Method-of-moments degrees of freedom: a Student-t has excess kurtosis 6 / (nu - 4).
     Thin-tailed samples (excess kurtosis <= 0) are capped at nu = 200, which is effectively normal.
-    Works on a scalar or a pandas Series.
+    Works on a scalar or a pandas Series. Used as the starting point and fallback for the MLE fit.
     """
     if isinstance(excess_kurtosis, pd.Series):
         return (4 + 6 / excess_kurtosis.where(excess_kurtosis > 0)).clip(upper=200).fillna(200)
@@ -226,25 +276,45 @@ def student_t_dof(excess_kurtosis):
     return min(4 + 6 / excess_kurtosis, 200.0)
 
 
-def calculate_student_t_var(returns: pd.Series, investment: float, confidence_level: float, holding_period: int = 1) -> dict:
+def fit_student_t(returns) -> dict:
     """
-    Parametric VaR with Student-t returns, which allow fatter tails than the normal.
-    Degrees of freedom come from the sample's excess kurtosis; the scale is set so the variance matches the sample.
+    Maximum-likelihood Student-t fit (degrees of freedom, location, scale), started from the
+    method-of-moments estimate. Falls back to method of moments if the fit fails or ν ≤ 2.05.
     """
     from scipy.stats import t as student_t
 
-    mu = returns.mean()
-    sigma = returns.std(ddof=1)
-    nu = student_t_dof(returns.kurtosis())
-    scale = sigma * np.sqrt((nu - 2) / nu)
-    alpha = 1.0 - confidence_level
+    r = np.asarray(returns, dtype=float)
+    mean, sd = float(r.mean()), float(r.std(ddof=1))
+    nu0 = float(np.clip(student_t_dof(float(pd.Series(r).kurtosis())), 2.5, 100))
+    try:
+        nu, loc, scale = student_t.fit(r, nu0, loc=mean, scale=sd * np.sqrt((nu0 - 2) / nu0))
+        if np.isfinite([nu, loc, scale]).all() and nu > 2.05 and scale > 0:
+            return {"nu": float(nu), "loc": float(loc), "scale": float(scale), "method": "maximum likelihood"}
+    except Exception:
+        pass
+    nu = student_t_dof(float(pd.Series(r).kurtosis()))
+    return {"nu": nu, "loc": mean, "scale": sd * np.sqrt((nu - 2) / nu), "method": "method of moments (MLE failed)"}
 
-    q = student_t.ppf(confidence_level, nu)
-    var_daily_pct = scale * q - mu
-    # Closed-form Student-t Expected Shortfall
-    cvar_daily_pct = scale * student_t.pdf(q, nu) / alpha * (nu + q ** 2) / (nu - 1) - mu
+
+def student_t_var_es(alpha: float, nu: float, loc: float, scale: float):
+    """Student-t VaR and closed-form ES as positive losses: ES = scale·f(q)/α·(ν + q²)/(ν − 1) − loc."""
+    from scipy.stats import t as student_t
+    q = student_t.ppf(1 - alpha, nu)
+    return scale * q - loc, scale * student_t.pdf(q, nu) / alpha * (nu + q ** 2) / (nu - 1) - loc
+
+
+def calculate_student_t_var(returns: pd.Series, investment: float, confidence_level: float, holding_period: int = 1,
+                            fit: dict = None) -> dict:
+    """
+    Parametric VaR with Student-t returns, which allow fatter tails than the normal.
+    Degrees of freedom, location and scale come from a maximum-likelihood fit.
+    """
+    fit = fit if fit is not None else fit_student_t(returns)
+    nu, loc, scale = fit["nu"], fit["loc"], fit["scale"]
+    var_daily_pct, cvar_daily_pct = student_t_var_es(1.0 - confidence_level, nu, loc, scale)
     return _scaled_result(var_daily_pct, cvar_daily_pct, investment, confidence_level, holding_period,
-                          degrees_of_freedom=nu, mu=mu, sigma=sigma)
+                          mu=loc, degrees_of_freedom=nu, loc=loc, scale=scale,
+                          sigma=scale * np.sqrt(nu / (nu - 2)), fit_method=fit["method"])
 
 
 def cornish_fisher_quantile(z, skew, excess_kurtosis):
@@ -255,10 +325,23 @@ def cornish_fisher_quantile(z, skew, excess_kurtosis):
             - (2 * z ** 3 - 5 * z) * skew ** 2 / 36)
 
 
+def cornish_fisher_is_valid(skew: float, excess_kurtosis: float) -> bool:
+    """
+    The expansion is a valid quantile function only if it is increasing in z. Its derivative is the
+    quadratic a·z² + b·z + c with a = K/8 − S²/6, b = S/3, c = 1 − K/8 + 5S²/36, which is ≥ 0 for
+    every z iff a ≥ 0 and b² − 4ac ≤ 0 (Maillard, 2012).
+    """
+    a = excess_kurtosis / 8 - skew ** 2 / 6
+    b = skew / 3
+    c = 1 - excess_kurtosis / 8 + 5 * skew ** 2 / 36
+    return bool(a >= 0 and b * b - 4 * a * c <= 0)
+
+
 def calculate_cornish_fisher_var(returns: pd.Series, investment: float, confidence_level: float, holding_period: int = 1) -> dict:
     """
     Modified VaR: the normal quantile is adjusted for the sample's skewness and excess kurtosis.
     Expected Shortfall is the average Cornish-Fisher loss over the tail, integrated numerically.
+    `cf_valid` is False when the skew/kurtosis pair is outside the expansion's valid region.
     """
     mu = returns.mean()
     sigma = returns.std(ddof=1)
@@ -274,7 +357,8 @@ def calculate_cornish_fisher_var(returns: pd.Series, investment: float, confiden
     tail_z = cornish_fisher_quantile(np.asarray(norm.ppf(tail_u)), skew, kurt)
     cvar_daily_pct = -(mu + tail_z.mean() * sigma)
     return _scaled_result(var_daily_pct, cvar_daily_pct, investment, confidence_level, holding_period,
-                          mu=mu, sigma=sigma, skewness=skew, excess_kurtosis=kurt, z_cornish_fisher=z_cf)
+                          mu=mu, sigma=sigma, skewness=skew, excess_kurtosis=kurt, z_cornish_fisher=z_cf,
+                          cf_valid=cornish_fisher_is_valid(skew, kurt))
 
 
 def ewma_volatility(returns: pd.Series, lam: float = 0.94):
@@ -306,17 +390,72 @@ def calculate_ewma_var(returns: pd.Series, investment: float, confidence_level: 
                           mu=0.0, ewma_lambda=lam, sigma_forecast=sigma_next)
 
 
+def calculate_fhs_var(returns: pd.Series, investment: float, confidence_level: float, holding_period: int = 1, lam: float = 0.94) -> dict:
+    """
+    Filtered Historical Simulation: divide each return by its EWMA volatility forecast, take the
+    empirical quantile of these standardized residuals, and rescale by tomorrow's volatility.
+    Keeps the empirical tail shape while reacting to current volatility. Multi-day uses √t.
+    """
+    sigma, sigma_next = ewma_volatility(returns, lam)
+    standardized = (returns / sigma).to_numpy()
+    var_daily_pct, cvar_daily_pct = fhs_var_es(standardized, sigma_next, 1.0 - confidence_level)
+    return _scaled_result(var_daily_pct, cvar_daily_pct, investment, confidence_level, holding_period,
+                          ewma_lambda=lam, sigma_forecast=sigma_next)
+
+
+def calculate_garch_t_var(returns: pd.Series, investment: float, confidence_level: float, holding_period: int = 1,
+                          fit: dict = None) -> dict:
+    """
+    GARCH(1,1) with Student-t errors: volatility clustering and fat tails together.
+    1-day VaR = −(μ + σ(T+1)·q), ES = σ(T+1)·ES_t − μ, with q and ES_t from the unit-variance t.
+    t-day figures use the GARCH variance term structure: σ_t² = Σ E[σ²(T+h)], h = 1..t.
+    Falls back to EWMA (flagged with fallback=True) if the fit does not converge.
+    """
+    fit = fit if fit is not None else fit_garch_t(returns)
+    if not fit["converged"]:
+        result = calculate_ewma_var(returns, investment, confidence_level, holding_period)
+        result.update({"fallback": True, "fallback_reason": fit["error"]})
+        return result
+
+    p = fit["params"]
+    alpha = 1.0 - confidence_level
+    q = standardized_t_quantile(alpha, p.nu)
+    es_unit = standardized_t_es(alpha, p.nu)
+    sigma_next = garch_filter(returns, p)[-1]
+    var_daily_pct = -(p.mu + sigma_next * q) / PCT
+    cvar_daily_pct = (sigma_next * es_unit - p.mu) / PCT
+    result = _scaled_result(var_daily_pct, cvar_daily_pct, investment, confidence_level, holding_period,
+                            fallback=False, sigma_forecast=sigma_next / PCT, garch_params=p,
+                            long_run_vol=np.sqrt(p.omega / (1 - p.persistence)) / PCT)
+
+    sigma_t = np.sqrt(garch_variance_term_structure(p, sigma_next ** 2, holding_period).sum())
+    var_t = -(p.mu * holding_period + sigma_t * q) / PCT
+    cvar_t = (sigma_t * es_unit - p.mu * holding_period) / PCT
+    return _set_horizon(result, var_t, cvar_t, investment, SCALING_GARCH)
+
+
+MODEL_ORDER = ["Historical", "Parametric (Normal)", "Student-t", "Cornish-Fisher", "EWMA (RiskMetrics)",
+               "FHS (EWMA-filtered)", "GARCH(1,1)-t"]
+
+
+def monte_carlo_name(num_simulations: int) -> str:
+    return f"Monte Carlo (GARCH-t, {num_simulations:,} sims)"
+
+
 def calculate_all_var(returns: pd.Series, investment: float, confidence_level: float, holding_period: int = 1,
-                      num_simulations: int = 5000, seed: int = 42) -> dict:
-    """Every VaR model at one confidence level, keyed by display name."""
+                      num_simulations: int = 5000, seed: int = 42, fits: dict = None) -> dict:
+    """Every VaR model at one confidence level, keyed by display name. Pass `fits` from fit_models to avoid refitting."""
+    fits = fits if fits is not None else fit_models(returns)
     return {
         "Historical": calculate_historical_var(returns, investment, confidence_level, holding_period),
         "Parametric (Normal)": calculate_parametric_var(returns, investment, confidence_level, holding_period),
-        "Student-t": calculate_student_t_var(returns, investment, confidence_level, holding_period),
+        "Student-t": calculate_student_t_var(returns, investment, confidence_level, holding_period, fit=fits["student_t"]),
         "Cornish-Fisher": calculate_cornish_fisher_var(returns, investment, confidence_level, holding_period),
         "EWMA (RiskMetrics)": calculate_ewma_var(returns, investment, confidence_level, holding_period),
-        f"Monte Carlo ({num_simulations:,} sims)": calculate_monte_carlo_var(
-            returns, investment, confidence_level, holding_period, num_simulations=num_simulations, seed=seed),
+        "FHS (EWMA-filtered)": calculate_fhs_var(returns, investment, confidence_level, holding_period),
+        "GARCH(1,1)-t": calculate_garch_t_var(returns, investment, confidence_level, holding_period, fit=fits["garch"]),
+        monte_carlo_name(num_simulations): calculate_monte_carlo_var(
+            returns, investment, confidence_level, holding_period, num_simulations=num_simulations, seed=seed, fit=fits["garch"]),
     }
 
 
@@ -413,36 +552,127 @@ def perform_kupiec_backtest(returns: pd.Series, var_daily_pct, confidence_level:
         "status_desc": status_desc
     }
 
-def rolling_var_forecasts(returns: pd.Series, confidence_level: float, window: int = 250, ewma_lambda: float = 0.94) -> pd.DataFrame:
+REFIT_EVERY = 20
+GARCH_MAX_WINDOW = 1000
+MONTE_CARLO_BACKTEST_NAME = "Monte Carlo (GARCH-t)"
+BACKTEST_MODELS = MODEL_ORDER + [MONTE_CARLO_BACKTEST_NAME]
+
+
+def rolling_forecasts(returns: pd.Series, confidence_level: float, window: int = 250, ewma_lambda: float = 0.94,
+                      refit_every: int = REFIT_EVERY, num_simulations: int = 5000, seed: int = 42,
+                      models=None) -> dict:
     """
-    Out-of-sample one-day VaR forecasts from each model, one column per model.
-    Every forecast for day t uses only returns before t. Monte Carlo is left out because it
-    samples the same normal distribution as the Parametric model.
+    Out-of-sample one-day VaR, ES and volatility forecasts for each model (one column per model).
+    The forecast for day t uses only returns before t; the first `window` days have no forecast.
+
+    - Historical, Normal, Cornish-Fisher, FHS: rolling `window`-day estimation, updated daily.
+    - Student-t: maximum-likelihood fit on the rolling window, refitted every `refit_every` days.
+    - GARCH(1,1)-t and Monte Carlo: fitted on all data before the refit day (at most GARCH_MAX_WINDOW
+      days, since GARCH needs more data than 250 days to estimate well), refitted every `refit_every`
+      days, with σ filtered daily using the latest parameters. A non-converged fit falls back to EWMA
+      for that block; the count is returned as `garch_fallbacks`.
+
+    Returns {"var", "es", "sigma"} DataFrames plus "garch_refits" and "garch_fallbacks".
     """
-    from scipy.stats import t as student_t
+    from numpy.lib.stride_tricks import sliding_window_view
+
+    names = list(models) if models is not None else list(BACKTEST_MODELS)
+    empty = lambda: pd.DataFrame(np.nan, index=returns.index, columns=names)
+    var_df, es_df, sigma_df = empty(), empty(), empty()
+    out = {"var": var_df, "es": es_df, "sigma": sigma_df, "garch_refits": 0, "garch_fallbacks": 0, "window": window}
+
+    r = returns.to_numpy(dtype=float)
+    n = len(r)
+    if n <= window:
+        return out
 
     alpha = 1.0 - confidence_level
     z = norm.ppf(confidence_level)
-    roll = returns.rolling(window)
-    mu = roll.mean().shift(1)
-    sigma = roll.std().shift(1)
-    skew = roll.skew().shift(1)
-    kurt = roll.kurt().shift(1)
+    es_normal = norm.pdf(z) / alpha
+    days = np.arange(window, n)
+    W = sliding_window_view(r, window)[:-1]  # row k holds the `window` returns before day window + k
+    mu = W.mean(axis=1)
+    sd = W.std(axis=1, ddof=1)
+    ewma_sigma = ewma_volatility(returns, ewma_lambda)[0].to_numpy()
+    s_ewma = ewma_sigma[days]
 
-    nu = student_t_dof(kurt)
-    scale = sigma * np.sqrt((nu - 2) / nu)
-    ewma_sigma, _ = ewma_volatility(returns, ewma_lambda)
+    def put(name, var, es, sigma):
+        if name in names:
+            var_df.iloc[window:, names.index(name)] = var
+            es_df.iloc[window:, names.index(name)] = es
+            sigma_df.iloc[window:, names.index(name)] = sigma
 
-    forecasts = pd.DataFrame({
-        "Historical": -roll.quantile(alpha, interpolation="linear").shift(1),
-        "Parametric (Normal)": z * sigma - mu,
-        "Student-t": scale * student_t.ppf(confidence_level, nu) - mu,
-        "Cornish-Fisher": -(mu + cornish_fisher_quantile(-z, skew, kurt) * sigma),
-        "EWMA (RiskMetrics)": z * ewma_sigma,
-    }, index=returns.index)
-    # Score every model on the same days
-    forecasts.iloc[:window] = np.nan
-    return forecasts
+    def empirical(matrix):
+        q = np.quantile(matrix, alpha, axis=1)
+        tail = np.where(matrix <= q[:, None], matrix, np.nan)
+        return -q, -np.nanmean(tail, axis=1)
+
+    if "Historical" in names:
+        put("Historical", *empirical(W), sd)
+    put("Parametric (Normal)", z * sd - mu, es_normal * sd - mu, sd)
+
+    if "Cornish-Fisher" in names:
+        roll = returns.rolling(window)
+        skew = roll.skew().shift(1).to_numpy()[window:]
+        kurt = roll.kurt().shift(1).to_numpy()[window:]
+        tail_u = alpha * (np.arange(2000) + 0.5) / 2000
+        tail_z = cornish_fisher_quantile(norm.ppf(tail_u)[None, :], skew[:, None], kurt[:, None]).mean(axis=1)
+        put("Cornish-Fisher", -(mu + cornish_fisher_quantile(-z, skew, kurt) * sd), -(mu + tail_z * sd), sd)
+
+    put("EWMA (RiskMetrics)", z * s_ewma, es_normal * s_ewma, s_ewma)
+
+    if "FHS (EWMA-filtered)" in names:
+        Z = sliding_window_view(r / ewma_sigma, window)[:-1]
+        q_var, q_es = empirical(Z)
+        put("FHS (EWMA-filtered)", q_var * s_ewma, q_es * s_ewma, s_ewma)
+
+    blocks = [(b, min(b + refit_every, len(days))) for b in range(0, len(days), refit_every)]
+
+    if "Student-t" in names:
+        t_var, t_es, t_sigma = (np.empty(len(days)) for _ in range(3))
+        for b0, b1 in blocks:
+            fit = fit_student_t(W[b0])
+            v, e = student_t_var_es(alpha, fit["nu"], fit["loc"], fit["scale"])
+            t_var[b0:b1], t_es[b0:b1] = v, e
+            t_sigma[b0:b1] = fit["scale"] * np.sqrt(fit["nu"] / (fit["nu"] - 2))
+        put("Student-t", t_var, t_es, t_sigma)
+
+    want_garch = "GARCH(1,1)-t" in names
+    want_mc = MONTE_CARLO_BACKTEST_NAME in names
+    if want_garch or want_mc:
+        g = {k: np.empty(len(days)) for k in ("var", "es", "sigma", "mc_var", "mc_es")}
+        for b0, b1 in blocks:
+            t0, t1 = window + b0, window + b1
+            start = max(0, t0 - GARCH_MAX_WINDOW)
+            fit = fit_garch_t(r[start:t0])
+            out["garch_refits"] += 1
+            if not fit["converged"]:
+                out["garch_fallbacks"] += 1
+                s = s_ewma[b0:b1]
+                g["var"][b0:b1] = g["mc_var"][b0:b1] = z * s
+                g["es"][b0:b1] = g["mc_es"][b0:b1] = es_normal * s
+                g["sigma"][b0:b1] = s
+                continue
+            p = fit["params"]
+            eps = r[start:t0] * PCT - p.mu
+            s = garch_filter(r[start:t1], p, initial_variance=float(np.var(eps, ddof=1)))[t0 - start:t1 - start]
+            g["var"][b0:b1] = -(p.mu + s * standardized_t_quantile(alpha, p.nu)) / PCT
+            g["es"][b0:b1] = (s * standardized_t_es(alpha, p.nu) - p.mu) / PCT
+            g["sigma"][b0:b1] = s / PCT
+            draws = np.random.default_rng(seed).standard_t(p.nu, num_simulations) * np.sqrt((p.nu - 2) / p.nu)
+            sim_var, sim_es = _empirical_var_es(draws, alpha)
+            g["mc_var"][b0:b1] = (s * sim_var - p.mu) / PCT
+            g["mc_es"][b0:b1] = (s * sim_es - p.mu) / PCT
+        put("GARCH(1,1)-t", g["var"], g["es"], g["sigma"])
+        put(MONTE_CARLO_BACKTEST_NAME, g["mc_var"], g["mc_es"], g["sigma"])
+
+    return out
+
+
+def rolling_var_forecasts(returns: pd.Series, confidence_level: float, window: int = 250, ewma_lambda: float = 0.94,
+                          models=None) -> pd.DataFrame:
+    """Out-of-sample one-day VaR forecasts, one column per model (see rolling_forecasts)."""
+    return rolling_forecasts(returns, confidence_level, window, ewma_lambda, models=models)["var"]
 
 
 def _xlogy(x: float, p: float) -> float:
@@ -503,10 +733,41 @@ def tick_loss(returns: pd.Series, var_series: pd.Series, confidence_level: float
     return float(np.mean((alpha - hit) * (r - q)))
 
 
-def backtest_all_methods(returns: pd.Series, forecasts: pd.DataFrame, confidence_level: float) -> pd.DataFrame:
+MIN_ES_BREACHES = 5
+
+
+def mcneil_frey_test(returns, var_forecast, es_forecast, sigma_forecast, n_boot: int = 10_000, seed: int = 0) -> dict:
+    """
+    McNeil & Frey (2000) exceedance-residual test of Expected Shortfall.
+    On breach days the residual e = (loss − ES) / σ should have mean zero if ES is right.
+    One-sided: a positive mean means losses beyond VaR are larger than the model's ES (ES too small).
+    The p-value bootstraps the t-statistic of the residuals after centring them at zero.
+    """
+    r = np.asarray(returns, dtype=float)
+    var = np.asarray(var_forecast, dtype=float)
+    es = np.asarray(es_forecast, dtype=float)
+    sigma = np.asarray(sigma_forecast, dtype=float)
+    hits = r < -var
+    e = ((-r[hits]) - es[hits]) / sigma[hits]
+    n = len(e)
+    if n < MIN_ES_BREACHES or not np.isfinite(e).all() or e.std(ddof=1) == 0:
+        return {"breaches": n, "mean_residual": float(e.mean()) if n else float("nan"), "t_stat": float("nan"), "p_value": float("nan")}
+
+    t_stat = e.mean() / (e.std(ddof=1) / np.sqrt(n))
+    centred = e - e.mean()
+    rng = np.random.default_rng(seed)
+    sample = centred[rng.integers(0, n, size=(n_boot, n))]
+    boot_sd = sample.std(axis=1, ddof=1)
+    boot_t = np.divide(sample.mean(axis=1), boot_sd / np.sqrt(n), out=np.zeros(n_boot), where=boot_sd > 0)
+    return {"breaches": n, "mean_residual": float(e.mean()), "t_stat": float(t_stat),
+            "p_value": float((boot_t >= t_stat).mean())}
+
+
+def backtest_all_methods(returns: pd.Series, forecasts: pd.DataFrame, confidence_level: float,
+                         es_forecasts: pd.DataFrame = None, sigma_forecasts: pd.DataFrame = None) -> pd.DataFrame:
     """
     Kupiec (coverage), Christoffersen (independence) and conditional coverage tests for each model,
-    plus the tick loss used to rank them.
+    plus the tick loss used to rank them, and (when ES and σ forecasts are given) the McNeil-Frey ES test.
     Conditional coverage LR = Kupiec LR + independence LR ~ chi-square(2).
     With fewer test days than `min_backtest_days`, the verdict is LOW POWER instead of PASS/FAIL.
     """
@@ -521,6 +782,16 @@ def backtest_all_methods(returns: pd.Series, forecasts: pd.DataFrame, confidence
         lr_cc = kupiec["lr_stat"] + ind["lr_ind"]
         p_cc = float(np.exp(-lr_cc / 2))  # chi-square(2) survival function
         passed = min(kupiec["p_value"], ind["p_value_ind"], p_cc) >= 0.05
+        es_cols = {}
+        if es_forecasts is not None and sigma_forecasts is not None:
+            mf = mcneil_frey_test(r, var_series, es_forecasts.loc[valid, method], sigma_forecasts.loc[valid, method])
+            if not enough_data:
+                es_verdict = LOW_POWER
+            elif not np.isfinite(mf["p_value"]):
+                es_verdict = "TOO FEW BREACHES"
+            else:
+                es_verdict = "PASS" if mf["p_value"] >= 0.05 else "FAIL"
+            es_cols = {"ES p-value": mf["p_value"], "ES Mean Residual": mf["mean_residual"], "ES Test": es_verdict}
         rows.append({
             "Method": method,
             "Test Days": kupiec["total_observations"],
@@ -535,15 +806,18 @@ def backtest_all_methods(returns: pd.Series, forecasts: pd.DataFrame, confidence
             "Tick Loss": tick_loss(r, var_series, confidence_level) if len(r) else float("nan"),
             "Verdict": ("PASS" if passed else "FAIL") if enough_data else LOW_POWER,
             "Avg VaR": var_series.mean(),
+            **es_cols,
         })
     return pd.DataFrame(rows)
 
 
-def recommend_model(backtest_table: pd.DataFrame) -> dict:
+def recommend_model(backtest_table: pd.DataFrame, exclude=()) -> dict:
     """
     Recommended model = lowest tick loss among models that PASS all three tests.
     If none pass, report the lowest-loss model with a warning; with too little data, recommend nothing.
+    Models in `exclude` are scored in the table but never recommended.
     """
+    backtest_table = backtest_table[~backtest_table["Method"].isin(exclude)]
     if backtest_table.empty or (backtest_table["Verdict"] == LOW_POWER).all():
         return {"model": None, "status": "low_power"}
     passing = backtest_table[backtest_table["Verdict"] == "PASS"]

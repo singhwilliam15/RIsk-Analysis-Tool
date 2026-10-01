@@ -98,9 +98,8 @@ def fat_tailed_returns():
 def test_student_t_es_matches_simulation(fat_tailed_returns):
     from scipy.stats import t as student_t
     res = calculate_student_t_var(fat_tailed_returns, 1, 0.99)
-    nu = res["degrees_of_freedom"]
-    scale = res["sigma"] * np.sqrt((nu - 2) / nu)
-    draws = res["mu"] + scale * student_t.rvs(nu, size=2_000_000, random_state=3)
+    nu, loc, scale = res["degrees_of_freedom"], res["loc"], res["scale"]
+    draws = loc + scale * student_t.rvs(nu, size=2_000_000, random_state=3)
     cutoff = np.quantile(draws, 0.01)
     assert res["var_daily_pct"] == pytest.approx(-cutoff, rel=0.01)
     assert res["cvar_daily_pct"] == pytest.approx(-draws[draws <= cutoff].mean(), rel=0.01)
@@ -153,10 +152,11 @@ def test_all_models_return_positive_var_below_es(fat_tailed_returns):
 
 
 def test_rolling_forecasts_never_use_future_data(fat_tailed_returns):
-    base = rolling_var_forecasts(fat_tailed_returns, 0.99, window=250)
+    fast = ["Historical", "Parametric (Normal)", "Cornish-Fisher", "EWMA (RiskMetrics)", "FHS (EWMA-filtered)"]
+    base = rolling_var_forecasts(fat_tailed_returns, 0.99, window=250, models=fast)
     shocked_returns = fat_tailed_returns.copy()
     shocked_returns.iloc[600] = -0.5
-    shocked = rolling_var_forecasts(shocked_returns, 0.99, window=250)
+    shocked = rolling_var_forecasts(shocked_returns, 0.99, window=250, models=fast)
     pd.testing.assert_frame_equal(base.iloc[:601], shocked.iloc[:601])
     assert not np.allclose(base.iloc[601].to_numpy(), shocked.iloc[601].to_numpy())
 
@@ -226,7 +226,7 @@ def test_excel_report_contains_every_model_and_sheet(fat_tailed_returns):
     xlsx = generate_excel_var_report(
         "TEST", "Test Co", "USD", 1_000_000, 0.99, 1, df,
         var_by_level={m: {cl: by_level[cl][m] for cl in by_level} for m in models},
-        backtest_table=backtest_all_methods(returns, rolling_var_forecasts(returns, 0.99, 250), 0.99),
+        backtest_table=backtest_all_methods(returns, rolling_var_forecasts(returns, 0.99, 250, models=["Historical", "EWMA (RiskMetrics)"]), 0.99),
         backtest_window=250, stress_df=run_stress_testing(1_000_000, 1.2),
         worst_df=historical_worst_losses(returns, 1_000_000), benchmark_name="S&P 500", beta=1.2)
 
@@ -260,15 +260,16 @@ def test_parametric_multi_day_uses_sqrt_t_for_sigma_and_t_for_mean(normal_return
 
 
 def test_every_parametric_model_scales_the_mean_linearly(fat_tailed_returns):
-    from var_calculator import SCALING_PARAMETRIC, SCALING_SQRT_TIME
+    from var_calculator import SCALING_GARCH, SCALING_PARAMETRIC, SCALING_SIMULATED, SCALING_SQRT_TIME
     t = 10
     for name, res in calculate_all_var(fat_tailed_returns, 1, 0.99, holding_period=t).items():
         if res["scaling_rule"] == SCALING_PARAMETRIC:
             mu = res["mu"]
             assert res["var_scaled_pct"] == pytest.approx((res["var_daily_pct"] + mu) * np.sqrt(t) - mu * t), name
         else:
-            assert res["scaling_rule"] == SCALING_SQRT_TIME
-            assert res["var_scaled_pct"] == pytest.approx(res["var_daily_pct"] * np.sqrt(t)), name
+            assert res["scaling_rule"] in (SCALING_SQRT_TIME, SCALING_GARCH, SCALING_SIMULATED), name
+            if res["scaling_rule"] == SCALING_SQRT_TIME:
+                assert res["var_scaled_pct"] == pytest.approx(res["var_daily_pct"] * np.sqrt(t)), name
 
 
 def test_overlapping_t_day_var_by_hand():
@@ -348,7 +349,7 @@ def test_recommended_model_is_lowest_loss_among_passing():
 def test_backtest_flags_low_power(confidence, days, expect_low_power):
     rng = np.random.default_rng(8)
     returns = pd.Series(rng.normal(0, 0.01, 250 + days))
-    table = backtest_all_methods(returns, rolling_var_forecasts(returns, confidence, window=250), confidence)
+    table = backtest_all_methods(returns, rolling_var_forecasts(returns, confidence, window=250, models=["Historical", "EWMA (RiskMetrics)"]), confidence)
     assert (table["Test Days"] == days).all()
     assert ((table["Verdict"] == "LOW POWER").all()) == expect_low_power
 
@@ -375,3 +376,10 @@ def test_kupiec_exact_calibration_passes():
     assert res["lr_stat"] == pytest.approx(0.0, abs=1e-12)
     assert res["p_value"] == pytest.approx(1.0)
     assert res["test_result"].startswith("PASS")
+
+
+def test_recommendation_can_exclude_a_model():
+    from var_calculator import recommend_model
+    table = pd.DataFrame({"Method": ["A", "MC"], "Verdict": ["PASS", "PASS"], "Tick Loss": [0.002, 0.001]})
+    assert recommend_model(table)["model"] == "MC"
+    assert recommend_model(table, exclude=["MC"]) == {"model": "A", "status": "recommended"}

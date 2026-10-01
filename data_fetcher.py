@@ -111,6 +111,23 @@ def fetch_stock_data_direct(ticker: str, period: str = "2y") -> dict:
         }
 
 
+SUSPICIOUS_MOVE = 0.25
+
+
+def suspicious_returns(df: pd.DataFrame, threshold: float = SUSPICIOUS_MOVE) -> pd.DataFrame:
+    """
+    Daily moves larger than `threshold` in either direction, for the user to check.
+    Yahoo's long histories sometimes contain one-day price spikes that reverse the next day
+    (e.g. a +337% day followed by −77%). The data are not altered here, only flagged.
+    """
+    flagged = df.loc[df["Returns"].abs() > threshold, ["Date", "Close", "Returns"]]
+    next_day = df["Returns"].shift(-1).loc[flagged.index].to_numpy()
+    # "Reversed": the next day undoes at least half of the move, so the price is back near where it started
+    two_day = (1 + flagged["Returns"].to_numpy()) * (1 + np.nan_to_num(next_day)) - 1
+    reversed_ = np.abs(two_day) < 0.5 * np.abs(flagged["Returns"].to_numpy())
+    return flagged.assign(Next_Day_Return=next_day, Reversed=reversed_)
+
+
 def fetch_stock_data(ticker: str, period: str = "2y") -> dict:
     """
     Primary fetcher using yfinance, with the direct HTTP API as fallback.

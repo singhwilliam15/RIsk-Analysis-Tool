@@ -127,3 +127,24 @@ def test_direct_failure_returns_error(monkeypatch):
     monkeypatch.setattr(data_fetcher.urllib.request, "urlopen", broken)
     res = fetch_stock_data_direct("X.NS")
     assert not res["success"] and "network down" in res["error"]
+
+
+def test_suspicious_returns_flags_large_moves_without_changing_data():
+    from data_fetcher import suspicious_returns
+    df = pd.DataFrame({"Date": pd.bdate_range("2005-07-26", periods=5),
+                       "Close": [42.3, 42.8, 187.1, 43.0, 43.3]})
+    df["Returns"] = df["Close"].pct_change()
+    flagged = suspicious_returns(df)
+    assert list(flagged.index) == [2, 3]
+    assert flagged.loc[2, "Returns"] == pytest.approx(187.1 / 42.8 - 1)
+    assert flagged.loc[2, "Next_Day_Return"] == pytest.approx(43.0 / 187.1 - 1)
+    assert flagged.loc[2, "Reversed"]  # +337% then -77%: back near the start, a data error
+    assert df["Close"].tolist() == [42.3, 42.8, 187.1, 43.0, 43.3]
+
+
+def test_suspicious_returns_keeps_real_crashes_unreversed():
+    from data_fetcher import suspicious_returns
+    df = pd.DataFrame({"Date": pd.bdate_range("2000-09-27", periods=4), "Close": [100.0, 100.0, 48.0, 45.0]})
+    df["Returns"] = df["Close"].pct_change()
+    flagged = suspicious_returns(df)
+    assert list(flagged.index) == [2] and not flagged.loc[2, "Reversed"]

@@ -1,6 +1,6 @@
 """
 Value at Risk (VaR) Automated Analysis Tool — Main Streamlit Web App
-Six VaR/ES models for a stock or portfolio, out-of-sample backtests with a tick-loss model
+Eight VaR/ES models (up to GARCH(1,1)-t) for a stock or portfolio, out-of-sample VaR and ES backtests with a tick-loss model
 ranking, portfolio risk decomposition, stress testing and Excel export.
 """
 
@@ -13,14 +13,15 @@ from datetime import datetime
 
 from scipy.stats import norm, t as student_t
 
-from data_fetcher import fetch_stock_data
+from data_fetcher import fetch_stock_data, suspicious_returns, SUSPICIOUS_MOVE
 from var_calculator import (
     calculate_portfolio_statistics,
     calculate_all_var,
     ewma_volatility,
-    student_t_dof,
+    fit_models,
+    rolling_forecasts,
+    MONTE_CARLO_BACKTEST_NAME,
     perform_kupiec_backtest,
-    rolling_var_forecasts,
     backtest_all_methods,
     recommend_model,
     min_backtest_days,
@@ -112,7 +113,7 @@ st.markdown("""
 
 # App Header
 st.title("⚡ Value at Risk (VaR) Automated Analysis Tool")
-st.caption("Six VaR / Expected Shortfall models for a stock or portfolio, with out-of-sample backtesting, risk decomposition, stress testing and Excel export")
+st.caption("Eight VaR / Expected Shortfall models, from historical simulation to GARCH(1,1)-t, for a stock or portfolio, with out-of-sample VaR and ES backtests, risk decomposition, stress testing and Excel export")
 
 # -------------------------------------------------------------
 # SIDEBAR CONTROLS
@@ -163,7 +164,11 @@ st.sidebar.subheader("💼 Portfolio Settings")
 
 investment_amount = st.sidebar.number_input("Portfolio Investment Amount", min_value=1000.0, max_value=1000000000.0, value=1000000.0, step=50000.0, format="%.2f")
 
-confidence_level = st.sidebar.select_slider("Confidence Level (1 - α)", options=[0.90, 0.95, 0.99], value=0.95, format_func=lambda x: f"{int(x*100)}%")
+def pct_label(cl: float) -> str:
+    return f"{cl * 100:g}%"
+
+confidence_level = st.sidebar.select_slider("Confidence Level (1 - α)", options=[0.90, 0.95, 0.975, 0.99], value=0.95,
+                                            format_func=pct_label, help="97.5% is the Basel FRTB Expected Shortfall level.")
 
 holding_period = st.sidebar.selectbox("Holding Period (Days)", options=[1, 5, 10, 21, 30], index=0, help="VaR scaled by sqrt(days)")
 
@@ -193,6 +198,7 @@ if not is_portfolio:
     df = data_res["df"]
     benchmark_tickers = [symbol]
     data_note = f"{data_res['data_source']}, {data_res['price_basis']} closes"
+    suspicious = {symbol: suspicious_returns(df)}
 else:
     try:
         weights = normalize_weights(holdings_input)
@@ -215,6 +221,7 @@ else:
                  "). Mixing currencies needs FX conversion, which this tool does not do; use holdings in one currency.")
         st.stop()
 
+    suspicious = {t: suspicious_returns(res["df"]) for t, res in fetched.items()}
     asset_returns = align_asset_returns({t: res["df"] for t, res in fetched.items()})
     if len(asset_returns) < 60:
         st.error(f"The holdings share only {len(asset_returns)} common trading days; at least 60 are needed.")
@@ -246,16 +253,25 @@ risk_free_pct = st.sidebar.number_input(
 # -------------------------------------------------------------
 stats = calculate_portfolio_statistics(returns, risk_free_rate=risk_free_pct / 100)
 
-confidence_levels = (0.90, 0.95, 0.99)
+confidence_levels = (0.90, 0.95, 0.975, 0.99)
+model_fits = fit_models(returns)  # GARCH(1,1)-t and Student-t MLE, fitted once and reused at every confidence level
 var_by_level = {
-    cl: calculate_all_var(returns, investment_amount, cl, holding_period, num_simulations=num_sims, seed=42)
+    cl: calculate_all_var(returns, investment_amount, cl, holding_period, num_simulations=num_sims, seed=42, fits=model_fits)
     for cl in confidence_levels
 }
 var_selected = var_by_level[confidence_level]
 method_names = list(var_selected)
 var_hist = var_selected["Historical"]
 var_ewma = var_selected["EWMA (RiskMetrics)"]
-cl_label = f"{int(confidence_level * 100)}%"
+cl_label = pct_label(confidence_level)
+var_garch = var_selected["GARCH(1,1)-t"]
+var_cf = var_selected["Cornish-Fisher"]
+if not var_garch.get("fallback"):
+    gp = var_garch["garch_params"]
+    garch_text = (f"Fitted α = {gp.alpha:.3f}, β = {gp.beta:.3f} (persistence {gp.persistence:.3f}), ν = {gp.nu:.1f}; "
+                  f"today's volatility {var_garch['sigma_forecast'] * np.sqrt(252):.1%} a year against a long-run {var_garch['long_run_vol'] * np.sqrt(252):.1%}.")
+else:
+    garch_text = "The fit did not converge on this sample, so EWMA is shown instead."
 
 # Benchmark beta for stress testing
 is_indian = all(t.endswith((".NS", ".BO")) for t in benchmark_tickers)
@@ -278,14 +294,21 @@ test_days = max(len(returns) - backtest_window, 0)
 required_days = min_backtest_days(confidence_level)
 low_power = test_days < required_days
 if test_days > 0:
-    forecasts = rolling_var_forecasts(returns, confidence_level, window=backtest_window)
-    backtest_table = backtest_all_methods(returns, forecasts, confidence_level)
-    recommendation = recommend_model(backtest_table)
+    rolling = rolling_forecasts(returns, confidence_level, window=backtest_window, num_simulations=num_sims)
+    forecasts = rolling["var"]
+    backtest_table = backtest_all_methods(returns, forecasts, confidence_level, rolling["es"], rolling["sigma"])
+    # At one day, Monte Carlo is GARCH-t plus simulation noise, so it is scored but not recommended
+    recommendation = recommend_model(backtest_table, exclude=[MONTE_CARLO_BACKTEST_NAME])
     passing_models = backtest_table.loc[backtest_table["Verdict"] == "PASS", "Method"].tolist()
 else:
-    forecasts, backtest_table, passing_models = None, None, []
+    rolling, forecasts, backtest_table, passing_models = None, None, None, []
     recommendation = {"model": None, "status": "low_power"}
 recommended_model = recommendation["model"]
+
+
+def point_name(backtest_name: str) -> str:
+    """Map a backtest column name to the matching model in the point-estimate table."""
+    return method_names[-1] if backtest_name == MONTE_CARLO_BACKTEST_NAME else backtest_name
 
 if recommendation["status"] == "recommended":
     backtest_summary = (f"{', '.join(passing_models)} passed all three tests at {cl_label}; "
@@ -313,6 +336,15 @@ jarque_bera_p = float(np.exp(-jarque_bera / 2))  # chi-square(2) survival functi
 # EXECUTIVE TOP CARDS
 # -------------------------------------------------------------
 st.subheader(f"📈 Risk Overview for {company_name} ({symbol})")
+flagged_moves = [f"{t} {row.Date:%d %b %Y}: {row.Returns:+.0%}, next day {row.Next_Day_Return:+.0%}"
+                 + (" (reversed: likely data error)" if row.Reversed else "")
+                 for t, table in suspicious.items() for row in table.itertuples()]
+if flagged_moves:
+    st.warning(f"⚠ **Check the data:** {len(flagged_moves)} daily move{'' if len(flagged_moves) == 1 else 's'} larger than "
+               f"{SUSPICIOUS_MOVE:.0%}: " + "; ".join(flagged_moves[:6]) + (" …" if len(flagged_moves) > 6 else "") +
+               ". Moves marked *reversed* undo themselves the next day, which usually means a bad price in the source; "
+               "the others may be real events such as crashes or results days. "
+               "The data are used as downloaded; choose a shorter lookback to exclude these days.")
 st.caption(f"Data: {data_note} · {len(returns)} daily returns · {df['Date'].iloc[0]:%d %b %Y} to {df['Date'].iloc[-1]:%d %b %Y}")
 
 col1, col2, col3, col4, col5 = st.columns(5)
@@ -330,7 +362,7 @@ cards = [
     (col4, f"Expected Shortfall ({cl_label})", f"{curr_sym}{var_hist['cvar_scaled_amount']:,.0f}", f"Tail Loss ({var_hist['cvar_daily_pct']:.2%})", "metric-sub-red"),
     (
         (col5, "Recommended Model", recommended_model,
-         f"Lowest tick loss among passing · VaR {curr_sym}{var_selected[recommended_model]['var_scaled_amount']:,.0f}", "metric-sub")
+         f"Lowest tick loss among passing · VaR {curr_sym}{var_selected[point_name(recommended_model)]['var_scaled_amount']:,.0f}", "metric-sub")
         if recommendation["status"] == "recommended" else
         (col5, "No Model Passes", recommended_model, "Lowest tick loss shown; use with caution", "metric-sub-red")
         if recommendation["status"] == "none_pass" else
@@ -359,7 +391,7 @@ if is_portfolio:
 else:
     tab1, tab2, tab3, tab4, tab5 = tabs
 
-MODEL_COLORS = ["#3182CE", "#DD6B20", "#38A169", "#D53F8C", "#805AD5", "#ECC94B"]
+MODEL_COLORS = ["#3182CE", "#DD6B20", "#38A169", "#D53F8C", "#805AD5", "#4FD1C5", "#F56565", "#ECC94B"]
 
 # -------------------------------------------------------------
 # TAB 1: MODEL COMPARISON
@@ -370,10 +402,11 @@ with tab1:
 
     summary_rows = []
     for method in method_names:
-        row = {"Model": method}
+        flag = " ⚠" if (method == "Cornish-Fisher" and not var_cf["cf_valid"]) or var_selected[method].get("fallback") else ""
+        row = {"Model": method + flag}
         for cl in confidence_levels:
             res = var_by_level[cl][method]
-            row[f"{int(cl * 100)}% VaR"] = f"{curr_sym}{res['var_scaled_amount']:,.0f} ({res['var_scaled_pct']:.2%})"
+            row[f"{pct_label(cl)} VaR"] = f"{curr_sym}{res['var_scaled_amount']:,.0f} ({res['var_scaled_pct']:.2%})"
         row[f"{cl_label} ES"] = f"{curr_sym}{var_selected[method]['cvar_scaled_amount']:,.0f} ({var_selected[method]['cvar_scaled_pct']:.2%})"
         row["Multi-day rule"] = var_selected[method]["scaling_rule"] if holding_period > 1 else "1 day"
         summary_rows.append(row)
@@ -386,6 +419,12 @@ with tab1:
             f"**{curr_sym}{var_hist['overlapping_var_amount']:,.0f}** / **{curr_sym}{var_hist['overlapping_cvar_amount']:,.0f}** "
             f"({var_hist['overlapping_observations']} overlapping windows, so the observations are not independent)."
         )
+    if not var_cf["cf_valid"]:
+        st.warning(f"⚠ **Cornish-Fisher is outside its valid region; treat with caution.** With skewness {var_cf['skewness']:.2f} and "
+                   f"excess kurtosis {var_cf['excess_kurtosis']:.2f}, the expansion is not monotonic in z, so its quantiles are unreliable.")
+    if var_garch.get("fallback"):
+        st.warning(f"⚠ GARCH(1,1)-t did not converge on this sample ({var_garch['fallback_reason']}); its row shows EWMA, "
+                   "and Monte Carlo samples a fitted normal instead.")
     mc_result = var_selected[method_names[-1]]
     if mc_result["few_tail_draws"]:
         st.warning(f"Monte Carlo: {num_sims:,} simulations at {cl_label} leave only {mc_result['tail_draws']} draws in the tail, "
@@ -393,14 +432,16 @@ with tab1:
 
     with st.expander("How each model works"):
         st.markdown(f"""
-- **Historical:** the empirical {int((1 - confidence_level) * 100)}th percentile of past daily returns. No distribution assumed.
+- **Historical:** the empirical {pct_label(1 - confidence_level)} percentile of past daily returns. No distribution assumed.
 - **Parametric (Normal):** `z·σ − μ`. Fast, but a normal distribution has thin tails.
-- **Student-t:** fatter-tailed distribution; degrees of freedom (ν = {var_selected['Student-t']['degrees_of_freedom']:.1f}) come from the sample's excess kurtosis.
-- **Cornish-Fisher:** adjusts the normal quantile for skewness ({skewness:.2f}) and excess kurtosis ({excess_kurtosis:.2f}).
+- **Student-t:** fatter-tailed distribution fitted by {var_selected['Student-t']['fit_method']} (ν = {var_selected['Student-t']['degrees_of_freedom']:.1f}).
+- **Cornish-Fisher:** adjusts the normal quantile for skewness ({skewness:.2f}) and excess kurtosis ({excess_kurtosis:.2f}); {"inside" if var_cf["cf_valid"] else "**outside**"} the region where the expansion is valid.
 - **EWMA (RiskMetrics):** normal quantile on an exponentially weighted volatility forecast (λ = 0.94), so it reacts to recent market stress.
-- **Monte Carlo:** {num_sims:,} simulated returns from a fitted normal distribution.
+- **FHS (EWMA-filtered):** divides past returns by their EWMA volatility, takes the empirical quantile of these standardized returns and rescales it by tomorrow's volatility: real tail shape, current volatility.
+- **GARCH(1,1)-t:** volatility clustering and fat tails together. {garch_text}
+- **Monte Carlo:** {num_sims:,} simulated paths of the fitted GARCH(1,1)-t process; for multi-day horizons volatility evolves along each path instead of using √t.
 
-**Multi-day horizons:** the parametric models (Normal, Student-t, Cornish-Fisher, EWMA) use `z·σ·√t − μ·t`; volatility grows with √t and the mean with t. Historical and Monte Carlo scale the 1-day quantile by √t. That assumes independent returns, so compare it with the overlapping-window check above.
+**Multi-day horizons:** Normal, Student-t, Cornish-Fisher and EWMA use `z·σ·√t − μ·t`; Historical and FHS scale the 1-day quantile by √t; GARCH sums its expected daily variances; Monte Carlo simulates full paths. √t assumes independent returns, so compare it with the overlapping-window check above.
 """)
 
     st.markdown("---")
@@ -409,7 +450,7 @@ with tab1:
     with col_chart1:
         st.markdown("#### 📊 VaR by Model and Confidence Level")
         df_comp = pd.DataFrame([
-            {"Model": m, "Confidence": f"{int(cl * 100)}%", "VaR_Amount": var_by_level[cl][m]["var_scaled_amount"]}
+            {"Model": m, "Confidence": pct_label(cl), "VaR_Amount": var_by_level[cl][m]["var_scaled_amount"]}
             for m in method_names for cl in confidence_levels
         ])
         fig_comp = px.bar(df_comp, x="Confidence", y="VaR_Amount", color="Model", barmode="group",
@@ -421,8 +462,8 @@ with tab1:
     with col_chart2:
         st.markdown("#### 📉 Return Distribution vs Normal and Student-t")
         mu, sigma = returns.mean(), returns.std(ddof=1)
-        nu = student_t_dof(excess_kurtosis)
-        t_scale = sigma * np.sqrt((nu - 2) / nu)
+        t_fit = var_selected["Student-t"]
+        nu, t_loc, t_scale = t_fit["degrees_of_freedom"], t_fit["loc"], t_fit["scale"]
         x_grid = np.linspace(returns.min(), returns.max(), 400)
 
         fig_hist = go.Figure()
@@ -430,7 +471,7 @@ with tab1:
                                marker_color="#63B3ED", opacity=0.6)
         fig_hist.add_scatter(x=x_grid, y=norm.pdf(x_grid, mu, sigma), mode="lines", name="Normal fit",
                              line=dict(color="#F6AD55", width=2))
-        fig_hist.add_scatter(x=x_grid, y=student_t.pdf((x_grid - mu) / t_scale, nu) / t_scale, mode="lines",
+        fig_hist.add_scatter(x=x_grid, y=student_t.pdf((x_grid - t_loc) / t_scale, nu) / t_scale, mode="lines",
                              name=f"Student-t fit (ν={nu:.1f})", line=dict(color="#68D391", width=2, dash="dash"))
         fig_hist.add_vline(x=-var_hist["var_daily_pct"], line_dash="dot", line_color="#FC8181",
                            annotation_text=f"{cl_label} Hist VaR")
@@ -443,9 +484,9 @@ with tab1:
     var_values = [var_selected[m]["var_scaled_amount"] for m in method_names]
     st.info(f"""
     📋 **Risk Interpretation**:
-    - **Historical VaR ({cl_label})**: over a {holding_period}-day horizon there is a {100 - int(confidence_level * 100)}% chance that this {curr_sym}{investment_amount:,.0f} position in {company_name} loses more than **{curr_sym}{var_hist['var_scaled_amount']:,.0f}** ({var_hist['var_daily_pct']:.2%} per day).
+    - **Historical VaR ({cl_label})**: over a {holding_period}-day horizon there is a {pct_label(1 - confidence_level)} chance that this {curr_sym}{investment_amount:,.0f} position in {company_name} loses more than **{curr_sym}{var_hist['var_scaled_amount']:,.0f}** ({var_hist['var_daily_pct']:.2%} per day).
     - **Expected Shortfall**: when losses do exceed VaR, the average loss is **{curr_sym}{var_hist['cvar_scaled_amount']:,.0f}**.
-    - **Model risk**: the six models range from **{curr_sym}{min(var_values):,.0f}** to **{curr_sym}{max(var_values):,.0f}**, a spread of {max(var_values) / min(var_values) - 1:.0%}.
+    - **Model risk**: the {len(method_names)} models range from **{curr_sym}{min(var_values):,.0f}** to **{curr_sym}{max(var_values):,.0f}**, a spread of {max(var_values) / min(var_values) - 1:.0%}.
     - **Backtest**: {backtest_summary}
     - **CAGR** {stats['cagr']:.2%} · **Sharpe** {stats['sharpe_ratio']:.2f} · **Sortino** {stats['sortino_ratio']:.2f} (risk-free {risk_free_pct:.2f}%, assumption) · **Max Drawdown** {stats['max_drawdown']:.2%}
     """)
@@ -592,7 +633,12 @@ with tab4:
     st.caption(f"Each day's VaR is estimated from the previous {backtest_window} trading days only, then compared with that day's actual return. "
                "**Kupiec** tests whether the breach count is right; **Christoffersen independence** tests whether breaches cluster together; "
                "**conditional coverage** combines both. A model passes if every p-value is at least 0.05. "
-               "Passing models are ranked by **tick loss** (average quantile loss; lower is better). A higher p-value is not evidence of a better model.")
+               "Passing models are ranked by **tick loss** (average quantile loss; lower is better). A higher p-value is not evidence of a better model. "
+               "**ES test** (McNeil-Frey): on breach days, (loss − ES)/σ should average zero; a low p-value means ES is too small. "
+               "**Monte Carlo** is scored but never recommended: its 1-day forecast is the GARCH-t model plus simulation noise. Its value is in multi-day paths.")
+    if rolling is not None and rolling["garch_refits"]:
+        st.caption(f"GARCH(1,1)-t and Monte Carlo were refitted every 20 trading days ({rolling['garch_refits']} fit{'' if rolling['garch_refits'] == 1 else 's'}, on up to 1,000 past days each); "
+                   f"{rolling['garch_fallbacks']} fit{'' if rolling['garch_fallbacks'] == 1 else 's'} did not converge and used EWMA for that block.")
 
 if backtest_table is None:
     with tab4:
@@ -615,14 +661,14 @@ else:
         bt_display["Breach Rate"] = bt_display["Breach Rate"].map(lambda x: f"{x:.2%}")
         bt_display["Avg VaR"] = bt_display["Avg VaR"].map(lambda x: f"{x:.2%}")
         bt_display["Tick Loss (bp)"] = bt_display["Tick Loss"].map(lambda x: f"{x * 1e4:.3f}")
-        for col in ("Kupiec p-value", "Independence p-value", "Conditional Coverage p-value"):
-            bt_display[col] = bt_display[col].map(lambda x: f"{x:.3f}")
+        for col in ("Kupiec p-value", "Independence p-value", "Conditional Coverage p-value", "ES p-value"):
+            bt_display[col] = bt_display[col].map(lambda x: f"{x:.3f}" if np.isfinite(x) else "n/a")
         verdict_colors = {"PASS": "color: #68D391; font-weight: 600", "FAIL": "color: #FC8181; font-weight: 600",
-                          LOW_POWER: "color: #718096; font-style: italic"}
+                          LOW_POWER: "color: #718096; font-style: italic", "TOO FEW BREACHES": "color: #718096; font-style: italic"}
         st.dataframe(
-            bt_display[["Method", "Actual Breaches", "Expected Breaches", "Verdict", "Tick Loss (bp)", "Kupiec p-value",
-                        "Independence p-value", "Conditional Coverage p-value", "Breach Rate", "Back-to-Back Breaches",
-                        "Traffic Light", "Avg VaR"]].style.map(lambda v: verdict_colors.get(v, ""), subset=["Verdict"]),
+            bt_display[["Method", "Actual Breaches", "Expected Breaches", "Verdict", "Tick Loss (bp)", "ES Test", "ES p-value",
+                        "Kupiec p-value", "Independence p-value", "Conditional Coverage p-value", "Breach Rate",
+                        "Back-to-Back Breaches", "Traffic Light", "Avg VaR"]].style.map(lambda v: verdict_colors.get(v, ""), subset=["Verdict", "ES Test"]),
             width="stretch", hide_index=True
         )
 

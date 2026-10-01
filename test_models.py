@@ -278,3 +278,15 @@ def test_backtest_table_includes_es_test(garch_returns):
     table = backtest_all_methods(garch_returns.iloc[:1500], fc["var"], 0.975, fc["es"], fc["sigma"])
     assert {"ES p-value", "ES Test"} <= set(table.columns)
     assert set(table["ES Test"]) <= {"PASS", "FAIL", "TOO FEW BREACHES", "LOW POWER"}
+
+
+def test_rolling_forecasts_reuse_precomputed_fits(garch_returns):
+    from var_calculator import rolling_model_fits
+    r = garch_returns.iloc[:700]
+    fits = rolling_model_fits(r, window=250)
+    assert len(fits["garch"]) == len(fits["student_t"]) == int(np.ceil(450 / 20))
+    for cl in (0.95, 0.99):
+        direct = rolling_forecasts(r, cl, window=250)
+        reused = rolling_forecasts(r, cl, window=250, fits=fits)
+        for key in ("var", "es", "sigma"):
+            pd.testing.assert_frame_equal(direct[key], reused[key])

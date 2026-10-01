@@ -1,0 +1,7 @@
+# Dark theme matching the app's custom CSS (ui/styles.py), so the app looks right for users whose default is light.
+[theme]
+base = "dark"
+primaryColor = "#3182CE"
+backgroundColor = "#0E1117"
+secondaryBackgroundColor = "#1A1F2C"
+textColor = "#E0E0E0"

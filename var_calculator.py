@@ -558,9 +558,32 @@ MONTE_CARLO_BACKTEST_NAME = "Monte Carlo (GARCH-t)"
 BACKTEST_MODELS = MODEL_ORDER + [MONTE_CARLO_BACKTEST_NAME]
 
 
+def rolling_model_fits(returns: pd.Series, window: int = 250, refit_every: int = REFIT_EVERY, models=None) -> dict:
+    """
+    The slow part of the rolling backtest: Student-t and GARCH(1,1)-t refits, one per `refit_every`-day block.
+    They do not depend on the confidence level, so they can be computed once and reused for every level.
+    """
+    from numpy.lib.stride_tricks import sliding_window_view
+
+    names = list(models) if models is not None else list(BACKTEST_MODELS)
+    r = returns.to_numpy(dtype=float)
+    n = len(r)
+    fits = {"student_t": [], "garch": []}
+    if n <= window:
+        return fits
+    W = sliding_window_view(r, window)[:-1]
+    for b0 in range(0, n - window, refit_every):
+        if "Student-t" in names:
+            fits["student_t"].append(fit_student_t(W[b0]))
+        if "GARCH(1,1)-t" in names or MONTE_CARLO_BACKTEST_NAME in names:
+            t0 = window + b0
+            fits["garch"].append(fit_garch_t(r[max(0, t0 - GARCH_MAX_WINDOW):t0]))
+    return fits
+
+
 def rolling_forecasts(returns: pd.Series, confidence_level: float, window: int = 250, ewma_lambda: float = 0.94,
                       refit_every: int = REFIT_EVERY, num_simulations: int = 5000, seed: int = 42,
-                      models=None) -> dict:
+                      models=None, fits: dict = None) -> dict:
     """
     Out-of-sample one-day VaR, ES and volatility forecasts for each model (one column per model).
     The forecast for day t uses only returns before t; the first `window` days have no forecast.
@@ -572,6 +595,7 @@ def rolling_forecasts(returns: pd.Series, confidence_level: float, window: int =
       days, with σ filtered daily using the latest parameters. A non-converged fit falls back to EWMA
       for that block; the count is returned as `garch_fallbacks`.
 
+    Pass `fits` from rolling_model_fits (same window, refit_every and models) to skip refitting.
     Returns {"var", "es", "sigma"} DataFrames plus "garch_refits" and "garch_fallbacks".
     """
     from numpy.lib.stride_tricks import sliding_window_view
@@ -627,11 +651,11 @@ def rolling_forecasts(returns: pd.Series, confidence_level: float, window: int =
         put("FHS (EWMA-filtered)", q_var * s_ewma, q_es * s_ewma, s_ewma)
 
     blocks = [(b, min(b + refit_every, len(days))) for b in range(0, len(days), refit_every)]
+    fits = fits if fits is not None else rolling_model_fits(returns, window, refit_every, names)
 
     if "Student-t" in names:
         t_var, t_es, t_sigma = (np.empty(len(days)) for _ in range(3))
-        for b0, b1 in blocks:
-            fit = fit_student_t(W[b0])
+        for (b0, b1), fit in zip(blocks, fits["student_t"]):
             v, e = student_t_var_es(alpha, fit["nu"], fit["loc"], fit["scale"])
             t_var[b0:b1], t_es[b0:b1] = v, e
             t_sigma[b0:b1] = fit["scale"] * np.sqrt(fit["nu"] / (fit["nu"] - 2))
@@ -641,10 +665,9 @@ def rolling_forecasts(returns: pd.Series, confidence_level: float, window: int =
     want_mc = MONTE_CARLO_BACKTEST_NAME in names
     if want_garch or want_mc:
         g = {k: np.empty(len(days)) for k in ("var", "es", "sigma", "mc_var", "mc_es")}
-        for b0, b1 in blocks:
+        for (b0, b1), fit in zip(blocks, fits["garch"]):
             t0, t1 = window + b0, window + b1
             start = max(0, t0 - GARCH_MAX_WINDOW)
-            fit = fit_garch_t(r[start:t0])
             out["garch_refits"] += 1
             if not fit["converged"]:
                 out["garch_fallbacks"] += 1

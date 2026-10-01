@@ -1,5 +1,7 @@
 # VaR Analysis Tool
 
+**Live demo:** _coming soon_. The link will be added here once the app is deployed on Streamlit Community Cloud.
+
 A Streamlit dashboard that measures the market risk of a single stock or a multi-stock portfolio and tests which risk model is reliable. It pulls daily prices from Yahoo Finance and estimates Value at Risk (VaR) and Expected Shortfall (ES) with eight models, from plain historical simulation up to GARCH(1,1)-t. Each model is backtested out of sample: VaR with the Kupiec and Christoffersen tests, ES with the McNeil-Frey test. Crisis scenarios are measured from real index data and replayed through the position's actual returns, and everything exports to a formatted Excel report.
 
 It started as an Excel VaR workbook. This project rebuilds it in Python, so any NSE, BSE or US ticker can be analysed in seconds, and adds the model-validation layer a spreadsheet makes hard.
@@ -210,7 +212,7 @@ One click exports a `.xlsx` workbook:
 
 ## Run it locally
 
-Requires Python 3.11 or newer.
+Requires Python 3.11 or 3.12. `requirements.txt` pins the exact versions the tests pass with; numpy and scipy use slightly older pins on 3.11, because the newest releases no longer support it.
 
 ```bash
 git clone https://github.com/singhwilliam15/VaR-Analysis-Tool.git
@@ -219,17 +221,33 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-On Windows you can double-click `run_app.bat` instead. The project also opens directly in GitHub Codespaces, which starts the app for you.
+On Windows you can double-click `run_app.bat` instead. The project also opens directly in GitHub Codespaces: the dev container installs the requirements and starts the app on port 8501. A dark theme is set in `.streamlit/config.toml`.
+
+Heavy results (GARCH and Student-t fits, rolling forecasts, backtests, crisis replays) are cached on their inputs, so changing an unrelated setting doesn't recompute everything. On a 2,600-day history, the first run takes about 10 s; changing the position size takes about 1 s, and changing the confidence level about 2 s.
+
+## Deploy (Streamlit Community Cloud)
+
+The app runs on Community Cloud as it is: the entry point is `app.py`, the requirements are pinned and no secrets are needed.
+
+1. Sign in at [share.streamlit.io](https://share.streamlit.io) with the GitHub account that owns this repository.
+2. Click **Create app**, then choose **Deploy a public app from GitHub**.
+3. Pick the repository `singhwilliam15/VaR-Analysis-Tool`, the branch `main` and the main file `app.py`.
+4. Under **Advanced settings**, choose **Python 3.12**.
+5. Click **Deploy**. The first build installs the requirements and takes a few minutes.
+6. Copy the app's URL (`https://….streamlit.app`) into the **Live demo** line at the top of this README.
 
 Use Yahoo Finance symbols: `.NS` for NSE (`RELIANCE.NS`), `.BO` for BSE, and no suffix for US stocks (`AAPL`).
 
 ## Tests
 
 ```bash
+pip install -r requirements-dev.txt
 pytest
 ```
 
-The 125 tests check each calculation against an independent reference. They need no network: market data is mocked.
+The 135 tests run on every push and pull request through GitHub Actions, on Python 3.11 and 3.12 (`.github/workflows/tests.yml`). They run **offline**: `conftest.py` blocks every outbound connection, and market data comes from a deterministic synthetic generator or mocked Yahoo responses. Each calculation is checked against an independent reference:
+
+- the Streamlit app itself (`test_app.py`), loaded in single-stock and portfolio modes with synthetic prices, driving the decomposition bases, what-if panel, buy-and-hold, a short history and the error paths
 
 - GARCH(1,1)-t recovering the true parameters from simulated GARCH-t data; the variance filter, term structure and simulated paths checked against hand-written recursions; rolling GARCH forecasts never using future data; fallbacks counted
 - the unit-variance t quantile and ES against 3 million simulated draws
@@ -260,7 +278,8 @@ The 125 tests check each calculation against an independent reference. They need
 ## Project structure
 
 ```text
-app.py                 Streamlit dashboard
+app.py                 Entry point: wires the UI sections together
+ui/                    Streamlit UI: sidebar, data loading, calculations, overview, one module per tab, cache
 var_calculator.py      VaR/ES models, rolling forecasts, backtests, beta and stress testing
 garch.py               GARCH(1,1)-t fitting, filtering, simulation; FHS
 portfolio.py           Portfolio construction, risk decomposition, incremental VaR, what-if
@@ -268,7 +287,10 @@ stress.py              Measured crisis scenarios, historical replay, downside be
 stress_scenarios.csv   Editable crisis windows (Nifty 50 and S&P 500)
 data_fetcher.py        Yahoo Finance download, with a direct-HTTP fallback
 excel_exporter.py      Formatted Excel report
-test_*.py              Unit tests
+test_*.py, conftest.py Tests, synthetic market data and the network guard
+.github/workflows/     CI: pytest on Python 3.11 and 3.12
+.streamlit/config.toml Dark theme
+.devcontainer/         GitHub Codespaces setup
 ```
 
 ## Limitations
@@ -281,7 +303,7 @@ test_*.py              Unit tests
 - **The risk-free rate** is a user-set assumption, not a live market rate.
 - **Cornish-Fisher** is an approximation. Even inside its valid region it can overstate the 99% tail and understate the 90% one.
 - **GARCH(1,1)-t** has a constant mean and symmetric response to shocks (no leverage term such as GJR or EGARCH). Its multi-day formula applies a 1-day t-quantile to the summed variance, which overstates the t-day tail; Monte Carlo is the better multi-day estimate.
-- **Rolling backtest shortcuts for speed:** Student-t and GARCH are refitted every 20 days rather than daily, and GARCH uses at most 1,000 past days. A full-history run (for example AAPL `max`, about 11,000 days) takes about a minute.
+- **Rolling backtest shortcuts for speed:** Student-t and GARCH are refitted every 20 days rather than daily, and GARCH uses at most 1,000 past days. The first full-history run of a long-listed stock (for example AAPL `max`, about 11,000 days) still takes about a minute; later reruns reuse the cached fits.
 - **The Acerbi-Székely (2014) ES test** (the plan's stretch goal) is not implemented; McNeil-Frey is the only ES backtest.
 - **Monte Carlo at 1 day** adds nothing beyond GARCH-t, so it is excluded from the recommendation.
 - **Stress scenarios** are historical. They cannot capture a crisis unlike past ones, and β-proxy rows assume the stock's crisis sensitivity in the lookback window would have held in earlier crises.

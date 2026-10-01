@@ -1,9 +1,12 @@
-streamlit>=1.50
-pandas
-numpy
-yfinance
-plotly
-openpyxl
-scipy
-arch
-pytest
+# Exact versions the test suite passes with. numpy and scipy have no Python 3.11 builds at the
+# versions used on 3.12+, so 3.11 gets the newest compatible releases (also tested).
+streamlit==1.64.0
+pandas==3.0.6
+numpy==2.5.3; python_version >= "3.12"
+numpy==2.4.6; python_version < "3.12"
+scipy==1.18.1; python_version >= "3.12"
+scipy==1.17.1; python_version < "3.12"
+arch==8.0.0
+yfinance==1.7.0
+plotly==7.1.0
+openpyxl==3.1.5

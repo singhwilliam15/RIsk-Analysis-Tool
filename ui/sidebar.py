@@ -1,0 +1,68 @@
+"""Sidebar inputs: mode, ticker or holdings, lookback, position size, confidence, horizon."""
+
+import pandas as pd
+import streamlit as st
+from portfolio import BUY_AND_HOLD, REBALANCE_DAILY
+from ui.context import export
+from ui.formatting import pct_label
+
+
+def render_sidebar(ctx):
+    """Sidebar inputs: mode, ticker or holdings, lookback, position size, confidence, horizon."""
+    st.sidebar.header("⚙️ Risk Parameters & Input")
+
+    # Quick Select Pills
+    quick_tickers = {
+        "Asian Paints (NSE)": "ASIANPAINT.NS",
+        "Britannia (NSE)": "BRITANNIA.NS",
+        "Reliance (NSE)": "RELIANCE.NS",
+        "HDFC Bank (NSE)": "HDFCBANK.NS",
+        "TCS (NSE)": "TCS.NS",
+        "Apple (US)": "AAPL",
+        "Microsoft (US)": "MSFT",
+        "Tesla (US)": "TSLA"
+    }
+
+    analysis_mode = st.sidebar.radio("Analysis Mode", ["Single Stock", "Portfolio"], horizontal=True)
+    is_portfolio = analysis_mode == "Portfolio"
+
+    if not is_portfolio:
+        selected_preset = st.sidebar.selectbox("Quick Preset Ticker", options=["Custom Ticker"] + list(quick_tickers.keys()))
+
+        if selected_preset != "Custom Ticker":
+            default_ticker = quick_tickers[selected_preset]
+        else:
+            default_ticker = "ASIANPAINT.NS"
+
+        ticker_input = st.sidebar.text_input("Enter Yahoo Finance Ticker Symbol", value=default_ticker, help="Examples: ASIANPAINT.NS, BRITANNIA.NS, RELIANCE.NS, AAPL, MSFT").strip().upper()
+    else:
+        st.sidebar.caption("Holdings and weights (any units; they are scaled to 100%). Add or delete rows in the table. All holdings must trade in the same currency.")
+        holdings_input = st.sidebar.data_editor(
+            pd.DataFrame({
+                "Ticker": ["RELIANCE.NS", "HDFCBANK.NS", "TCS.NS", "ASIANPAINT.NS", "BRITANNIA.NS"],
+                "Weight": [30.0, 25.0, 20.0, 15.0, 10.0],
+            }),
+            num_rows="dynamic",
+            hide_index=True,
+            width="stretch",
+            key="holdings",
+        )
+        rebalance_mode = st.sidebar.radio("Rebalancing", [REBALANCE_DAILY, BUY_AND_HOLD],
+                                          help="Daily: weights reset to the targets every day. Buy-and-hold: shares are bought once and weights drift with prices.")
+        st.sidebar.caption("Long-only: weights must be positive. Short positions would need borrow costs, margin and "
+                           "a gross/net exposure definition that this tool does not model.")
+
+    period_input = st.sidebar.selectbox("Historical Lookback Window", options=["1y", "2y", "5y", "max"], index=1)
+
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("💼 Portfolio Settings")
+
+    investment_amount = st.sidebar.number_input("Portfolio Investment Amount", min_value=1000.0, max_value=1000000000.0, value=1000000.0, step=50000.0, format="%.2f")
+
+    confidence_level = st.sidebar.select_slider("Confidence Level (1 - α)", options=[0.90, 0.95, 0.975, 0.99], value=0.95,
+                                                format_func=pct_label, help="97.5% is the Basel FRTB Expected Shortfall level.")
+
+    holding_period = st.sidebar.selectbox("Holding Period (Days)", options=[1, 5, 10, 21, 30], index=0, help="VaR scaled by sqrt(days)")
+
+    num_sims = st.sidebar.selectbox("Monte Carlo Simulations", options=[1000, 2500, 5000, 10000], index=2)
+    export(ctx, locals())

@@ -1,6 +1,7 @@
 """
 Value at Risk (VaR) & Financial Risk Calculator Module
-Replicates and extends the exact quantitative methodology from VaR_Risk_Management_Tool.xlsx
+VaR and Expected Shortfall models, multi-day scaling, out-of-sample backtests
+(Kupiec, Christoffersen, Basel traffic light, tick loss), beta and stress testing.
 """
 
 import math
@@ -38,168 +39,82 @@ def compute_returns(prices: pd.Series, log_returns: bool = False) -> pd.Series:
     return returns
 
 def calculate_portfolio_statistics(returns: pd.Series, risk_free_rate: float = 0.05) -> dict:
-    """Compute core portfolio return and risk metrics."""
+    """
+    Compute core return and risk metrics.
+    `risk_free_rate` is an annual rate, converted to a daily rate by compounding.
+    """
     n_obs = len(returns)
     if n_obs < 2:
         return {}
-        
+
     daily_mean = returns.mean()
     daily_vol = returns.std(ddof=1)
-    ann_return = (1 + daily_mean) ** 252 - 1
+    # CAGR from the actual compounded path; the arithmetic mean overstates growth when returns are volatile
+    total_growth = float(np.prod(1 + returns.to_numpy()))
+    cagr = total_growth ** (252 / n_obs) - 1 if total_growth > 0 else -1.0
+    ann_mean_return = daily_mean * 252
     ann_vol = daily_vol * np.sqrt(252)
-    
+
     # Risk-adjusted ratios
     rf_daily = (1 + risk_free_rate) ** (1 / 252) - 1
-    excess_returns = returns - rf_daily
     sharpe_ratio = (daily_mean - rf_daily) / daily_vol * np.sqrt(252) if daily_vol > 0 else 0
-    
-    downside_returns = returns[returns < 0]
-    downside_vol = downside_returns.std(ddof=1) if len(downside_returns) > 1 else daily_vol
-    sortino_ratio = (daily_mean - rf_daily) / downside_vol * np.sqrt(252) if downside_vol > 0 else 0
-    
+
+    # Sortino: downside deviation below the risk-free target, averaged over ALL days
+    downside_deviation = float(np.sqrt(np.mean(np.minimum(returns.to_numpy() - rf_daily, 0.0) ** 2)))
+    sortino_ratio = (daily_mean - rf_daily) / downside_deviation * np.sqrt(252) if downside_deviation > 0 else 0
+
     # Cumulative returns and max drawdown
     cum_returns = (1 + returns).cumprod()
     running_max = cum_returns.cummax()
     drawdowns = (cum_returns - running_max) / running_max
     max_drawdown = drawdowns.min()
-    
+
     # Coefficient of Variation (Volatility / Mean)
-    cov = daily_vol / abs(daily_mean) if daily_mean != 0 else np.nan
+    coef_variation = daily_vol / abs(daily_mean) if daily_mean != 0 else np.nan
 
     return {
         "n_obs": n_obs,
         "daily_mean": daily_mean,
         "daily_vol": daily_vol,
-        "ann_return": ann_return,
+        "cagr": cagr,
+        "ann_mean_return": ann_mean_return,
         "ann_vol": ann_vol,
+        "risk_free_rate": risk_free_rate,
         "sharpe_ratio": sharpe_ratio,
+        "downside_deviation": downside_deviation,
         "sortino_ratio": sortino_ratio,
         "max_drawdown": max_drawdown,
         "min_return": returns.min(),
         "max_return": returns.max(),
         "skewness": returns.skew(),
         "kurtosis": returns.kurtosis(),
-        "cov": cov
+        "coef_variation": coef_variation
     }
 
-def calculate_historical_var(returns: pd.Series, investment: float, confidence_level: float, holding_period: int = 1) -> dict:
-    """
-    Calculate Historical (Non-Parametric) VaR and Expected Shortfall (CVaR).
-    Sorted actual empirical returns percentile method.
-    """
-    alpha = 1.0 - confidence_level
-    percentile_cutoff = np.percentile(returns, alpha * 100)
-    
-    # Loss amount (positive number representing maximum expected loss)
-    var_daily_pct = -percentile_cutoff
-    var_daily_amount = var_daily_pct * investment
-    
-    # Expected Shortfall (CVaR) - average loss beyond percentile
-    tail_returns = returns[returns <= percentile_cutoff]
-    cvar_daily_pct = -tail_returns.mean() if len(tail_returns) > 0 else var_daily_pct
-    cvar_daily_amount = cvar_daily_pct * investment
-    
-    # Holding period scaling
-    holding_scale = np.sqrt(holding_period)
-    var_scaled_amount = var_daily_amount * holding_scale
-    cvar_scaled_amount = cvar_daily_amount * holding_scale
-    
-    return {
-        "confidence_level": confidence_level,
-        "alpha": alpha,
-        "percentile_return": percentile_cutoff,
-        "var_daily_pct": var_daily_pct,
-        "var_daily_amount": var_daily_amount,
-        "cvar_daily_pct": cvar_daily_pct,
-        "cvar_daily_amount": cvar_daily_amount,
-        "holding_period": holding_period,
-        "var_scaled_amount": var_scaled_amount,
-        "cvar_scaled_amount": cvar_scaled_amount
-    }
 
-def calculate_parametric_var(returns: pd.Series, investment: float, confidence_level: float, holding_period: int = 1) -> dict:
-    """
-    Calculate Parametric (Variance-Covariance) VaR assuming Normal Distribution.
-    Formula: VaR = Portfolio * (Z * sigma - mu)
-    """
-    mu = returns.mean()
-    sigma = returns.std(ddof=1)
-    
-    # Z-score for given confidence level (e.g., Z=1.64485 for 95%)
-    z_score = norm.ppf(confidence_level)
-    
-    var_daily_pct = (z_score * sigma - mu)
-    var_daily_amount = var_daily_pct * investment
-    
-    # Analytic Gaussian CVaR = Portfolio * (pdf(Z) / (1-alpha) * sigma - mu)
-    alpha = 1.0 - confidence_level
-    pdf_z = norm.pdf(z_score)
-    cvar_daily_pct = (pdf_z / alpha * sigma - mu)
-    cvar_daily_amount = cvar_daily_pct * investment
-    
-    # Holding period scaling
-    holding_scale = np.sqrt(holding_period)
-    var_scaled_amount = var_daily_amount * holding_scale
-    cvar_scaled_amount = cvar_daily_amount * holding_scale
-    
-    return {
-        "confidence_level": confidence_level,
-        "z_score": z_score,
-        "mu": mu,
-        "sigma": sigma,
-        "var_daily_pct": var_daily_pct,
-        "var_daily_amount": var_daily_amount,
-        "cvar_daily_pct": cvar_daily_pct,
-        "cvar_daily_amount": cvar_daily_amount,
-        "holding_period": holding_period,
-        "var_scaled_amount": var_scaled_amount,
-        "cvar_scaled_amount": cvar_scaled_amount
-    }
+SCALING_SQRT_TIME = "√t × 1-day quantile"
+SCALING_PARAMETRIC = "z·σ·√t − μ·t"
 
-def calculate_monte_carlo_var(returns: pd.Series, investment: float, confidence_level: float, holding_period: int = 1, num_simulations: int = 5000, seed: int = None) -> dict:
-    """
-    Calculate Monte Carlo Simulation VaR by sampling simulated return paths.
-    """
-    if seed is not None:
-        np.random.seed(seed)
-        
-    mu = returns.mean()
-    sigma = returns.std(ddof=1)
-    
-    # Simulate return paths from Normal(mu, sigma)
-    simulated_returns = np.random.normal(mu, sigma, num_simulations)
-    
-    alpha = 1.0 - confidence_level
-    percentile_cutoff = np.percentile(simulated_returns, alpha * 100)
-    
-    var_daily_pct = -percentile_cutoff
-    var_daily_amount = var_daily_pct * investment
-    
-    tail_sims = simulated_returns[simulated_returns <= percentile_cutoff]
-    cvar_daily_pct = -tail_sims.mean() if len(tail_sims) > 0 else var_daily_pct
-    cvar_daily_amount = cvar_daily_pct * investment
-    
-    holding_scale = np.sqrt(holding_period)
-    var_scaled_amount = var_daily_amount * holding_scale
-    cvar_scaled_amount = cvar_daily_amount * holding_scale
-    
-    return {
-        "num_simulations": num_simulations,
-        "confidence_level": confidence_level,
-        "simulated_returns": simulated_returns,
-        "var_daily_pct": var_daily_pct,
-        "var_daily_amount": var_daily_amount,
-        "cvar_daily_pct": cvar_daily_pct,
-        "cvar_daily_amount": cvar_daily_amount,
-        "holding_period": holding_period,
-        "var_scaled_amount": var_scaled_amount,
-        "cvar_scaled_amount": cvar_scaled_amount
-    }
 
 def _scaled_result(var_daily_pct: float, cvar_daily_pct: float, investment: float,
-                   confidence_level: float, holding_period: int, **extra) -> dict:
-    """Common VaR/ES result dictionary, scaled to the holding period by sqrt(time)."""
-    holding_scale = np.sqrt(holding_period)
+                   confidence_level: float, holding_period: int, mu: float = None, **extra) -> dict:
+    """
+    Common VaR/ES result dictionary with one multi-day scaling rule for every model.
+
+    Parametric models pass their daily mean `mu`: the daily VaR is z·σ − μ, so over t days
+    the volatility term grows with √t and the mean with t:  VaR_t = z·σ·√t − μ·t (same for ES).
+    Empirical models (Historical, Monte Carlo) pass no mean and scale the 1-day quantile by √t.
+    """
+    t = holding_period
+    if mu is None:
+        scaling_rule = SCALING_SQRT_TIME
+        var_t = var_daily_pct * np.sqrt(t)
+        cvar_t = cvar_daily_pct * np.sqrt(t)
+    else:
+        scaling_rule = SCALING_PARAMETRIC
+        var_t = (var_daily_pct + mu) * np.sqrt(t) - mu * t
+        cvar_t = (cvar_daily_pct + mu) * np.sqrt(t) - mu * t
+        extra["mu"] = mu
     return {
         "confidence_level": confidence_level,
         "var_daily_pct": var_daily_pct,
@@ -207,10 +122,95 @@ def _scaled_result(var_daily_pct: float, cvar_daily_pct: float, investment: floa
         "cvar_daily_pct": cvar_daily_pct,
         "cvar_daily_amount": cvar_daily_pct * investment,
         "holding_period": holding_period,
-        "var_scaled_amount": var_daily_pct * investment * holding_scale,
-        "cvar_scaled_amount": cvar_daily_pct * investment * holding_scale,
+        "scaling_rule": scaling_rule,
+        "var_scaled_pct": var_t,
+        "cvar_scaled_pct": cvar_t,
+        "var_scaled_amount": var_t * investment,
+        "cvar_scaled_amount": cvar_t * investment,
         **extra
     }
+
+
+def _empirical_var_es(sample, alpha: float):
+    """Loss quantile and average loss beyond it, both as positive numbers."""
+    sample = np.asarray(sample)
+    cutoff = np.percentile(sample, alpha * 100)
+    tail = sample[sample <= cutoff]
+    return -cutoff, (-tail.mean() if len(tail) > 0 else -cutoff)
+
+
+def calculate_overlapping_historical_var(returns: pd.Series, investment: float, confidence_level: float, holding_period: int) -> dict:
+    """
+    Empirical t-day VaR/ES from overlapping compounded t-day returns.
+    A check on √t scaling. Overlapping windows share days, so the observations are not
+    independent and the estimate is noisier than its count suggests.
+    """
+    window_returns = np.expm1(np.log1p(returns).rolling(holding_period).sum()).dropna()
+    var_pct, cvar_pct = _empirical_var_es(window_returns, 1.0 - confidence_level)
+    return {
+        "holding_period": holding_period,
+        "observations": len(window_returns),
+        "var_pct": var_pct,
+        "cvar_pct": cvar_pct,
+        "var_amount": var_pct * investment,
+        "cvar_amount": cvar_pct * investment,
+    }
+
+
+def calculate_historical_var(returns: pd.Series, investment: float, confidence_level: float, holding_period: int = 1) -> dict:
+    """
+    Calculate Historical (Non-Parametric) VaR and Expected Shortfall (CVaR).
+    Empirical percentile of daily returns; multi-day figures use √t scaling, with the
+    overlapping empirical t-day VaR alongside for comparison.
+    """
+    alpha = 1.0 - confidence_level
+    var_daily_pct, cvar_daily_pct = _empirical_var_es(returns, alpha)
+    extra = {"alpha": alpha, "percentile_return": -var_daily_pct}
+    if holding_period > 1:
+        overlapping = calculate_overlapping_historical_var(returns, investment, confidence_level, holding_period)
+        extra.update({
+            "overlapping_var_amount": overlapping["var_amount"],
+            "overlapping_cvar_amount": overlapping["cvar_amount"],
+            "overlapping_observations": overlapping["observations"],
+        })
+    return _scaled_result(var_daily_pct, cvar_daily_pct, investment, confidence_level, holding_period, **extra)
+
+
+def calculate_parametric_var(returns: pd.Series, investment: float, confidence_level: float, holding_period: int = 1) -> dict:
+    """
+    Calculate Parametric (Variance-Covariance) VaR assuming Normal Distribution.
+    1-day: VaR = z·σ − μ, ES = φ(z)/α·σ − μ.  t-day: z·σ·√t − μ·t.
+    """
+    mu = returns.mean()
+    sigma = returns.std(ddof=1)
+    z_score = norm.ppf(confidence_level)
+    alpha = 1.0 - confidence_level
+
+    var_daily_pct = z_score * sigma - mu
+    cvar_daily_pct = norm.pdf(z_score) / alpha * sigma - mu
+    return _scaled_result(var_daily_pct, cvar_daily_pct, investment, confidence_level, holding_period,
+                          mu=mu, z_score=z_score, sigma=sigma)
+
+
+MIN_TAIL_DRAWS = 50
+
+
+def calculate_monte_carlo_var(returns: pd.Series, investment: float, confidence_level: float, holding_period: int = 1, num_simulations: int = 5000, seed: int = None) -> dict:
+    """
+    Calculate Monte Carlo Simulation VaR by sampling returns from a fitted normal distribution.
+    Uses a local random generator (no global seed side effect); multi-day figures use √t scaling.
+    """
+    rng = np.random.default_rng(seed)
+    mu = returns.mean()
+    sigma = returns.std(ddof=1)
+    simulated_returns = rng.normal(mu, sigma, num_simulations)
+
+    alpha = 1.0 - confidence_level
+    var_daily_pct, cvar_daily_pct = _empirical_var_es(simulated_returns, alpha)
+    tail_draws = int(np.floor(num_simulations * alpha))
+    return _scaled_result(var_daily_pct, cvar_daily_pct, investment, confidence_level, holding_period,
+                          num_simulations=num_simulations, simulated_returns=simulated_returns,
+                          tail_draws=tail_draws, few_tail_draws=tail_draws < MIN_TAIL_DRAWS)
 
 
 def student_t_dof(excess_kurtosis):
@@ -274,7 +274,7 @@ def calculate_cornish_fisher_var(returns: pd.Series, investment: float, confiden
     tail_z = cornish_fisher_quantile(np.asarray(norm.ppf(tail_u)), skew, kurt)
     cvar_daily_pct = -(mu + tail_z.mean() * sigma)
     return _scaled_result(var_daily_pct, cvar_daily_pct, investment, confidence_level, holding_period,
-                          skewness=skew, excess_kurtosis=kurt, z_cornish_fisher=z_cf)
+                          mu=mu, sigma=sigma, skewness=skew, excess_kurtosis=kurt, z_cornish_fisher=z_cf)
 
 
 def ewma_volatility(returns: pd.Series, lam: float = 0.94):
@@ -295,6 +295,7 @@ def calculate_ewma_var(returns: pd.Series, investment: float, confidence_level: 
     """
     RiskMetrics VaR: normal quantile on tomorrow's EWMA volatility forecast, zero mean.
     Recent returns get more weight, so VaR reacts quickly when volatility rises.
+    Multi-day figures hold tomorrow's volatility constant (z·σ·√t, the RiskMetrics convention).
     """
     _, sigma_next = ewma_volatility(returns, lam)
     z = norm.ppf(confidence_level)
@@ -302,7 +303,7 @@ def calculate_ewma_var(returns: pd.Series, investment: float, confidence_level: 
     var_daily_pct = z * sigma_next
     cvar_daily_pct = norm.pdf(z) / alpha * sigma_next
     return _scaled_result(var_daily_pct, cvar_daily_pct, investment, confidence_level, holding_period,
-                          ewma_lambda=lam, sigma_forecast=sigma_next)
+                          mu=0.0, ewma_lambda=lam, sigma_forecast=sigma_next)
 
 
 def calculate_all_var(returns: pd.Series, investment: float, confidence_level: float, holding_period: int = 1,
@@ -376,6 +377,8 @@ def perform_kupiec_backtest(returns: pd.Series, var_daily_pct, confidence_level:
             actual_breaches * np.log(p_hat / alpha) +
             (T - actual_breaches) * np.log((1 - p_hat) / (1 - alpha))
         )
+    # LR >= 0 in theory; when the breach rate equals alpha exactly, rounding can push it slightly below 0
+    lr_stat = max(float(lr_stat), 0.0)
 
     chi_sq_critical_95 = 3.841  # 1 degree of freedom Chi-Square at 95% confidence
     # Chi-square(1) p-value: P(chi2 > LR) = 2 * (1 - Phi(sqrt(LR)))
@@ -474,13 +477,42 @@ def christoffersen_test(hits) -> dict:
     }
 
 
+BACKTEST_WINDOW = 250
+LOW_POWER = "LOW POWER"
+
+
+def min_backtest_days(confidence_level: float) -> int:
+    """
+    Out-of-sample days needed before a PASS/FAIL verdict means anything.
+    At 99% even 250 days give only ~2.5 expected breaches; at 90-95%, 100 days give 5-10.
+    """
+    return 250 if confidence_level >= 0.975 else 100
+
+
+def tick_loss(returns: pd.Series, var_series: pd.Series, confidence_level: float) -> float:
+    """
+    Average quantile (tick / pinball) loss of a VaR forecast:
+        L = mean[ (α − 1{r < −VaR}) · (r + VaR) ]
+    The −VaR return quantile is the forecast. The loss is never negative and is lowest, in
+    expectation, for the true quantile, so it ranks models; a p-value does not.
+    """
+    alpha = 1.0 - confidence_level
+    r = returns.to_numpy(dtype=float)
+    q = -var_series.to_numpy(dtype=float)
+    hit = (r < q).astype(float)
+    return float(np.mean((alpha - hit) * (r - q)))
+
+
 def backtest_all_methods(returns: pd.Series, forecasts: pd.DataFrame, confidence_level: float) -> pd.DataFrame:
     """
-    Kupiec (coverage), Christoffersen (independence) and conditional coverage tests for each model.
+    Kupiec (coverage), Christoffersen (independence) and conditional coverage tests for each model,
+    plus the tick loss used to rank them.
     Conditional coverage LR = Kupiec LR + independence LR ~ chi-square(2).
+    With fewer test days than `min_backtest_days`, the verdict is LOW POWER instead of PASS/FAIL.
     """
     valid = forecasts.notna().all(axis=1)
     r = returns[valid]
+    enough_data = len(r) >= min_backtest_days(confidence_level)
     rows = []
     for method in forecasts.columns:
         var_series = forecasts.loc[valid, method]
@@ -488,6 +520,7 @@ def backtest_all_methods(returns: pd.Series, forecasts: pd.DataFrame, confidence
         ind = christoffersen_test(r < -var_series)
         lr_cc = kupiec["lr_stat"] + ind["lr_ind"]
         p_cc = float(np.exp(-lr_cc / 2))  # chi-square(2) survival function
+        passed = min(kupiec["p_value"], ind["p_value_ind"], p_cc) >= 0.05
         rows.append({
             "Method": method,
             "Test Days": kupiec["total_observations"],
@@ -499,10 +532,24 @@ def backtest_all_methods(returns: pd.Series, forecasts: pd.DataFrame, confidence
             "Conditional Coverage p-value": p_cc,
             "Back-to-Back Breaches": ind["n11"],
             "Traffic Light": kupiec["traffic_light"],
-            "Verdict": "PASS" if min(kupiec["p_value"], ind["p_value_ind"], p_cc) >= 0.05 else "FAIL",
+            "Tick Loss": tick_loss(r, var_series, confidence_level) if len(r) else float("nan"),
+            "Verdict": ("PASS" if passed else "FAIL") if enough_data else LOW_POWER,
             "Avg VaR": var_series.mean(),
         })
     return pd.DataFrame(rows)
+
+
+def recommend_model(backtest_table: pd.DataFrame) -> dict:
+    """
+    Recommended model = lowest tick loss among models that PASS all three tests.
+    If none pass, report the lowest-loss model with a warning; with too little data, recommend nothing.
+    """
+    if backtest_table.empty or (backtest_table["Verdict"] == LOW_POWER).all():
+        return {"model": None, "status": "low_power"}
+    passing = backtest_table[backtest_table["Verdict"] == "PASS"]
+    if len(passing):
+        return {"model": passing.loc[passing["Tick Loss"].idxmin(), "Method"], "status": "recommended"}
+    return {"model": backtest_table.loc[backtest_table["Tick Loss"].idxmin(), "Method"], "status": "none_pass"}
 
 
 def estimate_beta(stock_returns: pd.Series, index_returns: pd.Series) -> float:

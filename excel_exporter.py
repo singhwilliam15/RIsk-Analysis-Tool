@@ -59,7 +59,8 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
                               confidence_level: float, holding_period: int, df_data: pd.DataFrame,
                               var_by_level: dict, backtest_table: pd.DataFrame, backtest_window: int,
                               stress_df: pd.DataFrame, worst_df: pd.DataFrame,
-                              benchmark_name: str, beta: float, portfolio: dict = None) -> bytes:
+                              benchmark_name: str, beta: float, portfolio: dict = None,
+                              recommendation: dict = None, data_note: str = None, risk_free_rate: float = None) -> bytes:
     """
     Generate the Excel risk report and return it as .xlsx bytes.
     `var_by_level` maps model name -> {confidence level -> VaR result dict}.
@@ -86,6 +87,8 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
         ("Selected Confidence Level", confidence_level, "0.0%"),
         ("Holding Period (Days)", holding_period, "0"),
         (f"Beta vs {benchmark_name}", beta if np.isfinite(beta) else "n/a", "0.00"),
+        ("Risk-free Rate (assumption)", risk_free_rate if risk_free_rate is not None else "n/a", "0.00%"),
+        ("Data Source", data_note or "n/a", "@"),
     ]
     for i, (label, val, fmt) in enumerate(settings_data, start=6):
         ws_dash[f"B{i}"] = label
@@ -93,15 +96,17 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
         ws_dash[f"C{i}"].number_format = fmt
         ws_dash[f"C{i}"].font = BOLD_FONT
 
-    ws_dash["B11"] = f"VAR AND EXPECTED SHORTFALL BY MODEL ({holding_period}-DAY HORIZON)"
-    ws_dash["B11"].font = BOLD_FONT
+    ws_dash["B13"] = f"VAR AND EXPECTED SHORTFALL BY MODEL ({holding_period}-DAY HORIZON)"
+    ws_dash["B13"].font = BOLD_FONT
     cl_pct = f"{int(confidence_level * 100)}%"
     _write_table(
-        ws_dash, 12,
-        [("Model", "@"), ("90% VaR", money), ("95% VaR", money), ("99% VaR", money), (f"{cl_pct} Expected Shortfall", money)],
+        ws_dash, 14,
+        [("Model", "@"), ("90% VaR", money), ("95% VaR", money), ("99% VaR", money),
+         (f"{cl_pct} Expected Shortfall", money), ("Multi-day Rule", "@")],
         [
             (model, levels[0.90]["var_scaled_amount"], levels[0.95]["var_scaled_amount"],
-             levels[0.99]["var_scaled_amount"], levels[confidence_level]["cvar_scaled_amount"])
+             levels[0.99]["var_scaled_amount"], levels[confidence_level]["cvar_scaled_amount"],
+             levels[confidence_level]["scaling_rule"] if holding_period > 1 else "1 day")
             for model, levels in var_by_level.items()
         ],
     )
@@ -162,20 +167,29 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
     ws_back["B2"] = f"🔬 OUT-OF-SAMPLE BACKTEST — {cl_pct} VAR, ROLLING {backtest_window}-DAY WINDOW"
     ws_back["B2"].font = TITLE_FONT
     ws_back["B3"] = ("Kupiec: correct breach count. Christoffersen: breaches independent. "
-                     "Conditional coverage: both. PASS requires every p-value >= 0.05.")
+                     "Conditional coverage: both. PASS requires every p-value >= 0.05. "
+                     "Recommended = lowest tick loss among PASS models.")
     ws_back["B3"].font = SUBTITLE_FONT
-    backtest_cols = [
-        ("Method", "@"), ("Test Days", "0"), ("Expected Breaches", "0.0"), ("Actual Breaches", "0"),
-        ("Breach Rate", "0.00%"), ("Kupiec p-value", "0.000"), ("Independence p-value", "0.000"),
-        ("Conditional Coverage p-value", "0.000"), ("Back-to-Back Breaches", "0"),
-        ("Traffic Light", "@"), ("Verdict", "@"), ("Avg VaR", "0.00%"),
-    ]
-    _write_table(ws_back, 5, backtest_cols, backtest_table[[name for name, _ in backtest_cols]].itertuples(index=False))
-    verdict_col = 2 + [name for name, _ in backtest_cols].index("Verdict")
-    for r in range(6, 6 + len(backtest_table)):
-        cell = ws_back.cell(row=r, column=verdict_col)
-        cell.fill = PASS_FILL if cell.value == "PASS" else FAIL_FILL
-        cell.font = BOLD_FONT
+    rec = recommendation or {"model": None, "status": "low_power"}
+    ws_back["B4"] = {
+        "recommended": f"Recommended model: {rec['model']}",
+        "none_pass": f"No model passes all tests; lowest tick loss: {rec['model']} (use with caution)",
+    }.get(rec["status"], "Not enough out-of-sample data for a meaningful backtest; choose a longer lookback.")
+    ws_back["B4"].font = BOLD_FONT
+    if backtest_table is not None and len(backtest_table):
+        backtest_cols = [
+            ("Method", "@"), ("Test Days", "0"), ("Expected Breaches", "0.0"), ("Actual Breaches", "0"),
+            ("Verdict", "@"), ("Tick Loss", "0.000000"), ("Breach Rate", "0.00%"), ("Kupiec p-value", "0.000"),
+            ("Independence p-value", "0.000"), ("Conditional Coverage p-value", "0.000"),
+            ("Back-to-Back Breaches", "0"), ("Traffic Light", "@"), ("Avg VaR", "0.00%"),
+        ]
+        _write_table(ws_back, 6, backtest_cols, backtest_table[[name for name, _ in backtest_cols]].itertuples(index=False))
+        verdict_col = 2 + [name for name, _ in backtest_cols].index("Verdict")
+        for r in range(7, 7 + len(backtest_table)):
+            cell = ws_back.cell(row=r, column=verdict_col)
+            if cell.value in ("PASS", "FAIL"):
+                cell.fill = PASS_FILL if cell.value == "PASS" else FAIL_FILL
+            cell.font = BOLD_FONT
 
     # -------------------------------------------------------------
     # SHEET 3: STRESS TESTING

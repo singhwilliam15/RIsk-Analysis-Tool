@@ -65,8 +65,9 @@ def component_var(asset_returns: pd.DataFrame, weights: pd.Series, investment: f
     """
     Parametric (Euler) VaR decomposition plus each holding's standalone Historical VaR.
 
-    Component VaR_i = w_i * (z * (Σw)_i / σ_p − μ_i), so the components add up exactly to the
-    portfolio's parametric VaR (z * σ_p − μ_p). A negative component means the holding hedges the rest.
+    Over t days, Component VaR_i = w_i * (z * (Σw)_i / σ_p * √t − μ_i * t), so the components add up
+    exactly to the portfolio's parametric VaR (z * σ_p * √t − μ_p * t). Marginal VaR is reported per day.
+    A negative component means the holding hedges the rest.
     """
     r = asset_returns[weights.index]
     w = weights.to_numpy()
@@ -74,10 +75,10 @@ def component_var(asset_returns: pd.DataFrame, weights: pd.Series, investment: f
     mu = r.mean().to_numpy()
     z = norm.ppf(confidence_level)
     sigma_p = float(np.sqrt(w @ cov @ w))
-    scale = investment * np.sqrt(holding_period)
+    t = holding_period
 
     marginal = z * (cov @ w) / sigma_p - mu
-    component = w * marginal * scale
+    component = w * (z * (cov @ w) / sigma_p * np.sqrt(t) - mu * t) * investment
     standalone = np.array([
         calculate_historical_var(r[t], investment * w_i, confidence_level, holding_period)["var_scaled_amount"]
         for t, w_i in zip(weights.index, w)

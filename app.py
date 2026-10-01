@@ -1,6 +1,7 @@
 """
 Value at Risk (VaR) Automated Analysis Tool — Main Streamlit Web App
-Replicates and automates the exact quantitative methodology from VaR_Risk_Management_Tool.xlsx
+Six VaR/ES models for a stock or portfolio, out-of-sample backtests with a tick-loss model
+ranking, portfolio risk decomposition, stress testing and Excel export.
 """
 
 import streamlit as st
@@ -21,6 +22,10 @@ from var_calculator import (
     perform_kupiec_backtest,
     rolling_var_forecasts,
     backtest_all_methods,
+    recommend_model,
+    min_backtest_days,
+    BACKTEST_WINDOW,
+    LOW_POWER,
     estimate_beta,
     historical_worst_losses,
     run_stress_testing
@@ -187,6 +192,7 @@ if not is_portfolio:
     current_price = data_res["current_price"]
     df = data_res["df"]
     benchmark_tickers = [symbol]
+    data_note = f"{data_res['data_source']}, {data_res['price_basis']} closes"
 else:
     try:
         weights = normalize_weights(holdings_input)
@@ -221,15 +227,24 @@ else:
     current_price = None
     df = build_portfolio_frame(asset_returns, weights)
     benchmark_tickers = list(weights.index)
+    sources = sorted({f"{res['data_source']}, {res['price_basis']} closes" for res in fetched.values()})
+    data_note = "; ".join(sources)
 
 returns = df["Returns"].dropna()
 
 curr_sym = "₹" if currency == "INR" else "$" if currency == "USD" else currency + " "
 
+risk_free_pct = st.sidebar.number_input(
+    f"Risk-free rate, % p.a. ({currency})", min_value=0.0, max_value=20.0,
+    value=6.5 if currency == "INR" else 4.0, step=0.25, key=f"risk_free_{currency}",
+    help="Editable assumption used for Sharpe and Sortino ratios, not a live market rate. "
+         "Defaults: 6.5% for INR, 4.0% for USD."
+)
+
 # -------------------------------------------------------------
 # CALCULATIONS
 # -------------------------------------------------------------
-stats = calculate_portfolio_statistics(returns)
+stats = calculate_portfolio_statistics(returns, risk_free_rate=risk_free_pct / 100)
 
 confidence_levels = (0.90, 0.95, 0.99)
 var_by_level = {
@@ -256,12 +271,31 @@ beta_used = beta if np.isfinite(beta) else 1.0
 stress_df = run_stress_testing(investment_amount, beta=beta_used)
 worst_df = historical_worst_losses(returns, investment_amount)
 
-# Out-of-sample backtest of every model: each day's VaR comes only from the preceding window
-backtest_window = min(250, len(returns) // 2)
-forecasts = rolling_var_forecasts(returns, confidence_level, window=backtest_window)
-backtest_table = backtest_all_methods(returns, forecasts, confidence_level)
-best_model = backtest_table.loc[backtest_table["Conditional Coverage p-value"].idxmax(), "Method"]
-passing_models = backtest_table.loc[backtest_table["Verdict"] == "PASS", "Method"].tolist()
+# Out-of-sample backtest of every model: each day's VaR comes only from the preceding 250 days.
+# The window stays fixed; too few remaining test days are flagged rather than hidden by shrinking it.
+backtest_window = BACKTEST_WINDOW
+test_days = max(len(returns) - backtest_window, 0)
+required_days = min_backtest_days(confidence_level)
+low_power = test_days < required_days
+if test_days > 0:
+    forecasts = rolling_var_forecasts(returns, confidence_level, window=backtest_window)
+    backtest_table = backtest_all_methods(returns, forecasts, confidence_level)
+    recommendation = recommend_model(backtest_table)
+    passing_models = backtest_table.loc[backtest_table["Verdict"] == "PASS", "Method"].tolist()
+else:
+    forecasts, backtest_table, passing_models = None, None, []
+    recommendation = {"model": None, "status": "low_power"}
+recommended_model = recommendation["model"]
+
+if recommendation["status"] == "recommended":
+    backtest_summary = (f"{', '.join(passing_models)} passed all three tests at {cl_label}; "
+                        f"**{recommended_model}** is recommended (lowest tick loss among the passing models).")
+elif recommendation["status"] == "none_pass":
+    backtest_summary = (f"no model passed all three tests at {cl_label}. **{recommended_model}** has the lowest tick loss, "
+                        "but its breaches are still statistically off, so treat every VaR figure here with caution.")
+else:
+    backtest_summary = (f"only {test_days} out-of-sample day{"" if test_days == 1 else "s"} available; at least {required_days} are needed for a meaningful "
+                        f"test at {cl_label}. Choose a 5y or max lookback.")
 
 # Portfolio decomposition
 if is_portfolio:
@@ -279,6 +313,7 @@ jarque_bera_p = float(np.exp(-jarque_bera / 2))  # chi-square(2) survival functi
 # EXECUTIVE TOP CARDS
 # -------------------------------------------------------------
 st.subheader(f"📈 Risk Overview for {company_name} ({symbol})")
+st.caption(f"Data: {data_note} · {len(returns)} daily returns · {df['Date'].iloc[0]:%d %b %Y} to {df['Date'].iloc[-1]:%d %b %Y}")
 
 col1, col2, col3, col4, col5 = st.columns(5)
 
@@ -293,7 +328,14 @@ cards = [
     (col2, "Annualized Volatility", f"{stats['ann_vol']:.2%}", f"EWMA today: {var_ewma['sigma_forecast'] * np.sqrt(252):.2%}", "metric-sub"),
     (col3, f"Historical VaR ({cl_label})", f"{curr_sym}{var_hist['var_scaled_amount']:,.0f}", f"Loss ({var_hist['var_daily_pct']:.2%})", "metric-sub-red"),
     (col4, f"Expected Shortfall ({cl_label})", f"{curr_sym}{var_hist['cvar_scaled_amount']:,.0f}", f"Tail Loss ({var_hist['cvar_daily_pct']:.2%})", "metric-sub-red"),
-    (col5, "Best-Calibrated Model", best_model, f"VaR {curr_sym}{var_selected[best_model]['var_scaled_amount']:,.0f}", "metric-sub"),
+    (
+        (col5, "Recommended Model", recommended_model,
+         f"Lowest tick loss among passing · VaR {curr_sym}{var_selected[recommended_model]['var_scaled_amount']:,.0f}", "metric-sub")
+        if recommendation["status"] == "recommended" else
+        (col5, "No Model Passes", recommended_model, "Lowest tick loss shown; use with caution", "metric-sub-red")
+        if recommendation["status"] == "none_pass" else
+        (col5, "Recommended Model", "Not enough data", f"{test_days} of {required_days} test days needed", "metric-sub-red")
+    ),
 ]
 for col, label, value, sub, sub_class in cards:
     with col:
@@ -331,10 +373,23 @@ with tab1:
         row = {"Model": method}
         for cl in confidence_levels:
             res = var_by_level[cl][method]
-            row[f"{int(cl * 100)}% VaR"] = f"{curr_sym}{res['var_scaled_amount']:,.0f} ({res['var_daily_pct']:.2%})"
-        row[f"{cl_label} ES"] = f"{curr_sym}{var_selected[method]['cvar_scaled_amount']:,.0f} ({var_selected[method]['cvar_daily_pct']:.2%})"
+            row[f"{int(cl * 100)}% VaR"] = f"{curr_sym}{res['var_scaled_amount']:,.0f} ({res['var_scaled_pct']:.2%})"
+        row[f"{cl_label} ES"] = f"{curr_sym}{var_selected[method]['cvar_scaled_amount']:,.0f} ({var_selected[method]['cvar_scaled_pct']:.2%})"
+        row["Multi-day rule"] = var_selected[method]["scaling_rule"] if holding_period > 1 else "1 day"
         summary_rows.append(row)
     st.table(pd.DataFrame(summary_rows).set_index("Model"))
+
+    if holding_period > 1:
+        st.caption(
+            f"**{holding_period}-day check (Historical):** √t scaling gives **{curr_sym}{var_hist['var_scaled_amount']:,.0f}** VaR / "
+            f"**{curr_sym}{var_hist['cvar_scaled_amount']:,.0f}** ES; the actual overlapping {holding_period}-day returns give "
+            f"**{curr_sym}{var_hist['overlapping_var_amount']:,.0f}** / **{curr_sym}{var_hist['overlapping_cvar_amount']:,.0f}** "
+            f"({var_hist['overlapping_observations']} overlapping windows, so the observations are not independent)."
+        )
+    mc_result = var_selected[method_names[-1]]
+    if mc_result["few_tail_draws"]:
+        st.warning(f"Monte Carlo: {num_sims:,} simulations at {cl_label} leave only {mc_result['tail_draws']} draws in the tail, "
+                   "so its VaR and especially its ES are noisy. Use 10,000 simulations or more.")
 
     with st.expander("How each model works"):
         st.markdown(f"""
@@ -344,6 +399,8 @@ with tab1:
 - **Cornish-Fisher:** adjusts the normal quantile for skewness ({skewness:.2f}) and excess kurtosis ({excess_kurtosis:.2f}).
 - **EWMA (RiskMetrics):** normal quantile on an exponentially weighted volatility forecast (λ = 0.94), so it reacts to recent market stress.
 - **Monte Carlo:** {num_sims:,} simulated returns from a fitted normal distribution.
+
+**Multi-day horizons:** the parametric models (Normal, Student-t, Cornish-Fisher, EWMA) use `z·σ·√t − μ·t`; volatility grows with √t and the mean with t. Historical and Monte Carlo scale the 1-day quantile by √t. That assumes independent returns, so compare it with the overlapping-window check above.
 """)
 
     st.markdown("---")
@@ -389,8 +446,8 @@ with tab1:
     - **Historical VaR ({cl_label})**: over a {holding_period}-day horizon there is a {100 - int(confidence_level * 100)}% chance that this {curr_sym}{investment_amount:,.0f} position in {company_name} loses more than **{curr_sym}{var_hist['var_scaled_amount']:,.0f}** ({var_hist['var_daily_pct']:.2%} per day).
     - **Expected Shortfall**: when losses do exceed VaR, the average loss is **{curr_sym}{var_hist['cvar_scaled_amount']:,.0f}**.
     - **Model risk**: the six models range from **{curr_sym}{min(var_values):,.0f}** to **{curr_sym}{max(var_values):,.0f}**, a spread of {max(var_values) / min(var_values) - 1:.0%}.
-    - **Backtest**: {', '.join(passing_models) if passing_models else 'no model'} passed all three tests at {cl_label}; **{best_model}** was best calibrated.
-    - **Sharpe** {stats['sharpe_ratio']:.2f} · **Sortino** {stats['sortino_ratio']:.2f} · **Max Drawdown** {stats['max_drawdown']:.2%}
+    - **Backtest**: {backtest_summary}
+    - **CAGR** {stats['cagr']:.2%} · **Sharpe** {stats['sharpe_ratio']:.2f} · **Sortino** {stats['sortino_ratio']:.2f} (risk-free {risk_free_pct:.2f}%, assumption) · **Max Drawdown** {stats['max_drawdown']:.2%}
     """)
 
 # -------------------------------------------------------------
@@ -494,18 +551,20 @@ with tab3:
     with col_st1:
         df_display_stress = stress_df.copy()
         df_display_stress["Market Shock"] = df_display_stress["Shock"].map(lambda x: f"{x:.1%}")
-        df_display_stress["Stock Shock (β-adj)"] = df_display_stress["Stock_Shock"].map(lambda x: f"{x:.1%}")
+        shock_label = "Portfolio Shock (β-adj)" if is_portfolio else "Stock Shock (β-adj)"
+        df_display_stress[shock_label] = df_display_stress["Stock_Shock"].map(lambda x: f"{x:.1%}")
         df_display_stress["Portfolio Impact"] = df_display_stress["Portfolio_Impact"].map(lambda x: f"-{curr_sym}{abs(x):,.0f}")
         df_display_stress["Post-Shock Value"] = df_display_stress["Post_Shock_Value"].map(lambda x: f"{curr_sym}{x:,.0f}")
         st.dataframe(
-            df_display_stress[["Scenario", "Market Shock", "Stock Shock (β-adj)", "Portfolio Impact", "Post-Shock Value", "Risk_Level"]],
+            df_display_stress[["Scenario", "Market Shock", shock_label, "Portfolio Impact", "Post-Shock Value", "Risk_Level"]],
             width="stretch", hide_index=True
         )
 
         custom_shock_pct = st.slider(f"Custom {benchmark_name} shock (%)", min_value=-60.0, max_value=0.0, value=-20.0, step=1.0)
         custom_stock_shock = max(custom_shock_pct / 100.0 * beta_used, -1.0)
         custom_impact = investment_amount * custom_stock_shock
-        st.warning(f"💡 A **{custom_shock_pct:.0f}%** {benchmark_name} fall implies a **{custom_stock_shock:.1%}** move in {symbol} "
+        target_name = "the portfolio" if is_portfolio else symbol
+        st.warning(f"💡 A **{custom_shock_pct:.0f}%** {benchmark_name} fall implies a **{custom_stock_shock:.1%}** move in {target_name} "
                    f"(β = {beta_used:.2f}): a loss of **{curr_sym}{abs(custom_impact):,.0f}**, leaving **{curr_sym}{investment_amount + custom_impact:,.0f}**.")
 
     with col_st2:
@@ -532,54 +591,77 @@ with tab4:
     st.markdown(f"### 🔬 Out-of-Sample Backtest of Every Model ({cl_label} VaR)")
     st.caption(f"Each day's VaR is estimated from the previous {backtest_window} trading days only, then compared with that day's actual return. "
                "**Kupiec** tests whether the breach count is right; **Christoffersen independence** tests whether breaches cluster together; "
-               "**conditional coverage** combines both. A model passes if every p-value is at least 0.05.")
+               "**conditional coverage** combines both. A model passes if every p-value is at least 0.05. "
+               "Passing models are ranked by **tick loss** (average quantile loss; lower is better). A higher p-value is not evidence of a better model.")
 
-    bt_display = backtest_table.copy()
-    bt_display["Expected Breaches"] = bt_display["Expected Breaches"].map(lambda x: f"{x:.1f}")
-    bt_display["Breach Rate"] = bt_display["Breach Rate"].map(lambda x: f"{x:.2%}")
-    bt_display["Avg VaR"] = bt_display["Avg VaR"].map(lambda x: f"{x:.2%}")
-    for col in ("Kupiec p-value", "Independence p-value", "Conditional Coverage p-value"):
-        bt_display[col] = bt_display[col].map(lambda x: f"{x:.3f}")
-    st.dataframe(
-        bt_display[["Method", "Actual Breaches", "Expected Breaches", "Breach Rate", "Kupiec p-value",
-                    "Independence p-value", "Conditional Coverage p-value", "Back-to-Back Breaches", "Traffic Light", "Verdict", "Avg VaR"]],
-        width="stretch", hide_index=True
-    )
+if backtest_table is None:
+    with tab4:
+        st.warning(f"Not enough data to backtest: the first {backtest_window} returns are needed to estimate the model, "
+                   f"which leaves {test_days} test days. Choose a 5y or max lookback.")
+else:
+    with tab4:
+        if low_power:
+            st.warning(f"Not enough data for a meaningful backtest at {cl_label}: {test_days} out-of-sample day{"" if test_days == 1 else "s"}, "
+                       f"{required_days} needed (only {test_days * (1 - confidence_level):.1f} breaches expected). "
+                       f"Verdicts are shown as {LOW_POWER}; choose a 5y or max lookback.")
+        elif recommendation["status"] == "none_pass":
+            st.warning(f"No model passes all three tests. **{recommended_model}** has the lowest tick loss, but its breach "
+                       "pattern is still statistically off.")
+        else:
+            st.success(f"Recommended model: **{recommended_model}** (lowest tick loss among the models that pass all three tests).")
 
-    st.markdown("---")
-    selected_model = st.selectbox("Inspect a model", options=list(forecasts.columns), index=list(forecasts.columns).index(best_model))
-    detail = perform_kupiec_backtest(returns, forecasts[selected_model], confidence_level)
+        bt_display = backtest_table.copy()
+        bt_display["Expected Breaches"] = bt_display["Expected Breaches"].map(lambda x: f"{x:.1f}")
+        bt_display["Breach Rate"] = bt_display["Breach Rate"].map(lambda x: f"{x:.2%}")
+        bt_display["Avg VaR"] = bt_display["Avg VaR"].map(lambda x: f"{x:.2%}")
+        bt_display["Tick Loss (bp)"] = bt_display["Tick Loss"].map(lambda x: f"{x * 1e4:.3f}")
+        for col in ("Kupiec p-value", "Independence p-value", "Conditional Coverage p-value"):
+            bt_display[col] = bt_display[col].map(lambda x: f"{x:.3f}")
+        verdict_colors = {"PASS": "color: #68D391; font-weight: 600", "FAIL": "color: #FC8181; font-weight: 600",
+                          LOW_POWER: "color: #718096; font-style: italic"}
+        st.dataframe(
+            bt_display[["Method", "Actual Breaches", "Expected Breaches", "Verdict", "Tick Loss (bp)", "Kupiec p-value",
+                        "Independence p-value", "Conditional Coverage p-value", "Breach Rate", "Back-to-Back Breaches",
+                        "Traffic Light", "Avg VaR"]].style.map(lambda v: verdict_colors.get(v, ""), subset=["Verdict"]),
+            width="stretch", hide_index=True
+        )
 
-    col_b1, col_b2 = st.columns([1, 1.6])
+        st.markdown("---")
+        model_options = list(forecasts.columns)
+        default_model = recommended_model if recommended_model in model_options else model_options[0]
+        selected_model = st.selectbox("Inspect a model", options=model_options, index=model_options.index(default_model))
+        detail = perform_kupiec_backtest(returns, forecasts[selected_model], confidence_level)
 
-    with col_b1:
-        traffic_badge = detail["traffic_light"]
-        badge_class = "badge-green" if "GREEN" in traffic_badge else "badge-yellow" if "YELLOW" in traffic_badge else "badge-red"
-        st.markdown(f"#### Basel status: <span class=\"{badge_class}\">{traffic_badge}</span>", unsafe_allow_html=True)
-        st.write(detail["status_desc"])
-        st.table(pd.DataFrame([
-            {"Metric": "Test Days (T)", "Value": f"{detail['total_observations']}"},
-            {"Metric": "Expected Breaches (α × T)", "Value": f"{detail['expected_failures']:.1f}"},
-            {"Metric": "Actual Breaches", "Value": f"{detail['actual_breaches']}"},
-            {"Metric": "Kupiec LR (crit. 3.841)", "Value": f"{detail['lr_stat']:.3f}"},
-            {"Metric": "Kupiec p-value", "Value": f"{detail['p_value']:.3f}"},
-            {"Metric": "Binomial P(X ≤ breaches)", "Value": f"{detail['cumulative_prob']:.2%}"},
-        ]).set_index("Metric"))
+        col_b1, col_b2 = st.columns([1, 1.6])
 
-    with col_b2:
-        df_breaches = df.loc[forecasts.index, ["Date", "Returns"]].copy()
-        df_breaches["VaR_Threshold"] = -forecasts[selected_model]
-        df_breaches = df_breaches.dropna()
-        df_breaches["Is_Breach"] = df_breaches["Returns"] < df_breaches["VaR_Threshold"]
+        with col_b1:
+            traffic_badge = detail["traffic_light"]
+            badge_class = "badge-green" if "GREEN" in traffic_badge else "badge-yellow" if "YELLOW" in traffic_badge else "badge-red"
+            st.markdown(f"#### Basel status: <span class=\"{badge_class}\">{traffic_badge}</span>", unsafe_allow_html=True)
+            st.write(detail["status_desc"])
+            st.table(pd.DataFrame([
+                {"Metric": "Test Days (T)", "Value": f"{detail['total_observations']}"},
+                {"Metric": "Expected Breaches (α × T)", "Value": f"{detail['expected_failures']:.1f}"},
+                {"Metric": "Actual Breaches", "Value": f"{detail['actual_breaches']}"},
+                {"Metric": "Kupiec LR (crit. 3.841)", "Value": f"{detail['lr_stat']:.3f}"},
+                {"Metric": "Kupiec p-value", "Value": f"{detail['p_value']:.3f}"},
+                {"Metric": "Binomial P(X ≤ breaches)", "Value": f"{detail['cumulative_prob']:.2%}"},
+            ]).set_index("Metric"))
 
-        fig_breach = px.scatter(df_breaches, x="Date", y="Returns", color="Is_Breach",
-                                title=f"Daily Returns vs Rolling {selected_model} VaR",
-                                color_discrete_map={True: "#FC8181", False: "#4FD1C5"},
-                                labels={"Is_Breach": "VaR Breach"}, template="plotly_dark")
-        fig_breach.add_scatter(x=df_breaches["Date"], y=df_breaches["VaR_Threshold"], mode="lines",
-                               line=dict(color="#F6AD55", dash="dash"), name="Rolling VaR")
-        fig_breach.update_layout(yaxis_tickformat=".1%")
-        st.plotly_chart(fig_breach, width="stretch")
+        with col_b2:
+            df_breaches = df.loc[forecasts.index, ["Date", "Returns"]].copy()
+            df_breaches["VaR_Threshold"] = -forecasts[selected_model]
+            df_breaches = df_breaches.dropna()
+            df_breaches["Is_Breach"] = df_breaches["Returns"] < df_breaches["VaR_Threshold"]
+
+            fig_breach = px.scatter(df_breaches, x="Date", y="Returns", color="Is_Breach",
+                                    title=f"Daily Returns vs Rolling {selected_model} VaR",
+                                    color_discrete_map={True: "#FC8181", False: "#4FD1C5"},
+                                    labels={"Is_Breach": "VaR Breach"}, template="plotly_dark")
+            fig_breach.add_scatter(x=df_breaches["Date"], y=df_breaches["VaR_Threshold"], mode="lines",
+                                   line=dict(color="#F6AD55", dash="dash"), name="Rolling VaR")
+            fig_breach.update_layout(yaxis_tickformat=".1%")
+            st.plotly_chart(fig_breach, width="stretch")
 
 # -------------------------------------------------------------
 # TAB 5: EXPORT & REPORTS
@@ -603,6 +685,9 @@ with tab5:
         worst_df=worst_df,
         benchmark_name=benchmark_name,
         beta=beta,
+        recommendation=recommendation,
+        data_note=data_note,
+        risk_free_rate=risk_free_pct / 100,
         portfolio={"components": component_table, "diversification": diversification, "correlation": correlation} if is_portfolio else None
     )
 

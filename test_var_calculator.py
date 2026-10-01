@@ -233,9 +233,145 @@ def test_excel_report_contains_every_model_and_sheet(fat_tailed_returns):
     wb = openpyxl.load_workbook(io.BytesIO(xlsx))
     assert wb.sheetnames == ["Dashboard", "Backtesting", "Stress Testing", "Raw Data"]
     dash = wb["Dashboard"]
-    rows = {dash.cell(row=r, column=2).value: [dash.cell(row=r, column=c).value for c in range(3, 7)] for r in range(13, 13 + len(models))}
+    rows = {dash.cell(row=r, column=2).value: [dash.cell(row=r, column=c).value for c in range(3, 7)] for r in range(15, 15 + len(models))}
     assert list(rows) == models
     for m in models:
         assert rows[m][0] < rows[m][1] < rows[m][2]  # 90% < 95% < 99% VaR
         assert rows[m][3] == pytest.approx(by_level[0.99][m]["cvar_scaled_amount"])
     assert wb["Raw Data"].max_row == 4 + len(df)
+    back = wb["Backtesting"]
+    headers = [back.cell(row=6, column=c).value for c in range(2, 15)]
+    assert "Tick Loss" in headers and headers.index("Verdict") == headers.index("Actual Breaches") + 1
+    assert back["B4"].value.startswith("Not enough")  # no recommendation passed in
+
+
+# ---------------------------------------------------------------
+# Phase 1: multi-day scaling, performance statistics, tick loss,
+# backtest power and Monte Carlo hygiene
+# ---------------------------------------------------------------
+
+def test_parametric_multi_day_uses_sqrt_t_for_sigma_and_t_for_mean(normal_returns):
+    mu, sigma, z, t = normal_returns.mean(), normal_returns.std(ddof=1), 2.326348, 10
+    res = calculate_parametric_var(normal_returns, 1_000_000, 0.99, holding_period=t)
+    assert res["var_scaled_pct"] == pytest.approx(z * sigma * np.sqrt(t) - mu * t, rel=1e-5)
+    es_1d_factor = 0.026652 / 0.01  # φ(z)/α at 99%
+    assert res["cvar_scaled_pct"] == pytest.approx(es_1d_factor * sigma * np.sqrt(t) - mu * t, rel=1e-4)
+    assert res["var_scaled_amount"] == pytest.approx(res["var_scaled_pct"] * 1_000_000)
+
+
+def test_every_parametric_model_scales_the_mean_linearly(fat_tailed_returns):
+    from var_calculator import SCALING_PARAMETRIC, SCALING_SQRT_TIME
+    t = 10
+    for name, res in calculate_all_var(fat_tailed_returns, 1, 0.99, holding_period=t).items():
+        if res["scaling_rule"] == SCALING_PARAMETRIC:
+            mu = res["mu"]
+            assert res["var_scaled_pct"] == pytest.approx((res["var_daily_pct"] + mu) * np.sqrt(t) - mu * t), name
+        else:
+            assert res["scaling_rule"] == SCALING_SQRT_TIME
+            assert res["var_scaled_pct"] == pytest.approx(res["var_daily_pct"] * np.sqrt(t)), name
+
+
+def test_overlapping_t_day_var_by_hand():
+    from var_calculator import calculate_overlapping_historical_var
+    returns = pd.Series([0.10, -0.20, 0.05, -0.10, 0.00])
+    res = calculate_overlapping_historical_var(returns, 100, 0.5, holding_period=2)
+    windows = [1.1 * 0.8 - 1, 0.8 * 1.05 - 1, 1.05 * 0.9 - 1, 0.9 * 1.0 - 1]  # -0.12, -0.16, -0.055, -0.10
+    assert res["observations"] == 4
+    assert res["var_pct"] == pytest.approx(-np.percentile(windows, 50))
+    assert res["cvar_amount"] == pytest.approx(100 * (0.16 + 0.12) / 2)
+
+
+def test_historical_reports_overlapping_check_only_for_multi_day(normal_returns):
+    assert "overlapping_var_amount" not in calculate_historical_var(normal_returns, 1, 0.95, 1)
+    assert calculate_historical_var(normal_returns, 1, 0.95, 10)["overlapping_observations"] == len(normal_returns) - 9
+
+
+def test_cagr_comes_from_the_compounded_path():
+    from var_calculator import calculate_portfolio_statistics
+    returns = pd.Series([0.05, -0.05] * 126)  # 252 days of +5% / -5%
+    stats = calculate_portfolio_statistics(returns)
+    assert stats["cagr"] == pytest.approx((1.05 * 0.95) ** 126 - 1)
+    assert stats["ann_mean_return"] == pytest.approx(0.0)
+    assert stats["cagr"] < stats["ann_mean_return"]
+
+
+def test_sortino_uses_downside_deviation_over_all_days():
+    from var_calculator import calculate_portfolio_statistics
+    returns = pd.Series([0.02, -0.01, 0.0, -0.03])
+    stats = calculate_portfolio_statistics(returns, risk_free_rate=0.0)
+    downside = np.sqrt((0.01 ** 2 + 0.03 ** 2) / 4)
+    assert stats["downside_deviation"] == pytest.approx(downside)
+    assert stats["sortino_ratio"] == pytest.approx(returns.mean() / downside * np.sqrt(252))
+    assert "coef_variation" in stats and "cov" not in stats
+
+
+def test_risk_free_rate_input_changes_sharpe(normal_returns):
+    from var_calculator import calculate_portfolio_statistics
+    low = calculate_portfolio_statistics(normal_returns, risk_free_rate=0.04)
+    high = calculate_portfolio_statistics(normal_returns, risk_free_rate=0.065)
+    assert high["sharpe_ratio"] < low["sharpe_ratio"]
+    assert high["risk_free_rate"] == 0.065
+
+
+def test_tick_loss_by_hand():
+    from var_calculator import tick_loss
+    returns = pd.Series([-0.03, 0.01, -0.01])
+    var = pd.Series([0.02, 0.02, 0.02])
+    # (0.05 - 1)(-0.03 + 0.02) + 0.05(0.01 + 0.02) + 0.05(-0.01 + 0.02), averaged
+    assert tick_loss(returns, var, 0.95) == pytest.approx((0.0095 + 0.0015 + 0.0005) / 3)
+
+
+def test_tick_loss_is_lowest_at_the_true_quantile():
+    from var_calculator import tick_loss
+    rng = np.random.default_rng(4)
+    returns = pd.Series(rng.normal(0, 0.01, 200_000))
+    true_var = 2.326348 * 0.01
+    losses = {k: tick_loss(returns, pd.Series(np.full(len(returns), true_var * k)), 0.99) for k in (0.8, 1.0, 1.2)}
+    assert losses[1.0] < losses[0.8] and losses[1.0] < losses[1.2]
+
+
+def test_recommended_model_is_lowest_loss_among_passing():
+    from var_calculator import recommend_model
+    table = pd.DataFrame({
+        "Method": ["A", "B", "C"],
+        "Verdict": ["FAIL", "PASS", "PASS"],
+        "Tick Loss": [0.001, 0.003, 0.002],
+    })
+    assert recommend_model(table) == {"model": "C", "status": "recommended"}
+    table["Verdict"] = "FAIL"
+    assert recommend_model(table) == {"model": "A", "status": "none_pass"}
+    table["Verdict"] = "LOW POWER"
+    assert recommend_model(table) == {"model": None, "status": "low_power"}
+
+
+@pytest.mark.parametrize("confidence, days, expect_low_power", [(0.99, 249, True), (0.99, 250, False), (0.95, 99, True), (0.95, 100, False)])
+def test_backtest_flags_low_power(confidence, days, expect_low_power):
+    rng = np.random.default_rng(8)
+    returns = pd.Series(rng.normal(0, 0.01, 250 + days))
+    table = backtest_all_methods(returns, rolling_var_forecasts(returns, confidence, window=250), confidence)
+    assert (table["Test Days"] == days).all()
+    assert ((table["Verdict"] == "LOW POWER").all()) == expect_low_power
+
+
+def test_monte_carlo_is_reproducible_without_touching_global_seed(normal_returns):
+    state = np.random.get_state()[1].copy()
+    a = calculate_monte_carlo_var(normal_returns, 1, 0.99, seed=7)
+    b = calculate_monte_carlo_var(normal_returns, 1, 0.99, seed=7)
+    assert a["var_daily_pct"] == b["var_daily_pct"]
+    assert (np.random.get_state()[1] == state).all()
+
+
+def test_monte_carlo_flags_too_few_tail_draws(normal_returns):
+    few = calculate_monte_carlo_var(normal_returns, 1, 0.99, num_simulations=1000, seed=1)
+    enough = calculate_monte_carlo_var(normal_returns, 1, 0.99, num_simulations=10_000, seed=1)
+    assert few["tail_draws"] == 10 and few["few_tail_draws"]
+    assert enough["tail_draws"] == 100 and not enough["few_tail_draws"]
+
+
+def test_kupiec_exact_calibration_passes():
+    # 5 breaches in 100 days at 95% is exactly the expected rate; LR must be 0, not NaN
+    returns = pd.Series([-0.1] * 5 + [0.0] * 95)
+    res = perform_kupiec_backtest(returns, 0.05, 0.95)
+    assert res["lr_stat"] == pytest.approx(0.0, abs=1e-12)
+    assert res["p_value"] == pytest.approx(1.0)
+    assert res["test_result"].startswith("PASS")

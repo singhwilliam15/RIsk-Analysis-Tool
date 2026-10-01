@@ -4,7 +4,7 @@
 ![Python 3.11 | 3.12](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-**Live demo:** _coming soon_. The link will be added here once the app is deployed on Streamlit Community Cloud.
+**▶ Live demo: [var-analysis-tool-jb48f2b7syny4j2vzeartr.streamlit.app](https://var-analysis-tool-jb48f2b7syny4j2vzeartr.streamlit.app/)**. Try any NSE, BSE or US ticker, or switch to Portfolio mode. The app may take about 30 seconds to wake up if nobody has used it recently.
 
 A market-risk dashboard for a single stock or a multi-stock portfolio on NSE, BSE or US markets. It estimates Value at Risk (VaR) and Expected Shortfall (ES) with eight models, from historical simulation to GARCH(1,1) with Student-t errors. It then **tests which model can be trusted**:
 - every model is backtested out of sample with the Kupiec, Christoffersen and McNeil-Frey (ES) tests;
@@ -173,6 +173,8 @@ The entry point is `app.py`, the requirements are pinned and no secrets are need
 4. Under **Advanced settings**, choose **Python 3.12**.
 5. Click **Deploy**. The first build takes a few minutes.
 6. Paste the app's URL into the **Live demo** line at the top of this README.
+
+This project is deployed this way at the live-demo link above.
 
 ## Tests
 

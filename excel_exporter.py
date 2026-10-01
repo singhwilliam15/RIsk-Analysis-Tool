@@ -1,7 +1,7 @@
 """
 Excel Exporter Module
-Generates a formatted multi-sheet Excel risk report: model comparison, raw data,
-out-of-sample backtest and stress tests.
+Generates the Risk Analysis Tool's formatted multi-sheet Excel report: model comparison, portfolio risk,
+out-of-sample backtest, stress tests, positions and data quality, and raw data.
 """
 
 import openpyxl
@@ -61,13 +61,16 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
                               stress_table: pd.DataFrame, worst_df: pd.DataFrame,
                               benchmark_name: str, beta: float, portfolio: dict = None,
                               recommendation: dict = None, data_note: str = None, risk_free_rate: float = None,
-                              vol_shock_table: pd.DataFrame = None, beta_down: float = float("nan")) -> bytes:
+                              vol_shock_table: pd.DataFrame = None, beta_down: float = float("nan"),
+                              data_layer: dict = None) -> bytes:
     """
-    Generate the Excel risk report and return it as .xlsx bytes.
+    Generate the Risk Analysis Tool's Excel report and return it as .xlsx bytes.
     `var_by_level` maps model name -> {confidence level -> VaR result dict}.
     `stress_table` comes from stress.run_scenarios (None if the market history was unavailable).
     `portfolio` (optional) holds "decomposition" (portfolio.risk_decomposition), "diversification",
     "correlation" and "alignment" (portfolio.alignment_report).
+    `data_layer` (optional) holds "positions" (portfolio.build_positions), "quality" (ticker ->
+    data_quality.assess_holding result), "volume_sources" and "prices_as_of"; it adds a Positions & Data sheet.
     """
     money = f'"{currency}" #,##0'
     wb = openpyxl.Workbook()
@@ -77,7 +80,7 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
     # SHEET 1: DASHBOARD
     # -------------------------------------------------------------
     ws_dash = wb.create_sheet(title="Dashboard")
-    ws_dash["B2"] = f"⚡ VALUE AT RISK — RISK MANAGEMENT DASHBOARD ({symbol})"
+    ws_dash["B2"] = f"⚡ RISK ANALYSIS TOOL — MARKET RISK DASHBOARD ({symbol})"
     ws_dash["B2"].font = TITLE_FONT
     ws_dash["B3"] = f"Company: {company_name} | Currency: {currency} | Generated: {datetime.now():%Y-%m-%d %H:%M}"
     ws_dash["B3"].font = SUBTITLE_FONT
@@ -238,6 +241,33 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
         [("Horizon", "@"), ("Worst Return", "0.00%"), ("Loss", money), ("Window End", "@")],
         zip(worst_df["Horizon"], worst_df["Worst Return"], worst_df["Loss"], window_end),
     )
+
+    # -------------------------------------------------------------
+    # POSITIONS AND DATA QUALITY (when the app supplies them)
+    # -------------------------------------------------------------
+    if data_layer is not None:
+        ws_data = wb.create_sheet(title="Positions & Data")
+        ws_data["B2"] = "💼 POSITIONS AND DATA QUALITY"
+        ws_data["B2"].font = TITLE_FONT
+        ws_data["B3"] = (f"Positions converted at the latest close ({data_layer['prices_as_of']:%Y-%m-%d}). Data-quality "
+                         "score = 100 minus penalties; the thresholds are assumptions (docs/methodology.md, section 7).")
+        ws_data["B3"].font = SUBTITLE_FONT
+        positions = data_layer["positions"]
+        next_row = _write_table(
+            ws_data, 5,
+            [("Ticker", "@"), ("Quantity", "#,##0.00"), ("Price", "#,##0.00"), ("Value", money), ("Weight", "0.0%"),
+             ("Sector", "@")],
+            positions[["Ticker", "Quantity", "Price", "Value", "Weight", "Sector"]].itertuples(index=False),
+        )
+        ws_data.cell(row=next_row, column=2, value="DATA QUALITY BY HOLDING").font = BOLD_FONT
+        quality = data_layer["quality"]
+        volume_sources = data_layer.get("volume_sources", {})
+        _write_table(
+            ws_data, next_row + 1,
+            [("Ticker", "@"), ("Score (0-100)", "0"), ("Volume From", "@"), ("Issues", "@")],
+            [(t, q["score"], " + ".join(volume_sources.get(t, [t])), "; ".join(q["reasons"]) or "no issues found")
+             for t, q in quality.items()],
+        )
 
     # -------------------------------------------------------------
     # SHEET 4: RAW DATA

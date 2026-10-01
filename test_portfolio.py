@@ -3,8 +3,14 @@ import pandas as pd
 import pytest
 
 from portfolio import (
+    ENTRY_SHARES,
+    ENTRY_VALUE,
+    ENTRY_WEIGHT,
+    SECTOR_NOT_AVAILABLE,
     align_asset_returns,
     build_portfolio_frame,
+    build_positions,
+    clean_holdings,
     component_var,
     diversification_summary,
     normalize_weights,
@@ -222,3 +228,62 @@ def test_alignment_report_names_the_limiting_ticker():
     common = len(set(long["Date"]) & set(short["Date"]))
     assert report["common_days"] == common
     assert report["days_dropped"] == 300 - common
+
+
+# ---------------------------------------------------------------
+# Positions: weight, share and value entry
+# ---------------------------------------------------------------
+
+def test_positions_from_shares_by_hand():
+    amounts = clean_holdings(pd.DataFrame({"Ticker": ["aaa", "BBB", "CCC"], "Shares": [10, 20, 30]}), ENTRY_SHARES)
+    positions = build_positions(amounts, ENTRY_SHARES, {"AAA": 100.0, "BBB": 50.0, "CCC": 10.0},
+                                {"AAA": "Energy", "BBB": "Banks"})
+    assert positions.columns.tolist() == ["Ticker", "Quantity", "Price", "Value", "Weight", "Sector"]
+    assert positions["Value"].tolist() == [1000.0, 1000.0, 300.0]
+    assert positions["Weight"].tolist() == pytest.approx([1000 / 2300, 1000 / 2300, 300 / 2300])
+    assert positions["Sector"].tolist() == ["Energy", "Banks", SECTOR_NOT_AVAILABLE]
+
+
+def test_positions_from_values_by_hand():
+    amounts = clean_holdings(pd.DataFrame({"Ticker": ["AAA", "BBB"], "Value": [600, 400]}), ENTRY_VALUE)
+    positions = build_positions(amounts, ENTRY_VALUE, {"AAA": 20.0, "BBB": 8.0})
+    assert positions["Quantity"].tolist() == [30.0, 50.0]
+    assert positions["Weight"].tolist() == [0.6, 0.4]
+
+
+def test_positions_from_weights_match_normalize_weights():
+    holdings = pd.DataFrame({"Ticker": ["AAA", "BBB", "AAA"], "Weight": [2, 1, 1]})
+    positions = build_positions(clean_holdings(holdings), ENTRY_WEIGHT, {"AAA": 10.0, "BBB": 5.0}, investment=1000)
+    assert positions["Value"].tolist() == [750.0, 250.0]  # duplicate AAA rows are combined: 3 of 4 units
+    assert positions["Quantity"].tolist() == [75.0, 50.0]
+    assert positions["Weight"].tolist() == normalize_weights(holdings).tolist()
+
+
+def test_entry_modes_agree_on_the_same_portfolio():
+    prices = {"AAA": 125.0, "BBB": 40.0}
+    by_shares = build_positions(pd.Series({"AAA": 8.0, "BBB": 50.0}), ENTRY_SHARES, prices)
+    by_value = build_positions(pd.Series({"AAA": 1000.0, "BBB": 2000.0}), ENTRY_VALUE, prices)
+    by_weight = build_positions(pd.Series({"AAA": 1.0, "BBB": 2.0}), ENTRY_WEIGHT, prices, investment=3000)
+    for other in (by_value, by_weight):
+        pd.testing.assert_frame_equal(by_shares, other)
+
+
+@pytest.mark.parametrize("column, amounts, message", [
+    ("Shares", [10, -1], "Share counts must be positive"),
+    ("Shares", [10, None], "numeric share count"),
+    ("Value", [500], "at least two holdings with a positive value"),
+])
+def test_clean_holdings_messages(column, amounts, message):
+    tickers = ["AAA", "BBB"][:len(amounts)]
+    with pytest.raises(ValueError, match=message):
+        clean_holdings(pd.DataFrame({"Ticker": tickers, column: amounts}), column)
+
+
+def test_build_positions_rejects_bad_inputs():
+    amounts = pd.Series({"AAA": 1.0, "BBB": 1.0})
+    with pytest.raises(ValueError, match="No valid price.*BBB"):
+        build_positions(amounts, ENTRY_SHARES, {"AAA": 10.0, "BBB": 0.0})
+    with pytest.raises(ValueError, match="investment"):
+        build_positions(amounts, ENTRY_WEIGHT, {"AAA": 10.0, "BBB": 5.0})
+    with pytest.raises(ValueError, match="Unknown entry mode"):
+        build_positions(amounts, "Lots", {"AAA": 10.0, "BBB": 5.0})

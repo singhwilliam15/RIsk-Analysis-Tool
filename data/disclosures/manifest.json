@@ -1,0 +1,4 @@
+{
+  "_about": "One entry per file in this folder. Required keys: file, dataset (pledges, surveillance, price_bands, fo_ban, ratings, auditor_events), source_url, downloaded_on, coverage_start, coverage_end (YYYY-MM-DD). Optional: as_of (the list date, for files without a date column; defaults to coverage_end), constants (columns the file implies but lacks, e.g. {\"measure\": \"ASM-LT\"}) and notes. Files not listed here are not loaded. See README.md.",
+  "files": []
+}

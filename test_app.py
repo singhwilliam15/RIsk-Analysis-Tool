@@ -9,9 +9,12 @@ from streamlit.testing.v1 import AppTest
 TIMEOUT = 180
 
 
-def run_app(mode=None, **sidebar):
+def run_app(mode=None, page="Market", **sidebar):
     at = AppTest.from_file("app.py", default_timeout=TIMEOUT)
     at.run()
+    if page != "Overview":
+        at.radio(key="page").set_value(page)
+        at.run()
     if mode:
         at.sidebar.radio[0].set_value(mode)
         at.run()
@@ -92,6 +95,56 @@ def test_bad_single_ticker_is_reported(fake_market):
     at.run()
     assert not at.exception
     assert at.error and "BADX" in at.error[0].value
+
+
+def test_overview_is_the_landing_page(fake_market):
+    at = AppTest.from_file("app.py", default_timeout=TIMEOUT)
+    at.run()
+    assert_clean(at)
+    assert at.title[0].value == "⚡ Risk Analysis Tool"
+    assert at.radio(key="page").value == "Overview"
+    assert not at.tabs  # the market tabs live on the Market page
+    headings = [m.value for m in at.markdown]
+    assert any("Positions" in h for h in headings) and any("Data quality" in h for h in headings)
+
+
+@pytest.mark.parametrize("page", ["Liquidity", "Credit", "Concentration & Factors", "Event & Governance",
+                                  "Integrated Stress", "Decisions", "Trust"])
+def test_unbuilt_pages_say_coming_next(fake_market, page):
+    at = run_app(page=page)
+    assert_clean(at)
+    assert any("Coming next" in i.value for i in at.info)
+
+
+def test_inputs_are_shared_across_pages(fake_market):
+    at = run_app("Portfolio", page="Market")
+    at.radio(key="page").set_value("Overview")
+    at.run()
+    assert_clean(at)
+    assert at.sidebar.radio[0].value == "Portfolio"  # the sidebar keeps its state when the page changes
+    assert "5-stock portfolio" in at.subheader[0].value
+
+
+@pytest.mark.parametrize("mode, column, amounts", [
+    ("Shares", "Shares", [100.0, 150.0, 50.0, 100.0, 20.0]),
+    ("Value", "Value", [300000.0, 250000.0, 200000.0, 150000.0, 100000.0]),
+])
+def test_portfolio_entered_as_shares_or_value(fake_market, mode, column, amounts):
+    at = run_app("Portfolio", page="Overview")
+    {w.label: w for w in at.sidebar.selectbox}["Holdings entered as"].set_value(mode)
+    at.run()
+    assert_clean(at)
+    positions = at.dataframe[0].value
+    assert list(positions.columns[:2]) == ["Ticker", "Quantity"]
+    assert positions["Weight"].sum() == pytest.approx(1.0)
+    if mode == "Value":
+        assert positions.filter(like="Value").iloc[:, 0].tolist() == pytest.approx(amounts)
+    else:
+        assert positions["Quantity"].tolist() == pytest.approx(amounts)
+    # The Market page then runs on the total value of the holdings
+    at.radio(key="page").set_value("Market")
+    at.run()
+    assert_clean(at)
 
 
 def test_network_guard_blocks_outbound_connections():

@@ -1,4 +1,4 @@
-# VaR Analysis Tool
+# Risk Analysis Tool
 
 [![tests](https://github.com/singhwilliam15/VaR-Analysis-Tool/actions/workflows/tests.yml/badge.svg)](https://github.com/singhwilliam15/VaR-Analysis-Tool/actions/workflows/tests.yml)
 ![Python 3.11 | 3.12](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)
@@ -6,13 +6,31 @@
 
 **▶ Live demo: [var-analysis-tool-jb48f2b7syny4j2vzeartr.streamlit.app](https://var-analysis-tool-jb48f2b7syny4j2vzeartr.streamlit.app/)**. Try any NSE, BSE or US ticker, or switch to Portfolio mode. The app may take about 30 seconds to wake up if nobody has used it recently.
 
-A market-risk dashboard for a single stock or a multi-stock portfolio on NSE, BSE or US markets. It estimates Value at Risk (VaR) and Expected Shortfall (ES) with eight models, from historical simulation to GARCH(1,1) with Student-t errors. It then **tests which model can be trusted**:
+A risk dashboard for a single stock or a multi-stock portfolio on NSE, BSE or US markets. It is being extended from market risk into a full risk analysis tool with five pillars: market, liquidity, credit, concentration & factor, and event & governance risk.
+
+The pillars are linked through one integrated stress engine, because in a real crisis they hit together. Every headline number will also carry a confidence range and an A–D trust grade. The plan, phase by phase, is in [RISK_TOOL_PLAN_V3.md](RISK_TOOL_PLAN_V3.md).
+
+**Market risk** is complete. It estimates Value at Risk (VaR) and Expected Shortfall (ES) with eight models, from historical simulation to GARCH(1,1) with Student-t errors. It then **tests which model can be trusted**:
 - every model is backtested out of sample with the Kupiec, Christoffersen and McNeil-Frey (ES) tests;
 - models are ranked on tick loss, not p-values;
 - portfolio risk is split across holdings with an exact Euler allocation;
 - crisis scenarios are measured from real index data and replayed through the position's actual returns.
 
-Results export to a formatted Excel report. Built in Python with Streamlit, and covered by 135 offline tests in CI.
+The **shared data layer** is in place for the coming pillars:
+- positions entered as weights, shares or values;
+- OHLCV prices, with NSE and BSE volume combined;
+- annual fundamentals with a source on every figure;
+- loaders for official Indian disclosures (pledges, ASM/GSM, price bands, F&O ban, ratings, auditor events);
+- a data-quality score for every holding.
+
+Results export to a formatted Excel report. Built in Python with Streamlit, and covered by 224 offline tests in CI.
+
+| Page | Status |
+| --- | --- |
+| Overview | Built: summary cards, positions, data quality, fundamentals and their sources, disclosure files. Becomes the CRO dashboard in Phase 6. |
+| Market | Built: every model, backtest, portfolio, stress and export tab. |
+| Trust · Liquidity · Credit · Concentration & Factors · Event & Governance | Coming next (Phases 1–5) |
+| Integrated Stress · Decisions | Coming next (Phase 6) |
 
 ## Key findings
 
@@ -42,8 +60,10 @@ Screenshots (add the files to docs/images/, then remove this comment wrapper):
 | **Backtesting** | Out-of-sample forecasts for every model, with the Kupiec, Christoffersen independence and conditional-coverage tests, the Basel traffic light and the McNeil-Frey ES test. The **recommended model** has the lowest tick loss among the models that pass. Verdicts show `LOW POWER` when there are too few test days. |
 | **Portfolio** | Daily rebalancing or buy-and-hold. Risk split on a Historical ES, Historical VaR or Parametric VaR basis, with components that add up exactly to the total. Standalone and incremental risk, diversification benefit, correlation heatmap, and a what-if panel to change a weight or add a ticker. |
 | **Stress testing** | 7 Indian and 7 US crises from an editable CSV, with drawdowns and recovery times measured from index data. Historical replay of the position, or a downside-beta proxy when it has no prices; a custom market move; a volatility shock. |
-| **Data quality** | Adjusted prices, exchange-timezone dates, a visible data source, and warnings for suspicious moves. Data are never altered silently. |
-| **Excel report** | Dashboard, Portfolio Risk, Backtesting, Stress Testing and Raw Data sheets. |
+| **Positions** | Holdings entered as weights, share counts or money values, each stored as quantity, price, value, weight and sector. |
+| **Data layer** | Open, high, low, close and volume, with NSE and BSE volume summed where Yahoo has both. Annual fundamentals mapped to one set of field names, which a CSV upload can override field by field; each figure shows its source. Loaders and validators for Indian disclosure files, which you download from NSE, BSE and the rating agencies, listed in a manifest with source and date. |
+| **Data quality** | Adjusted prices, exchange-timezone dates, a visible data source, and warnings for suspicious moves. Each holding gets a 0–100 data-quality score, from checks for reversing spikes, stale prices, zero-volume days, gaps, short history and missing fundamentals. Data are never altered silently. |
+| **Excel report** | Dashboard, Portfolio Risk, Backtesting, Stress Testing, Positions & Data, and Raw Data sheets. |
 
 Every formula, test and design choice is in **[docs/methodology.md](docs/methodology.md)**, with references.
 
@@ -183,29 +203,38 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-The 135 tests run on every push and pull request through GitHub Actions, on Python 3.11 and 3.12. They run **offline**: `conftest.py` blocks outbound connections, and market data comes from a deterministic synthetic generator or mocked Yahoo responses. Every calculation is checked against an independent reference: a closed form, a simulation, a hand-worked example or known true parameters. Highlights:
+The 224 tests run on every push and pull request through GitHub Actions, on Python 3.11 and 3.12. They run **offline**: `conftest.py` blocks outbound connections, and market data comes from a deterministic synthetic generator or mocked Yahoo responses. Every calculation is checked against an independent reference: a closed form, a simulation, a hand-worked example or known true parameters. Highlights:
 - **GARCH:** recovers the true parameters from simulated GARCH-t data.
 - **Student-t ES:** matches 2 million simulated draws.
 - **Portfolio:** components add up exactly on every basis, and match the normal Euler shares on 400,000 simulated days.
 - **No look-ahead:** rolling forecasts never use future data.
 - **Basel traffic light:** reproduces the regulatory table.
 - **McNeil-Frey:** rejects an ES understated by 30%.
-- **App smoke tests:** `test_app.py` drives the full Streamlit app in both modes, including the error paths.
+- **Fundamentals:** the field mapping is checked against real RELIANCE.NS and AAPL statements saved from yfinance, including the years and rows Yahoo leaves out.
+- **Disclosures:** the parsers read sample files laid out like NSE's downloads, reject bad rows with their row number, and apply the point-in-time dates.
+- **Positions and data quality:** share, value and weight entry give the same portfolio, checked by hand. Each data-quality check is tested on synthetic histories with planted defects.
+- **App smoke tests:** `test_app.py` drives the full Streamlit app in both modes and on every page, including the error paths.
 
 ## Project structure
 
 ```text
-app.py                 Entry point: wires the UI sections together
-ui/                    Streamlit UI: sidebar, data loading, calculations, overview, one module per tab, cache
+app.py                 Entry point: shared sidebar, data and calculations, then the selected page
+ui/                    Streamlit UI: navigation, sidebar, data loading, calculations, pages, one module per tab, cache
 var_calculator.py      VaR/ES models, rolling forecasts, backtests, statistics
 garch.py               GARCH(1,1)-t fitting, filtering, simulation; FHS
-portfolio.py           Portfolio construction, risk decomposition, incremental VaR, what-if
+portfolio.py           Positions, portfolio construction, risk decomposition, incremental VaR, what-if
 stress.py              Measured crisis scenarios, historical replay, downside beta, volatility shock
 stress_scenarios.csv   Editable crisis windows (Nifty 50 and S&P 500)
-data_fetcher.py        Yahoo Finance download with a direct-HTTP fallback; data-quality checks
+data_fetcher.py        Yahoo Finance OHLCV download with a direct-HTTP fallback; NSE + BSE volume; spike flags
+fundamentals.py        Annual statements and profile, field mapping, CSV overrides, point-in-time dates
+disclosures.py         Loaders, templates and validators for Indian disclosure files
+data_quality.py        Data-quality score per holding
+data/disclosures/      Your downloaded disclosure files, manifest.json, templates and download steps
 excel_exporter.py      Formatted Excel report
 docs/methodology.md    Formulas, tests, design choices and references
+RISK_TOOL_PLAN_V3.md   The roadmap, phase by phase
 test_*.py, conftest.py Tests, synthetic market data and the network guard
+test_data/             Saved yfinance statements used as test fixtures
 .github/workflows/     CI: pytest on Python 3.11 and 3.12
 ```
 
@@ -232,6 +261,9 @@ test_*.py, conftest.py Tests, synthetic market data and the network guard
 - **The Acerbi-Székely (2014) ES test** is not implemented.
 - **Stress scenarios** are historical. β-proxy rows assume today's crisis sensitivity held in past crises.
 - **The risk-free rate** is a user-set assumption, not a live rate.
+- **BSE volume** is often missing on Yahoo for large caps. When it is, NSE volume is used alone, and the Overview page says so for each holding.
+- **Holiday rows.** Yahoo fills some exchange holidays with the previous close and zero volume. They add zero returns to the sample, which slightly lowers volatility. They are counted in the data-quality check but not removed.
+- **Disclosure layouts.** The parsers for official NSE files (except `fo_secban.csv`) match headers through an alias table that has not yet been checked against real downloads.
 
 ## License
 

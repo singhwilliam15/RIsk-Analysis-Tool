@@ -9,24 +9,83 @@ import pandas as pd
 from var_calculator import calculate_historical_var, norm
 
 
+ENTRY_WEIGHT = "Weight"
+ENTRY_SHARES = "Shares"
+ENTRY_VALUE = "Value"
+ENTRY_MODES = (ENTRY_WEIGHT, ENTRY_SHARES, ENTRY_VALUE)
+POSITION_COLUMNS = ["Ticker", "Quantity", "Price", "Value", "Weight", "Sector"]
+SECTOR_NOT_AVAILABLE = "not available"
+
+
+def clean_holdings(holdings: pd.DataFrame, column: str = ENTRY_WEIGHT) -> pd.Series:
+    """
+    Clean a Ticker / <column> table into positive amounts indexed by ticker (not normalised).
+    Blank rows are dropped and duplicate tickers are combined. Raises ValueError on invalid input.
+    """
+    noun = {ENTRY_WEIGHT: "weight", ENTRY_SHARES: "share count", ENTRY_VALUE: "value"}.get(column, column.lower())
+    table = holdings.copy()
+    table["Ticker"] = table["Ticker"].astype(str).str.strip().str.upper()
+    table[column] = pd.to_numeric(table[column], errors="coerce")
+    table = table[(table["Ticker"] != "") & (table["Ticker"] != "NONE") & (table["Ticker"] != "NAN")]
+    if table[column].isna().any():
+        raise ValueError(f"Every holding needs a numeric {noun}.")
+    if (table[column] < 0).any():
+        raise ValueError(f"{noun.capitalize()}s must be positive; short positions are not supported.")
+    amounts = table.groupby("Ticker", sort=False)[column].sum()
+    amounts = amounts[amounts > 0]
+    if len(amounts) < 2:
+        raise ValueError(f"Enter at least two holdings with a positive {noun}.")
+    return amounts
+
+
 def normalize_weights(holdings: pd.DataFrame) -> pd.Series:
     """
     Clean a Ticker / Weight table into weights that sum to 1, indexed by ticker.
     Blank rows are dropped and duplicate tickers are combined. Raises ValueError on invalid input.
     """
-    table = holdings.copy()
-    table["Ticker"] = table["Ticker"].astype(str).str.strip().str.upper()
-    table["Weight"] = pd.to_numeric(table["Weight"], errors="coerce")
-    table = table[(table["Ticker"] != "") & (table["Ticker"] != "NONE") & (table["Ticker"] != "NAN")]
-    if table["Weight"].isna().any():
-        raise ValueError("Every holding needs a numeric weight.")
-    if (table["Weight"] < 0).any():
-        raise ValueError("Weights must be positive; short positions are not supported.")
-    weights = table.groupby("Ticker", sort=False)["Weight"].sum()
-    weights = weights[weights > 0]
-    if len(weights) < 2:
-        raise ValueError("Enter at least two holdings with positive weights.")
+    weights = clean_holdings(holdings, ENTRY_WEIGHT)
     return weights / weights.sum()
+
+
+def build_positions(amounts: pd.Series, entry_mode: str, prices: dict, sectors: dict = None,
+                    investment: float = None) -> pd.DataFrame:
+    """
+    One row per holding: Ticker, Quantity, Price, Value, Weight, Sector.
+
+    - Weight entry: Value = weight × investment, Quantity = Value / Price (fractional shares allowed).
+    - Shares entry: Value = Quantity × Price, Weight = Value / total value.
+    - Value entry:  Quantity = Value / Price, Weight = Value / total value.
+
+    `amounts` is the cleaned entry column (clean_holdings); `prices` maps ticker -> price used to convert
+    (the latest close); `investment` is required for weight entry only.
+    """
+    tickers = list(amounts.index)
+    price = pd.Series({t: float(prices[t]) for t in tickers})
+    if not np.all(np.isfinite(price.to_numpy())) or (price <= 0).any():
+        bad = ", ".join(price.index[~np.isfinite(price.to_numpy()) | (price.to_numpy() <= 0)])
+        raise ValueError(f"No valid price to convert holdings for: {bad}.")
+    if entry_mode == ENTRY_WEIGHT:
+        if investment is None or investment <= 0:
+            raise ValueError("Weight entry needs a positive investment amount.")
+        value = amounts / amounts.sum() * investment
+        quantity = value / price
+    elif entry_mode == ENTRY_SHARES:
+        quantity = amounts.astype(float)
+        value = quantity * price
+    elif entry_mode == ENTRY_VALUE:
+        value = amounts.astype(float)
+        quantity = value / price
+    else:
+        raise ValueError(f"Unknown entry mode '{entry_mode}'.")
+    sectors = sectors or {}
+    return pd.DataFrame({
+        "Ticker": tickers,
+        "Quantity": quantity.to_numpy(),
+        "Price": price.to_numpy(),
+        "Value": value.to_numpy(),
+        "Weight": (value / value.sum()).to_numpy(),
+        "Sector": [sectors.get(t) or SECTOR_NOT_AVAILABLE for t in tickers],
+    }, columns=POSITION_COLUMNS)
 
 
 def align_asset_returns(price_frames: dict) -> pd.DataFrame:

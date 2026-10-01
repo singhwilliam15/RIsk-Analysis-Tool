@@ -36,7 +36,7 @@ def render(ctx, tab5):
 
     with tab5:
         st.markdown("### 📥 Download Excel Risk Report")
-        st.write("A formatted `.xlsx` workbook with every model's VaR and ES, the out-of-sample backtest, β-adjusted stress tests, worst historical losses and the raw price data.")
+        st.write("A formatted `.xlsx` workbook with every model's VaR and ES, the out-of-sample backtest, β-adjusted stress tests, worst historical losses, the positions with each holding's data-quality score, and the raw price data.")
 
         excel_bytes = generate_excel_var_report(
             symbol=symbol,
@@ -59,13 +59,15 @@ def render(ctx, tab5):
             data_note=data_note,
             risk_free_rate=risk_free_pct / 100,
             portfolio={"decomposition": decomposition, "diversification": diversification, "correlation": correlation,
-                       "alignment": alignment} if is_portfolio else None
+                       "alignment": alignment} if is_portfolio else None,
+            data_layer={"positions": ctx.positions, "quality": ctx.quality, "volume_sources": ctx.volume_sources,
+                        "prices_as_of": ctx.prices_as_of},
         )
 
         st.download_button(
             label=f"📥 Download Excel Report ({symbol})",
             data=excel_bytes,
-            file_name=f"{symbol}_VaR_Risk_Report_{datetime.now().strftime('%Y%m%d')}.xlsx",
+            file_name=f"{symbol}_Risk_Analysis_Report_{datetime.now().strftime('%Y%m%d')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             type="primary"
         )

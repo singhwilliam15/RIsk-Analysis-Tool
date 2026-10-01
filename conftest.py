@@ -37,13 +37,33 @@ def fake_fetch_stock_data(ticker: str, period: str = "2y") -> dict:
     beta = 0.6 + (seed % 100) / 100
     returns = market if symbol.startswith("^") else beta * market + own
     close = 100 * np.cumprod(1 + returns)[-n:]
-    df = _add_return_columns(pd.DataFrame({"Date": pd.bdate_range(end=LAST_DATE, periods=n), "Close": close}))
+    # Open/high/low/volume come from a separate generator, so the closes are the same as before they existed
+    extra = np.random.default_rng(seed + 1)
+    open_ = close * (1 + extra.normal(0, 0.003, n))
+    high = np.maximum(open_, close) * (1 + np.abs(extra.normal(0, 0.005, n)))
+    low = np.minimum(open_, close) * (1 - np.abs(extra.normal(0, 0.005, n)))
+    volume = np.round(extra.lognormal(13, 0.4, n))
+    df = _add_return_columns(pd.DataFrame({"Date": pd.bdate_range(end=LAST_DATE, periods=n), "Open": open_, "High": high,
+                                           "Low": low, "Close": close, "Volume": volume}))
     indian = symbol.endswith((".NS", ".BO")) or symbol == "^NSEI"
     return {
         "success": True, "symbol": symbol, "company_name": f"{symbol} Test Co",
         "currency": "INR" if indian else "USD", "current_price": float(close[-1]), "df": df,
-        "price_basis": "adjusted", "data_source": SOURCE_YFINANCE, "metadata_available": True, "error": None,
+        "price_basis": "adjusted", "data_source": SOURCE_YFINANCE, "metadata_available": True,
+        "sector": "Test Sector", "industry": "Test Industry", "volume_sources": [symbol], "error": None,
     }
+
+
+def fake_fetch_fundamentals(ticker: str) -> dict:
+    """Fundamentals stub for app tests: two years of a few fields, profile from 'Yahoo'."""
+    from fundamentals import build_fundamentals
+    years = pd.to_datetime(["2025-03-31", "2026-03-31"])
+    income = pd.DataFrame({years[0]: [1000.0, 150.0], years[1]: [1100.0, 160.0]}, index=["Total Revenue", "EBIT"])
+    balance = pd.DataFrame({years[0]: [5000.0, 3000.0], years[1]: [5200.0, 3100.0]},
+                           index=["Total Assets", "Total Liabilities Net Minority Interest"])
+    info = {"sharesOutstanding": 1e9, "marketCap": 2e12, "sector": "Test Sector", "industry": "Test Industry",
+            "financialCurrency": "INR"}
+    return build_fundamentals(ticker.upper(), {"income": income, "balance": balance}, info)
 
 
 LOOPBACK = {"127.0.0.1", "::1", "localhost"}
@@ -74,10 +94,12 @@ def block_network(monkeypatch):
 
 @pytest.fixture
 def fake_market(monkeypatch):
-    """Route every price download in the app through fake_fetch_stock_data."""
+    """Route every price and fundamentals download in the app through the synthetic generators."""
     import data_fetcher
+    import fundamentals
     import streamlit as st
     monkeypatch.setattr(data_fetcher, "fetch_stock_data", fake_fetch_stock_data)
+    monkeypatch.setattr(fundamentals, "fetch_fundamentals", fake_fetch_fundamentals)
     st.cache_data.clear()
     yield fake_fetch_stock_data
     st.cache_data.clear()

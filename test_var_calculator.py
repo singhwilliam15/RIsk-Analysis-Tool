@@ -203,6 +203,43 @@ def test_worst_losses_compound_returns():
     assert table.loc["2 days", "Worst Return"] == pytest.approx(0.9 * 0.9 - 1)
 
 
+def test_excel_report_positions_and_data_sheet(fat_tailed_returns):
+    import io
+    import openpyxl
+    from data_quality import assess_holding
+    from excel_exporter import generate_excel_var_report
+    from portfolio import ENTRY_SHARES, build_positions
+
+    dates = pd.bdate_range("2020-01-01", periods=len(fat_tailed_returns))
+    prices = 100 * (1 + fat_tailed_returns).cumprod()
+    df = pd.DataFrame({"Date": dates, "Close": prices, "Returns": prices.pct_change(),
+                       "Log_Returns": np.log(prices).diff(), "Rolling_30d_Vol": prices.pct_change().rolling(30).std()})
+    returns = df["Returns"].dropna()
+    by_level = {0.99: calculate_all_var(returns, 1_000_000, 0.99, 1)}
+    positions = build_positions(pd.Series({"AAA.NS": 10.0, "BBB.NS": 30.0}), ENTRY_SHARES, {"AAA.NS": 100.0, "BBB.NS": 50.0},
+                                {"AAA.NS": "Energy"})
+    quality = {"AAA.NS": assess_holding(df), "BBB.NS": assess_holding(df.iloc[:200])}
+    xlsx = generate_excel_var_report(
+        "PORTFOLIO", "Test", "INR", 2500, 0.99, 1, df,
+        var_by_level={m: {0.99: by_level[0.99][m]} for m in by_level[0.99]},
+        backtest_table=backtest_all_methods(returns, rolling_var_forecasts(returns, 0.99, 250, models=["Historical"]), 0.99),
+        backtest_window=250, stress_table=None, worst_df=historical_worst_losses(returns, 2500),
+        benchmark_name="Nifty 50", beta=1.0,
+        data_layer={"positions": positions, "quality": quality, "prices_as_of": dates[-1],
+                    "volume_sources": {"AAA.NS": ["AAA.NS", "AAA.BO"]}})
+
+    wb = openpyxl.load_workbook(io.BytesIO(xlsx))
+    assert wb.sheetnames == ["Dashboard", "Backtesting", "Stress Testing", "Positions & Data", "Raw Data"]
+    assert wb["Dashboard"]["B2"].value.startswith("⚡ RISK ANALYSIS TOOL")
+    sheet = wb["Positions & Data"]
+    cells = [[c.value for c in row] for row in sheet.iter_rows(min_row=6, min_col=2, max_col=7)]
+    assert cells[0] == ["AAA.NS", 10.0, 100.0, 1000.0, 0.4, "Energy"]
+    assert cells[1] == ["BBB.NS", 30.0, 50.0, 1500.0, 0.6, "not available"]
+    quality_rows = [row[:3] for row in cells if row[0] is not None][-2:]
+    assert quality_rows == [["AAA.NS", quality["AAA.NS"]["score"], "AAA.NS + AAA.BO"],
+                            ["BBB.NS", quality["BBB.NS"]["score"], "BBB.NS"]]
+
+
 def test_excel_report_contains_every_model_and_sheet(fat_tailed_returns):
     import io
     import openpyxl

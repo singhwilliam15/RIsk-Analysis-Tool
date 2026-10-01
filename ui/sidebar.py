@@ -2,9 +2,17 @@
 
 import pandas as pd
 import streamlit as st
-from portfolio import BUY_AND_HOLD, REBALANCE_DAILY
+from portfolio import BUY_AND_HOLD, ENTRY_MODES, ENTRY_SHARES, ENTRY_VALUE, ENTRY_WEIGHT, REBALANCE_DAILY
 from ui.context import export
 from ui.formatting import pct_label
+
+DEFAULT_TICKERS = ["RELIANCE.NS", "HDFCBANK.NS", "TCS.NS", "ASIANPAINT.NS", "BRITANNIA.NS"]
+DEFAULT_AMOUNTS = {
+    ENTRY_WEIGHT: [30.0, 25.0, 20.0, 15.0, 10.0],
+    ENTRY_SHARES: [100.0, 150.0, 50.0, 100.0, 20.0],
+    ENTRY_VALUE: [300000.0, 250000.0, 200000.0, 150000.0, 100000.0],
+}
+HOLDINGS_KEYS = {ENTRY_WEIGHT: "holdings", ENTRY_SHARES: "holdings_shares", ENTRY_VALUE: "holdings_value"}
 
 
 def render_sidebar(ctx):
@@ -25,6 +33,7 @@ def render_sidebar(ctx):
 
     analysis_mode = st.sidebar.radio("Analysis Mode", ["Single Stock", "Portfolio"], horizontal=True)
     is_portfolio = analysis_mode == "Portfolio"
+    entry_mode = ENTRY_WEIGHT  # a single stock is always sized by the investment amount
 
     if not is_portfolio:
         selected_preset = st.sidebar.selectbox("Quick Preset Ticker", options=["Custom Ticker"] + list(quick_tickers.keys()))
@@ -36,16 +45,21 @@ def render_sidebar(ctx):
 
         ticker_input = st.sidebar.text_input("Enter Yahoo Finance Ticker Symbol", value=default_ticker, help="Examples: ASIANPAINT.NS, BRITANNIA.NS, RELIANCE.NS, AAPL, MSFT").strip().upper()
     else:
-        st.sidebar.caption("Holdings and weights (any units; they are scaled to 100%). Add or delete rows in the table. All holdings must trade in the same currency.")
+        entry_mode = st.sidebar.selectbox("Holdings entered as", ENTRY_MODES,
+                                          help="Weight: any units, scaled to 100% of the investment amount. Shares: number of "
+                                               "shares held. Value: money held in each stock. Shares and values are converted "
+                                               "at the latest close, and the investment amount becomes their total.")
+        st.sidebar.caption({
+            ENTRY_WEIGHT: "Holdings and weights (any units; they are scaled to 100%).",
+            ENTRY_SHARES: "Holdings and the number of shares held.",
+            ENTRY_VALUE: "Holdings and the money held in each, in the trading currency.",
+        }[entry_mode] + " Add or delete rows in the table. All holdings must trade in the same currency.")
         holdings_input = st.sidebar.data_editor(
-            pd.DataFrame({
-                "Ticker": ["RELIANCE.NS", "HDFCBANK.NS", "TCS.NS", "ASIANPAINT.NS", "BRITANNIA.NS"],
-                "Weight": [30.0, 25.0, 20.0, 15.0, 10.0],
-            }),
+            pd.DataFrame({"Ticker": DEFAULT_TICKERS, entry_mode: DEFAULT_AMOUNTS[entry_mode]}),
             num_rows="dynamic",
             hide_index=True,
             width="stretch",
-            key="holdings",
+            key=HOLDINGS_KEYS[entry_mode],  # one table per entry mode, so switching modes keeps each table's edits
         )
         rebalance_mode = st.sidebar.radio("Rebalancing", [REBALANCE_DAILY, BUY_AND_HOLD],
                                           help="Daily: weights reset to the targets every day. Buy-and-hold: shares are bought once and weights drift with prices.")
@@ -57,7 +71,11 @@ def render_sidebar(ctx):
     st.sidebar.markdown("---")
     st.sidebar.subheader("💼 Portfolio Settings")
 
-    investment_amount = st.sidebar.number_input("Portfolio Investment Amount", min_value=1000.0, max_value=1000000000.0, value=1000000.0, step=50000.0, format="%.2f")
+    if is_portfolio and entry_mode != ENTRY_WEIGHT:
+        investment_amount = None  # the total value of the holdings, set once prices are loaded
+        st.sidebar.caption(f"Investment amount: the total value of the holdings, from the {entry_mode.lower()} entered.")
+    else:
+        investment_amount = st.sidebar.number_input("Portfolio Investment Amount", min_value=1000.0, max_value=1000000000.0, value=1000000.0, step=50000.0, format="%.2f")
 
     confidence_level = st.sidebar.select_slider("Confidence Level (1 - α)", options=[0.90, 0.95, 0.975, 0.99], value=0.95,
                                                 format_func=pct_label, help="97.5% is the Basel FRTB Expected Shortfall level.")

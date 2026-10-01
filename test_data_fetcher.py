@@ -3,6 +3,7 @@ import json
 import sys
 import types
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -148,3 +149,68 @@ def test_suspicious_returns_keeps_real_crashes_unreversed():
     df["Returns"] = df["Close"].pct_change()
     flagged = suspicious_returns(df)
     assert list(flagged.index) == [2] and not flagged.loc[2, "Reversed"]
+
+
+# ---------------------------------------------------------------
+# Open/high/low/volume and NSE + BSE volume
+# ---------------------------------------------------------------
+
+def test_yfinance_path_keeps_ohlcv(monkeypatch):
+    volume = [1000.0, 0.0, 3000.0, np.nan] + [5000.0] * 11
+    hist = _history(15).assign(Open=99.0, High=110.0, Low=95.0, Volume=volume)
+    monkeypatch.setitem(sys.modules, "yfinance", _fake_yfinance(history=hist))
+    df = fetch_stock_data("X.NS")["df"]
+    assert {"Open", "High", "Low", "Close", "Volume"} <= set(df.columns)
+    assert len(df) == 15  # a day without volume is kept, not dropped
+    assert df["Volume"].iloc[:3].tolist() == [1000.0, 0.0, 3000.0] and np.isnan(df["Volume"].iloc[3])
+    assert df["High"].iloc[0] == 110.0 and df["Low"].iloc[0] == 95.0
+
+
+def test_yfinance_path_without_volume_columns(monkeypatch):
+    monkeypatch.setitem(sys.modules, "yfinance", _fake_yfinance(history=_history()))
+    df = fetch_stock_data("X.NS")["df"]
+    assert len(df) == 30 and df["Volume"].isna().all()
+
+
+def test_direct_scales_open_high_low_by_the_adjustment_factor(mock_http):
+    ts = [1704166200 + 86400 * i for i in range(3)]
+    payload = _chart_json(ts, close=[100, 110, 120], adjclose=[50, 55, 60])
+    payload["chart"]["result"][0]["indicators"]["quote"][0].update(
+        open=[98, 108, 118], high=[102, 112, 122], low=[96, 106, None], volume=[500, None, 700])
+    mock_http["payload"] = payload
+    df = fetch_stock_data_direct("X.NS")["df"]
+    assert df["Open"].tolist() == [49, 54, 59] and df["High"].tolist() == [51, 56, 61]
+    assert np.isnan(df["Low"].iloc[2]) and df["Low"].iloc[0] == 48
+    assert df["Volume"].iloc[0] == 500 and np.isnan(df["Volume"].iloc[1])  # volume is not price-adjusted
+    assert len(df) == 3
+
+
+def _listing(symbol, dates, volume):
+    df = pd.DataFrame({"Date": pd.to_datetime(dates), "Close": 100.0, "Volume": volume})
+    return {"success": True, "symbol": symbol, "df": df, "volume_sources": [symbol]}
+
+
+def test_other_listing():
+    assert data_fetcher.other_listing("RELIANCE.NS") == "RELIANCE.BO"
+    assert data_fetcher.other_listing("500325.BO") == "500325.NS"
+    assert data_fetcher.other_listing("AAPL") is None
+
+
+def test_nse_and_bse_volume_are_summed_where_both_exist():
+    nse = _listing("X.NS", ["2026-01-05", "2026-01-06", "2026-01-07", "2026-01-08"], [1000.0, 2000.0, np.nan, 4000.0])
+    bse = _listing("X.BO", ["2026-01-05", "2026-01-07", "2026-01-08", "2026-01-09"], [100.0, 300.0, np.nan, 900.0])
+    combined = data_fetcher.combine_exchange_volume(nse, bse)
+    df = combined["df"]
+    # 5 Jan: both → 1100. 6 Jan: BSE missing → NSE only. 7 Jan: NSE missing → stays missing (prices are NSE's).
+    # 8 Jan: BSE has no volume → NSE only. 9 Jan: BSE-only date → ignored.
+    assert df["Volume"].tolist()[:2] == [1100.0, 2000.0] and np.isnan(df["Volume"].iloc[2]) and df["Volume"].iloc[3] == 4000.0
+    assert len(df) == 4
+    assert df["Volume_NS"].tolist()[:2] == [1000.0, 2000.0] and df["Volume_BO"].iloc[0] == 100.0
+    assert combined["volume_sources"] == ["X.NS", "X.BO"]
+    assert nse["df"]["Volume"].tolist()[0] == 1000.0  # the input is not modified
+
+
+def test_volume_is_unchanged_when_the_other_listing_fails_or_never_overlaps():
+    nse = _listing("X.NS", ["2026-01-05"], [1000.0])
+    assert data_fetcher.combine_exchange_volume(nse, {"success": False}) is nse
+    assert data_fetcher.combine_exchange_volume(nse, _listing("X.BO", ["2025-01-01"], [5.0])) is nse

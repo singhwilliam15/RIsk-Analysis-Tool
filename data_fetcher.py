@@ -1,7 +1,8 @@
 """
 Data Fetcher Module for Yahoo Finance Ticker Integration
-Fetches daily price history and company metadata. Prices are split/dividend-adjusted
-closes from both sources, so returns are total returns either way.
+Fetches daily price history (Open, High, Low, Close, Volume) and company metadata. Prices are
+split/dividend-adjusted from both sources, so returns are total returns either way. For Indian
+stocks, volume on the other exchange (.NS <-> .BO) can be added with combine_exchange_volume.
 """
 
 import urllib.request
@@ -24,8 +25,12 @@ def currency_from_suffix(symbol: str) -> str:
     return "INR" if symbol.endswith((".NS", ".BO")) else "USD"
 
 
+OHLV_COLUMNS = ("Open", "High", "Low", "Volume")
+
+
 def _add_return_columns(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.dropna().reset_index(drop=True)
+    # Only a missing close drops a day; a missing volume or high/low stays as NaN
+    df = df.dropna(subset=["Close"]).reset_index(drop=True)
     df['Returns'] = df['Close'].pct_change()
     df['Log_Returns'] = np.log(df['Close'] / df['Close'].shift(1))
     df['Rolling_30d_Vol'] = df['Returns'].rolling(30).std() * np.sqrt(252)
@@ -75,15 +80,28 @@ def fetch_stock_data_direct(ticker: str, period: str = "2y") -> dict:
         timestamps = result.get('timestamp', [])
         indicators = result['indicators']
 
+        quote = indicators['quote'][0]
+
+        def column(values):
+            return pd.to_numeric(pd.Series(values if values is not None else [None] * len(timestamps), dtype="object"),
+                                 errors="coerce").to_numpy(dtype=float)
+
+        raw_close = column(quote.get('close'))
         adjusted = (indicators.get('adjclose') or [{}])[0].get('adjclose')
         if adjusted and any(p is not None for p in adjusted):
-            close_prices, price_basis = adjusted, "adjusted"
+            close, price_basis = column(adjusted), "adjusted"
         else:
-            close_prices, price_basis = indicators['quote'][0].get('close', []), "unadjusted"
+            close, price_basis = raw_close, "unadjusted"
+        # Open/high/low are scaled by the same adjustment factor as the close, so ranges stay consistent
+        factor = np.divide(close, raw_close, out=np.full_like(close, np.nan), where=raw_close > 0)
 
         df = pd.DataFrame({
             "Date": _exchange_dates(timestamps, meta),
-            "Close": pd.to_numeric(pd.Series(close_prices, dtype="object"), errors="coerce").to_numpy()
+            "Open": column(quote.get('open')) * factor,
+            "High": column(quote.get('high')) * factor,
+            "Low": column(quote.get('low')) * factor,
+            "Close": close,
+            "Volume": column(quote.get('volume')),
         })
         df = _add_return_columns(df)
 
@@ -100,6 +118,9 @@ def fetch_stock_data_direct(ticker: str, period: str = "2y") -> dict:
             "df": df,
             "price_basis": price_basis,
             "data_source": SOURCE_DIRECT,
+            "sector": None,
+            "industry": None,
+            "volume_sources": [symbol],
             "error": None
         }
     except Exception as e:
@@ -149,7 +170,10 @@ def fetch_stock_data(ticker: str, period: str = "2y") -> dict:
     hist = hist.reset_index()
     df = pd.DataFrame({
         "Date": pd.to_datetime(hist['Date']).dt.tz_localize(None).dt.normalize(),
-        "Close": hist['Close'].to_numpy()
+        **{col: (pd.to_numeric(hist[col], errors="coerce").to_numpy(dtype=float) if col in hist else np.nan)
+           for col in ("Open", "High", "Low")},
+        "Close": hist['Close'].to_numpy(),
+        "Volume": pd.to_numeric(hist["Volume"], errors="coerce").to_numpy(dtype=float) if "Volume" in hist else np.nan,
     })
     df = _add_return_columns(df)
 
@@ -168,5 +192,44 @@ def fetch_stock_data(ticker: str, period: str = "2y") -> dict:
         "price_basis": "adjusted",
         "data_source": SOURCE_YFINANCE,
         "metadata_available": bool(info),
+        "sector": info.get('sector'),
+        "industry": info.get('industry'),
+        "volume_sources": [symbol],
         "error": None
     }
+
+
+def other_listing(symbol: str):
+    """The same Indian stock on the other exchange (RELIANCE.NS <-> RELIANCE.BO), or None for other markets."""
+    if symbol.endswith(".NS"):
+        return symbol[:-3] + ".BO"
+    if symbol.endswith(".BO"):
+        return symbol[:-3] + ".NS"
+    return None
+
+
+def combine_exchange_volume(primary: dict, other: dict) -> dict:
+    """
+    Add the other Indian exchange's daily volume to the primary listing's volume.
+
+    The two volumes are summed on dates where both exist; where the other listing has no volume
+    for a date, the primary volume is kept unchanged. Prices always come from the primary listing.
+    The per-exchange volumes are kept as Volume_<SUFFIX> columns, and `volume_sources` lists the
+    listings that contributed. If the other listing failed to download, `primary` is returned as is.
+    """
+    if not primary.get("success") or not other or not other.get("success"):
+        return primary
+    df = primary["df"].copy()
+    own_suffix = primary["symbol"].rsplit(".", 1)[-1]
+    other_suffix = other["symbol"].rsplit(".", 1)[-1]
+    other_volume = other["df"].set_index(other["df"]["Date"].dt.normalize())["Volume"]
+    other_volume = other_volume[~other_volume.index.duplicated(keep="last")]
+    own_volume = df["Volume"].to_numpy(dtype=float)
+    matched = other_volume.reindex(df["Date"].dt.normalize()).to_numpy(dtype=float)
+    df[f"Volume_{own_suffix}"] = own_volume
+    df[f"Volume_{other_suffix}"] = matched
+    both = ~np.isnan(own_volume) & ~np.isnan(matched)
+    df["Volume"] = np.where(both, own_volume + np.nan_to_num(matched), own_volume)
+    if not both.any():
+        return primary
+    return {**primary, "df": df, "volume_sources": [primary["symbol"], other["symbol"]]}

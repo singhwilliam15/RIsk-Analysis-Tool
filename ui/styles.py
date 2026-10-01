@@ -6,7 +6,7 @@ import streamlit as st
 def setup_page():
     """Page configuration, custom CSS and the page header."""
     st.set_page_config(
-        page_title="VaR Risk Management Tool",
+        page_title="Risk Analysis Tool",
         page_icon="⚡",
         layout="wide",
         initial_sidebar_state="expanded"
@@ -76,5 +76,8 @@ def setup_page():
     """, unsafe_allow_html=True)
 
     # App Header
-    st.title("⚡ Value at Risk (VaR) Automated Analysis Tool")
-    st.caption("Eight VaR / Expected Shortfall models, from historical simulation to GARCH(1,1)-t, for a stock or portfolio, with out-of-sample VaR and ES backtests, risk decomposition, stress testing and Excel export")
+    st.title("⚡ Risk Analysis Tool")
+    st.caption("Market, liquidity, credit, concentration and event risk for an Indian or US stock or portfolio, linked "
+               "through one stress engine, with a confidence range and trust grade on every headline number. "
+               "Market risk is live: eight VaR / ES models, out-of-sample backtests, risk decomposition, stress testing "
+               "and Excel export; the other pillars are being added.")

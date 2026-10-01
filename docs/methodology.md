@@ -1,6 +1,6 @@
 # Methodology
 
-This document describes every calculation in the VaR Analysis Tool: the eight risk models, the multi-day rules, the backtests, the model-selection rule, the portfolio risk decomposition and the stress tests. Section numbers match the code modules named in each heading.
+This document describes every calculation in the Risk Analysis Tool: the eight market-risk models, the multi-day rules, the backtests, the model-selection rule, the portfolio risk decomposition, the stress tests, and the data layer that every risk pillar shares (positions, prices and volume, fundamentals, disclosures and data quality). Section numbers match the code modules named in each heading. The pillars still to come (liquidity, credit, concentration, event risk, integration) are planned in `RISK_TOOL_PLAN_V3.md` and will be documented here as they are built.
 
 **Notation.** `r_t` is the simple daily return on day t. α = 1 − confidence level is the tail probability (α = 0.01 for 99%). Losses are positive numbers, so VaR and ES are reported as positive amounts. `z = Φ⁻¹(1 − α)` is the standard normal quantile and φ is the normal density. μ and σ are the sample mean and standard deviation of daily returns. `t` (in multi-day formulas) is the holding period in days.
 
@@ -164,6 +164,80 @@ Historical components use √t for multi-day horizons, matching the Historical m
   - Sortino = `(mean(r) − r_f) / √mean(min(r − r_f, 0)²) · √252`, with the daily risk-free rate `r_f` from a user-set annual assumption
   - Jarque-Bera = `n/6·(S² + K²/4) ~ χ²(2)` (Jarque and Bera, 1980)
 
+## 7. Data layer (`data_fetcher.py`, `portfolio.py`, `fundamentals.py`, `disclosures.py`, `data_quality.py`)
+
+Every pillar uses this layer. It never invents a figure: a value the source does not provide is shown as "not available".
+
+### 7.1 Positions
+
+Holdings can be entered as weights, share counts or money values. Each holding is stored as `{ticker, quantity, price, value, weight, sector}`, converted at the latest close `P_i`:
+
+| Entry | Value `V_i` | Quantity `q_i` | Weight `w_i` |
+| --- | --- | --- | --- |
+| Weight `a_i` | `a_i / Σa · investment` | `V_i / P_i` | `V_i / ΣV` |
+| Shares `q_i` | `q_i · P_i` | as entered | `V_i / ΣV` |
+| Value `V_i` | as entered | `V_i / P_i` | `V_i / ΣV` |
+
+- **Investment amount.** With share or value entry, the portfolio's total value `ΣV` replaces the sidebar investment amount.
+- **Fractional quantities.** Weight entry can give fractional share counts.
+- **Sector** is Yahoo Finance's classification, or "not available".
+- **Buy-and-hold.** Weights are still treated as the weights at the start of the lookback window. With share entry they are today's weights, so a buy-and-hold history is an approximation.
+
+### 7.2 Prices and volume
+
+- **Columns.** Open, High, Low, Close and Volume are kept. Only a missing close drops a day; a day with no volume or no high/low stays, with that field missing.
+- **Adjustment.** On the fallback source (the chart API), open, high and low are multiplied by the same adjustment factor as the close (`adjusted close / raw close`), so daily ranges stay consistent. Volume is not price-adjusted.
+- **NSE + BSE volume.** For an Indian stock, the other listing (`.NS` ↔ `.BO`) is also downloaded. Its volume is added on the dates where both listings report volume. On other dates the primary listing's volume is used alone, and prices always come from the primary listing.
+- **BSE coverage on Yahoo is patchy.** On 2 Oct 2026, Yahoo returned no usable 2-year `.BO` history for Reliance, HDFC Bank, Asian Paints and Britannia, but did for TCS and Jaiprakash Power. The Overview page shows which exchanges each holding's volume came from.
+
+### 7.3 Fundamentals
+
+- **What is fetched.** Annual income statement, balance sheet and cash flow (the latest 4–5 fiscal years that have data), plus shares outstanding, market cap, sector, industry and reporting currency, from yfinance.
+- **Field mapping.** Yahoo's row names are mapped to canonical fields through the table `fundamentals.FIELDS`. Each canonical field has a list of aliases tried in order (for example total liabilities = "Total Liabilities Net Minority Interest", else "Total Liabilities"). Names are compared after removing case and punctuation, because yfinance has used both "TotalRevenue" and "Total Revenue".
+- **Missing fields.** A field with no value in any year is listed in `missing_fields`; nothing is derived from other rows.
+- **Overrides.** A CSV upload (template downloadable on the Overview page) replaces Yahoo's figures field by field and fiscal year by fiscal year, for holdings whose ticker matches without the exchange suffix.
+  - Every figure keeps its source: "Yahoo Finance (yfinance): <Yahoo row name>", or "CSV upload: <your note>".
+  - Rejected rows are listed with their spreadsheet row number.
+- **Point in time.** A figure may be used "as of" a date only once it was public:
+  - on its filing date, if known;
+  - otherwise at **fiscal year end + 60 days** (`fundamentals.public_date`).
+
+  Yahoo does not report filing dates, so Yahoo figures always use the 60-day rule. The rule is an assumption from the plan: Indian listed companies must publish audited annual results within 60 days of year end (SEBI LODR Reg. 33), though the full annual report comes later.
+
+### 7.4 Disclosures (India)
+
+- **Datasets.** Promoter pledges, ASM/GSM surveillance, price bands, the F&O ban list, rating actions and auditor events. All of them come only from files you download from NSE, BSE and the rating agencies; `data/disclosures/README.md` gives the source and steps for each.
+- **Manifest.** Every file must be listed in `manifest.json` with its source URL, download date and coverage. Unlisted files are not loaded.
+- **Validation.** Each row is checked for:
+  - required columns and readable dates;
+  - percentages between 0 and 100;
+  - allowed values (surveillance measure, rating action, auditor event type; price band 2/5/10/20% or No Band);
+  - consistency (pledged % of total shares ≤ promoter holding %; a surveillance exit on or after its entry).
+
+  Rejected rows are reported with their row number, and the valid rows are kept.
+- **Point in time.** Each dataset has a public date: the disclosure, entry, effective, trade, action or event date. A pledge row without a disclosure date becomes public at **quarter end + 21 days**, the filing deadline for the quarterly shareholding pattern (SEBI LODR Reg. 31(1)(b)).
+- **Layouts not yet verified.** Only NSE's `fo_secban.csv` layout is parsed structurally (its trade date comes from the first line). For the other official files, headers are matched through an alias table written without a real download to check against.
+
+### 7.5 Data-quality score
+
+Each holding scores 100 minus penalties, floored at 0. The thresholds and penalties are **assumptions**, set so that a clean, liquid NSE large-cap with enough history scores 100, and so that each defect that would distort a risk figure costs points:
+
+| Check | Rule | Penalty | Why |
+| --- | --- | --- | --- |
+| Reversing spikes | daily move > 25% that the next day undoes by at least half (§6) | 15 each, max 30 | Almost always a bad price; it inflates historical VaR and ES. |
+| Large moves, not reversed | daily move > 25% that lasts | 0 (reported) | Usually a real event. |
+| Stale prices | days in runs of ≥ 3 identical closes | 10 if > 1% of days, 20 if > 5% | Repeated closes understate volatility. |
+| Zero volume, unchanged close | volume 0 and close equal to the day before | 10 if > 2% of days, 20 if > 5% | On liquid NSE stocks these are mostly exchange holidays the source fills with the previous close (6 in 2 years for Reliance, HDFC Bank, Asian Paints and Britannia), so a few are tolerated. Many mean days without any trade. |
+| Zero volume, price moved | volume 0 but the close changed | 5 if any, 10 if > 1% | Price and volume contradict each other. |
+| No volume data | no volume at all | 5 | The liquidity pillar cannot run. |
+| Gaps | gaps between trading days longer than 7 calendar days | 5 each, max 15 | Longer than any normal exchange holiday. |
+| History length | fewer than 250 returns / fewer than 500 | 25 / 10 | 250 is one estimation window. 500 is that window plus the 250 out-of-sample days a 99% backtest needs (§3.5). A 2-year lookback gives 499 returns, one short, matching the Backtesting tab's `LOW POWER` flag at 99%. |
+| Missing fundamentals | share of 10 key fields missing (revenue, EBIT, total assets and liabilities, current assets and liabilities, retained earnings, equity, cash from operations, shares outstanding) | up to 15, `round(15 × missing / 10)` | Later pillars (Altman Z, Merton) cannot run without them. Banks do not report EBIT or current assets, so they lose a few points by construction. |
+
+The data are never altered. The score feeds the Trust grade (Phase 1).
+
+**Known effect on market risk.** Holiday filler rows add zero returns to the sample, which slightly lowers volatility and VaR. They are kept, because the tool does not alter the downloaded data, and they are now counted on the Overview page.
+
 ## References
 
 - Acerbi, C. and Székely, B. (2014). Backtesting expected shortfall. *Risk*, December 2014.
@@ -180,4 +254,5 @@ Historical components use √t for multi-day horizons, matching the Historical m
 - Kupiec, P. H. (1995). Techniques for verifying the accuracy of risk measurement models. *Journal of Derivatives*, 3(2), 73–84.
 - Maillard, D. (2012). A user's guide to the Cornish Fisher expansion. SSRN working paper.
 - McNeil, A. J. and Frey, R. (2000). Estimation of tail-related risk measures for heteroscedastic financial time series: an extreme value approach. *Journal of Empirical Finance*, 7(3–4), 271–300.
+- Securities and Exchange Board of India (2015). *SEBI (Listing Obligations and Disclosure Requirements) Regulations, 2015*, Regulations 31 (shareholding pattern) and 33 (financial results), as amended.
 - Tasche, D. (1999). Risk contributions and performance measurement. Working paper, Technische Universität München.

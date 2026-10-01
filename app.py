@@ -10,15 +10,19 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
 
+from scipy.stats import norm, t as student_t
+
 from data_fetcher import fetch_stock_data
 from var_calculator import (
-    compute_returns,
     calculate_portfolio_statistics,
-    calculate_historical_var,
-    calculate_parametric_var,
-    calculate_monte_carlo_var,
+    calculate_all_var,
+    ewma_volatility,
+    student_t_dof,
     perform_kupiec_backtest,
-    rolling_historical_var,
+    rolling_var_forecasts,
+    backtest_all_methods,
+    estimate_beta,
+    historical_worst_losses,
     run_stress_testing
 )
 from excel_exporter import generate_excel_var_report
@@ -141,8 +145,10 @@ num_sims = st.sidebar.selectbox("Monte Carlo Simulations", options=[1000, 2500, 
 # -------------------------------------------------------------
 # FETCH DATA
 # -------------------------------------------------------------
+cached_fetch = st.cache_data(ttl=3600, show_spinner=False)(fetch_stock_data)
+
 with st.spinner(f"Fetching market data for {ticker_input} from Yahoo Finance..."):
-    data_res = fetch_stock_data(ticker_input, period=period_input)
+    data_res = cached_fetch(ticker_input, period=period_input)
 
 if not data_res["success"]:
     st.error(data_res["error"])
@@ -162,29 +168,43 @@ curr_sym = "₹" if currency == "INR" else "$" if currency == "USD" else currenc
 # CALCULATIONS
 # -------------------------------------------------------------
 stats = calculate_portfolio_statistics(returns)
-var_hist = calculate_historical_var(returns, investment_amount, confidence_level, holding_period)
-var_param = calculate_parametric_var(returns, investment_amount, confidence_level, holding_period)
-var_mc = calculate_monte_carlo_var(returns, investment_amount, confidence_level, holding_period, num_simulations=num_sims, seed=42)
 
-# Multi-confidence calculations for summary comparisons
-var_hist_90 = calculate_historical_var(returns, investment_amount, 0.90, holding_period)
-var_hist_95 = calculate_historical_var(returns, investment_amount, 0.95, holding_period)
-var_hist_99 = calculate_historical_var(returns, investment_amount, 0.99, holding_period)
+confidence_levels = (0.90, 0.95, 0.99)
+var_by_level = {
+    cl: calculate_all_var(returns, investment_amount, cl, holding_period, num_simulations=num_sims, seed=42)
+    for cl in confidence_levels
+}
+var_selected = var_by_level[confidence_level]
+method_names = list(var_selected)
+var_hist = var_selected["Historical"]
+var_ewma = var_selected["EWMA (RiskMetrics)"]
+cl_label = f"{int(confidence_level * 100)}%"
 
-var_param_90 = calculate_parametric_var(returns, investment_amount, 0.90, holding_period)
-var_param_95 = calculate_parametric_var(returns, investment_amount, 0.95, holding_period)
-var_param_99 = calculate_parametric_var(returns, investment_amount, 0.99, holding_period)
+# Benchmark beta for stress testing
+is_indian = symbol.endswith((".NS", ".BO"))
+benchmark_symbol, benchmark_name = ("^NSEI", "Nifty 50") if is_indian else ("^GSPC", "S&P 500")
+bench_res = cached_fetch(benchmark_symbol, period=period_input)
+beta = float("nan")
+if bench_res["success"]:
+    stock_by_date = df.set_index(df["Date"].dt.normalize())["Returns"]
+    bench_df = bench_res["df"]
+    bench_by_date = bench_df.set_index(bench_df["Date"].dt.normalize())["Returns"]
+    beta = estimate_beta(stock_by_date, bench_by_date)
+beta_used = beta if np.isfinite(beta) else 1.0
+stress_df = run_stress_testing(investment_amount, beta=beta_used)
+worst_df = historical_worst_losses(returns, investment_amount)
 
-var_mc_90 = calculate_monte_carlo_var(returns, investment_amount, 0.90, holding_period, num_simulations=num_sims, seed=42)
-var_mc_95 = calculate_monte_carlo_var(returns, investment_amount, 0.95, holding_period, num_simulations=num_sims, seed=42)
-var_mc_99 = calculate_monte_carlo_var(returns, investment_amount, 0.99, holding_period, num_simulations=num_sims, seed=42)
-
-# Out-of-sample backtest: each day's VaR comes only from the preceding window of returns
+# Out-of-sample backtest of every model: each day's VaR comes only from the preceding window
 backtest_window = min(250, len(returns) // 2)
-rolling_var = rolling_historical_var(returns, confidence_level, window=backtest_window)
-backtest = perform_kupiec_backtest(returns, rolling_var, confidence_level)
-backtest["window"] = backtest_window
-stress_df = run_stress_testing(investment_amount)
+forecasts = rolling_var_forecasts(returns, confidence_level, window=backtest_window)
+backtest_table = backtest_all_methods(returns, forecasts, confidence_level)
+best_model = backtest_table.loc[backtest_table["Conditional Coverage p-value"].idxmax(), "Method"]
+passing_models = backtest_table.loc[backtest_table["Verdict"] == "PASS", "Method"].tolist()
+
+# Distribution diagnostics
+skewness, excess_kurtosis = stats["skewness"], stats["kurtosis"]
+jarque_bera = stats["n_obs"] / 6 * (skewness ** 2 + excess_kurtosis ** 2 / 4)
+jarque_bera_p = float(np.exp(-jarque_bera / 2))  # chi-square(2) survival function
 
 # -------------------------------------------------------------
 # EXECUTIVE TOP CARDS
@@ -193,255 +213,248 @@ st.subheader(f"📈 Risk Overview for {company_name} ({symbol})")
 
 col1, col2, col3, col4, col5 = st.columns(5)
 
-with col1:
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-label">Current Stock Price</div>
-        <div class="metric-value">{curr_sym}{current_price:,.2f}</div>
-        <div class="metric-sub">Data Points: {stats['n_obs']} Days</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-with col2:
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-label">Annualized Volatility</div>
-        <div class="metric-value">{stats['ann_vol']:.2%}</div>
-        <div class="metric-sub">Daily: {stats['daily_vol']:.2%}</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-with col3:
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-label">Historical VaR ({int(confidence_level*100)}%)</div>
-        <div class="metric-value">{curr_sym}{var_hist['var_scaled_amount']:,.0f}</div>
-        <div class="metric-sub-red">Max Loss ({var_hist['var_daily_pct']:.2%})</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-with col4:
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-label">Parametric VaR ({int(confidence_level*100)}%)</div>
-        <div class="metric-value">{curr_sym}{var_param['var_scaled_amount']:,.0f}</div>
-        <div class="metric-sub-red">Normal Model ({var_param['var_daily_pct']:.2%})</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-with col5:
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-label">Expected Shortfall (CVaR)</div>
-        <div class="metric-value">{curr_sym}{var_hist['cvar_scaled_amount']:,.0f}</div>
-        <div class="metric-sub-red">Tail Loss ({var_hist['cvar_daily_pct']:.2%})</div>
-    </div>
-    """, unsafe_allow_html=True)
+cards = [
+    (col1, "Current Stock Price", f"{curr_sym}{current_price:,.2f}", f"Data Points: {stats['n_obs']} Days", "metric-sub"),
+    (col2, "Annualized Volatility", f"{stats['ann_vol']:.2%}", f"EWMA today: {var_ewma['sigma_forecast'] * np.sqrt(252):.2%}", "metric-sub"),
+    (col3, f"Historical VaR ({cl_label})", f"{curr_sym}{var_hist['var_scaled_amount']:,.0f}", f"Loss ({var_hist['var_daily_pct']:.2%})", "metric-sub-red"),
+    (col4, f"Expected Shortfall ({cl_label})", f"{curr_sym}{var_hist['cvar_scaled_amount']:,.0f}", f"Tail Loss ({var_hist['cvar_daily_pct']:.2%})", "metric-sub-red"),
+    (col5, "Best-Calibrated Model", best_model, f"VaR {curr_sym}{var_selected[best_model]['var_scaled_amount']:,.0f}", "metric-sub"),
+]
+for col, label, value, sub, sub_class in cards:
+    with col:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">{label}</div>
+            <div class="metric-value" style="font-size: {'1.6rem' if len(value) < 14 else '1.15rem'}">{value}</div>
+            <div class="{sub_class}">{sub}</div>
+        </div>
+        """, unsafe_allow_html=True)
 
 # -------------------------------------------------------------
 # MAIN DASHBOARD TABS
 # -------------------------------------------------------------
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "📊 Executive Summary & Method Comparison", 
-    "📈 Price & Return Visual Analytics", 
-    "⚡ Stress Testing & Historical Crises", 
-    "🔬 Backtesting & Traffic Light Validation", 
-    "📥 Export & Custom Excel Report"
+    "📊 Model Comparison",
+    "📈 Price & Volatility",
+    "⚡ Stress Testing",
+    "🔬 Backtesting",
+    "📥 Excel Report"
 ])
 
+MODEL_COLORS = ["#3182CE", "#DD6B20", "#38A169", "#D53F8C", "#805AD5", "#ECC94B"]
+
 # -------------------------------------------------------------
-# TAB 1: EXECUTIVE SUMMARY
+# TAB 1: MODEL COMPARISON
 # -------------------------------------------------------------
 with tab1:
-    st.markdown("### 🏛️ Value at Risk (VaR) Methodology Comparison Table")
-    st.caption(f"Portfolio Investment: **{curr_sym}{investment_amount:,.2f}** | Holding Period: **{holding_period} Day(s)**")
-    
-    summary_data = [
-        {
-            "Methodology": "Historical VaR (Non-Parametric)",
-            "90% Confidence VaR": f"{curr_sym}{var_hist_90['var_scaled_amount']:,.2f} ({var_hist_90['var_daily_pct']:.2%})",
-            "95% Confidence VaR": f"{curr_sym}{var_hist_95['var_scaled_amount']:,.2f} ({var_hist_95['var_daily_pct']:.2%})",
-            "99% Confidence VaR": f"{curr_sym}{var_hist_99['var_scaled_amount']:,.2f} ({var_hist_99['var_daily_pct']:.2%})",
-            "95% Expected Shortfall (CVaR)": f"{curr_sym}{var_hist_95['cvar_scaled_amount']:,.2f} ({var_hist_95['cvar_daily_pct']:.2%})"
-        },
-        {
-            "Methodology": "Parametric VaR (Variance-Covariance)",
-            "90% Confidence VaR": f"{curr_sym}{var_param_90['var_scaled_amount']:,.2f} ({var_param_90['var_daily_pct']:.2%})",
-            "95% Confidence VaR": f"{curr_sym}{var_param_95['var_scaled_amount']:,.2f} ({var_param_95['var_daily_pct']:.2%})",
-            "99% Confidence VaR": f"{curr_sym}{var_param_99['var_scaled_amount']:,.2f} ({var_param_99['var_daily_pct']:.2%})",
-            "95% Expected Shortfall (CVaR)": f"{curr_sym}{var_param_95['cvar_scaled_amount']:,.2f} ({var_param_95['cvar_daily_pct']:.2%})"
-        },
-        {
-            "Methodology": f"Monte Carlo VaR ({num_sims:,} Simulations)",
-            "90% Confidence VaR": f"{curr_sym}{var_mc_90['var_scaled_amount']:,.2f} ({var_mc_90['var_daily_pct']:.2%})",
-            "95% Confidence VaR": f"{curr_sym}{var_mc_95['var_scaled_amount']:,.2f} ({var_mc_95['var_daily_pct']:.2%})",
-            "99% Confidence VaR": f"{curr_sym}{var_mc_99['var_scaled_amount']:,.2f} ({var_mc_99['var_daily_pct']:.2%})",
-            "95% Expected Shortfall (CVaR)": f"{curr_sym}{var_mc_95['cvar_scaled_amount']:,.2f} ({var_mc_95['cvar_daily_pct']:.2%})"
-        }
-    ]
-    st.table(pd.DataFrame(summary_data))
-    
+    st.markdown("### 🏛️ VaR and Expected Shortfall by Model")
+    st.caption(f"Position: **{curr_sym}{investment_amount:,.2f}** | Holding Period: **{holding_period} Day(s)** | ES shown at **{cl_label}**")
+
+    summary_rows = []
+    for method in method_names:
+        row = {"Model": method}
+        for cl in confidence_levels:
+            res = var_by_level[cl][method]
+            row[f"{int(cl * 100)}% VaR"] = f"{curr_sym}{res['var_scaled_amount']:,.0f} ({res['var_daily_pct']:.2%})"
+        row[f"{cl_label} ES"] = f"{curr_sym}{var_selected[method]['cvar_scaled_amount']:,.0f} ({var_selected[method]['cvar_daily_pct']:.2%})"
+        summary_rows.append(row)
+    st.table(pd.DataFrame(summary_rows).set_index("Model"))
+
+    with st.expander("How each model works"):
+        st.markdown(f"""
+- **Historical:** the empirical {int((1 - confidence_level) * 100)}th percentile of past daily returns. No distribution assumed.
+- **Parametric (Normal):** `z·σ − μ`. Fast, but a normal distribution has thin tails.
+- **Student-t:** fatter-tailed distribution; degrees of freedom (ν = {var_selected['Student-t']['degrees_of_freedom']:.1f}) come from the sample's excess kurtosis.
+- **Cornish-Fisher:** adjusts the normal quantile for skewness ({skewness:.2f}) and excess kurtosis ({excess_kurtosis:.2f}).
+- **EWMA (RiskMetrics):** normal quantile on an exponentially weighted volatility forecast (λ = 0.94), so it reacts to recent market stress.
+- **Monte Carlo:** {num_sims:,} simulated returns from a fitted normal distribution.
+""")
+
     st.markdown("---")
-    
     col_chart1, col_chart2 = st.columns(2)
-    
+
     with col_chart1:
-        st.markdown("#### 📊 VaR Method Comparison across Confidence Levels")
+        st.markdown("#### 📊 VaR by Model and Confidence Level")
         df_comp = pd.DataFrame([
-            {"Method": "Historical", "90% VaR": var_hist_90['var_scaled_amount'], "95% VaR": var_hist_95['var_scaled_amount'], "99% VaR": var_hist_99['var_scaled_amount']},
-            {"Method": "Parametric", "90% VaR": var_param_90['var_scaled_amount'], "95% VaR": var_param_95['var_scaled_amount'], "99% VaR": var_param_99['var_scaled_amount']},
-            {"Method": "Monte Carlo", "90% VaR": var_mc_90['var_scaled_amount'], "95% VaR": var_mc_95['var_scaled_amount'], "99% VaR": var_mc_99['var_scaled_amount']}
-        ]).melt(id_vars=["Method"], var_name="Confidence", value_name="VaR_Amount")
-        
-        fig_comp = px.bar(df_comp, x="Confidence", y="VaR_Amount", color="Method", barmode="group",
-                          title=f"Potential Maximum Loss ({curr_sym})",
+            {"Model": m, "Confidence": f"{int(cl * 100)}%", "VaR_Amount": var_by_level[cl][m]["var_scaled_amount"]}
+            for m in method_names for cl in confidence_levels
+        ])
+        fig_comp = px.bar(df_comp, x="Confidence", y="VaR_Amount", color="Model", barmode="group",
+                          title=f"Potential Loss ({curr_sym})",
                           labels={"VaR_Amount": f"Loss Amount ({curr_sym})"},
-                          color_discrete_sequence=["#3182CE", "#DD6B20", "#38A169"],
-                          template="plotly_dark")
+                          color_discrete_sequence=MODEL_COLORS, template="plotly_dark")
         st.plotly_chart(fig_comp, width="stretch")
 
     with col_chart2:
-        st.markdown("#### 📉 Return Distribution & VaR Cut-off Thresholds")
-        fig_hist = px.histogram(df, x="Returns", nbins=60, title="Empirical Daily Return Distribution",
-                                labels={"Returns": "Daily Return %"}, template="plotly_dark",
-                                opacity=0.75, color_discrete_sequence=["#63B3ED"])
-        
-        # Add cutoff vertical lines
-        fig_hist.add_vline(x=-var_hist_95['var_daily_pct'], line_dash="dash", line_color="#F6AD55", annotation_text="95% Hist VaR")
-        fig_hist.add_vline(x=-var_hist_99['var_daily_pct'], line_dash="solid", line_color="#FC8181", annotation_text="99% Hist VaR")
-        fig_hist.add_vline(x=-var_hist_95['cvar_daily_pct'], line_dash="dot", line_color="#E53E3E", annotation_text="95% CVaR (Tail)")
-        
-        st.plotly_chart(fig_hist, width="stretch")
+        st.markdown("#### 📉 Return Distribution vs Normal and Student-t")
+        mu, sigma = returns.mean(), returns.std(ddof=1)
+        nu = student_t_dof(excess_kurtosis)
+        t_scale = sigma * np.sqrt((nu - 2) / nu)
+        x_grid = np.linspace(returns.min(), returns.max(), 400)
 
-    # Interpretation Card
+        fig_hist = go.Figure()
+        fig_hist.add_histogram(x=returns, nbinsx=80, histnorm="probability density", name="Actual returns",
+                               marker_color="#63B3ED", opacity=0.6)
+        fig_hist.add_scatter(x=x_grid, y=norm.pdf(x_grid, mu, sigma), mode="lines", name="Normal fit",
+                             line=dict(color="#F6AD55", width=2))
+        fig_hist.add_scatter(x=x_grid, y=student_t.pdf((x_grid - mu) / t_scale, nu) / t_scale, mode="lines",
+                             name=f"Student-t fit (ν={nu:.1f})", line=dict(color="#68D391", width=2, dash="dash"))
+        fig_hist.add_vline(x=-var_hist["var_daily_pct"], line_dash="dot", line_color="#FC8181",
+                           annotation_text=f"{cl_label} Hist VaR")
+        fig_hist.update_layout(template="plotly_dark", title="Daily Return Density",
+                               xaxis_title="Daily Return", yaxis_title="Density", xaxis_tickformat=".1%")
+        st.plotly_chart(fig_hist, width="stretch")
+        st.caption(f"Skewness {skewness:.2f} · Excess kurtosis {excess_kurtosis:.2f} · Jarque-Bera {jarque_bera:,.1f} "
+                   f"(p = {jarque_bera_p:.4f}){' → returns are not normal' if jarque_bera_p < 0.05 else ''}")
+
+    var_values = [var_selected[m]["var_scaled_amount"] for m in method_names]
     st.info(f"""
-    📋 **Risk Interpretation & Key Insights**:
-    - **Historical VaR ({int(confidence_level*100)}%)**: At {int(confidence_level*100)}% confidence level over a {holding_period}-day holding period, there is a {int((1-confidence_level)*100)}% probability that your investment of **{curr_sym}{investment_amount:,.2f}** in {company_name} will lose more than **{curr_sym}{var_hist['var_scaled_amount']:,.2f}** ({var_hist['var_daily_pct']:.2%}).
-    - **Expected Shortfall (CVaR)**: If a tail event occurs beyond the {int(confidence_level*100)}% threshold, the average expected loss is **{curr_sym}{var_hist['cvar_scaled_amount']:,.2f}** ({var_hist['cvar_daily_pct']:.2%}).
-    - **Sharpe Ratio**: **{stats['sharpe_ratio']:.2f}** | **Sortino Ratio**: **{stats['sortino_ratio']:.2f}** | **Max Drawdown**: **{stats['max_drawdown']:.2%}**.
+    📋 **Risk Interpretation**:
+    - **Historical VaR ({cl_label})**: over a {holding_period}-day horizon there is a {100 - int(confidence_level * 100)}% chance that this {curr_sym}{investment_amount:,.0f} position in {company_name} loses more than **{curr_sym}{var_hist['var_scaled_amount']:,.0f}** ({var_hist['var_daily_pct']:.2%} per day).
+    - **Expected Shortfall**: when losses do exceed VaR, the average loss is **{curr_sym}{var_hist['cvar_scaled_amount']:,.0f}**.
+    - **Model risk**: the six models range from **{curr_sym}{min(var_values):,.0f}** to **{curr_sym}{max(var_values):,.0f}**, a spread of {max(var_values) / min(var_values) - 1:.0%}.
+    - **Backtest**: {', '.join(passing_models) if passing_models else 'no model'} passed all three tests at {cl_label}; **{best_model}** was best calibrated.
+    - **Sharpe** {stats['sharpe_ratio']:.2f} · **Sortino** {stats['sortino_ratio']:.2f} · **Max Drawdown** {stats['max_drawdown']:.2%}
     """)
 
 # -------------------------------------------------------------
-# TAB 2: PRICE & RETURN VISUAL ANALYTICS
+# TAB 2: PRICE & VOLATILITY
 # -------------------------------------------------------------
 with tab2:
     st.markdown("### 📈 Stock Price & Volatility Analytics")
-    
+
     col_p1, col_p2 = st.columns(2)
-    
+
     with col_p1:
         fig_price = px.line(df, x="Date", y="Close", title=f"{company_name} ({symbol}) Closing Price History",
                             labels={"Close": f"Price ({curr_sym})"}, template="plotly_dark", color_discrete_sequence=["#4FD1C5"])
         st.plotly_chart(fig_price, width="stretch")
-        
+
     with col_p2:
         fig_returns = px.line(df, x="Date", y="Returns", title="Daily Percentage Returns",
                               labels={"Returns": "Daily Return"}, template="plotly_dark", color_discrete_sequence=["#63B3ED"])
         fig_returns.add_hline(y=0, line_dash="dash", line_color="#A0AEC0")
         st.plotly_chart(fig_returns, width="stretch")
-        
-    st.markdown("#### 🌊 30-Day Rolling Annualized Volatility")
-    fig_vol = px.area(df, x="Date", y="Rolling_30d_Vol", title="30-Day Rolling Annualized Volatility Time Series",
-                      labels={"Rolling_30d_Vol": "Annualized Volatility (%)"}, template="plotly_dark", color_discrete_sequence=["#ED8936"])
+
+    st.markdown("#### 🌊 Annualized Volatility: 30-Day Rolling vs EWMA")
+    ewma_sigma, _ = ewma_volatility(returns)
+    fig_vol = px.area(df, x="Date", y="Rolling_30d_Vol", title="Volatility clustering: calm and stressed periods",
+                      labels={"Rolling_30d_Vol": "Annualized Volatility"}, template="plotly_dark", color_discrete_sequence=["#ED8936"])
+    fig_vol.add_scatter(x=df.loc[ewma_sigma.index, "Date"], y=ewma_sigma * np.sqrt(252), mode="lines",
+                        name="EWMA (λ = 0.94)", line=dict(color="#68D391", width=1.5))
+    fig_vol.update_layout(yaxis_tickformat=".0%")
     st.plotly_chart(fig_vol, width="stretch")
 
 # -------------------------------------------------------------
 # TAB 3: STRESS TESTING
 # -------------------------------------------------------------
 with tab3:
-    st.markdown("### ⚡ Stress Testing & Historical Scenario Analysis")
-    st.caption("Simulates the impact of severe historical market crises on your current portfolio valuation.")
-    
+    st.markdown("### ⚡ Stress Testing")
+    if np.isfinite(beta):
+        st.caption(f"Each crisis is an approximate market drawdown. It is scaled by this stock's beta to the {benchmark_name} "
+                   f"(**β = {beta:.2f}**, estimated from daily returns over the lookback window).")
+    else:
+        st.warning(f"Could not download {benchmark_name} data to estimate beta, so β = 1 is assumed.")
+
     col_st1, col_st2 = st.columns([1.2, 1])
-    
+
     with col_st1:
-        # Custom shock slider
-        custom_shock_pct = st.slider("Custom Market Shock Scenario (%)", min_value=-60.0, max_value=0.0, value=-20.0, step=1.0)
-        custom_impact = investment_amount * (custom_shock_pct / 100.0)
-        custom_post = investment_amount + custom_impact
-        
         df_display_stress = stress_df.copy()
-        df_display_stress["Shock %"] = df_display_stress["Shock"].map(lambda x: f"{x:.1%}")
-        df_display_stress["Portfolio Impact"] = df_display_stress["Portfolio_Impact"].map(lambda x: f"{curr_sym}{x:,.2f}")
-        df_display_stress["Post-Shock Value"] = df_display_stress["Post_Shock_Value"].map(lambda x: f"{curr_sym}{x:,.2f}")
-        
+        df_display_stress["Market Shock"] = df_display_stress["Shock"].map(lambda x: f"{x:.1%}")
+        df_display_stress["Stock Shock (β-adj)"] = df_display_stress["Stock_Shock"].map(lambda x: f"{x:.1%}")
+        df_display_stress["Portfolio Impact"] = df_display_stress["Portfolio_Impact"].map(lambda x: f"-{curr_sym}{abs(x):,.0f}")
+        df_display_stress["Post-Shock Value"] = df_display_stress["Post_Shock_Value"].map(lambda x: f"{curr_sym}{x:,.0f}")
         st.dataframe(
-            df_display_stress[["Scenario", "Shock %", "Portfolio Impact", "Post-Shock Value", "Recovery_Days", "Risk_Level"]],
-            width="stretch",
-            hide_index=True
+            df_display_stress[["Scenario", "Market Shock", "Stock Shock (β-adj)", "Portfolio Impact", "Post-Shock Value", "Risk_Level"]],
+            width="stretch", hide_index=True
         )
-        
-        st.warning(f"💡 **Custom Scenario Result**: A **{custom_shock_pct:.1f}%** drop causes a loss of **{curr_sym}{abs(custom_impact):,.2f}**, reducing portfolio to **{curr_sym}{custom_post:,.2f}**.")
+
+        custom_shock_pct = st.slider(f"Custom {benchmark_name} shock (%)", min_value=-60.0, max_value=0.0, value=-20.0, step=1.0)
+        custom_stock_shock = max(custom_shock_pct / 100.0 * beta_used, -1.0)
+        custom_impact = investment_amount * custom_stock_shock
+        st.warning(f"💡 A **{custom_shock_pct:.0f}%** {benchmark_name} fall implies a **{custom_stock_shock:.1%}** move in {symbol} "
+                   f"(β = {beta_used:.2f}): a loss of **{curr_sym}{abs(custom_impact):,.0f}**, leaving **{curr_sym}{investment_amount + custom_impact:,.0f}**.")
 
     with col_st2:
         fig_stress = px.bar(stress_df, x="Scenario", y="Portfolio_Impact", color="Risk_Level",
-                            title=f"Scenario Portfolio Loss ({curr_sym})",
+                            title=f"Scenario Loss, β-adjusted ({curr_sym})",
                             labels={"Portfolio_Impact": f"Loss Amount ({curr_sym})"},
                             color_discrete_map={"HIGH": "#E53E3E", "MEDIUM": "#DD6B20", "LOW": "#38A169"},
                             template="plotly_dark")
         fig_stress.update_layout(xaxis_tickangle=-45)
         st.plotly_chart(fig_stress, width="stretch")
 
+    st.markdown("#### 📉 Worst Actual Losses in the Sample")
+    st.caption("The stock's own worst compounded return over each horizon. Compare these with VaR: a VaR well below them understates real tail risk.")
+    worst_display = worst_df.copy()
+    worst_display["Worst Return"] = worst_display["Worst Return"].map(lambda x: f"{x:.2%}")
+    worst_display["Loss"] = worst_display["Loss"].map(lambda x: f"{curr_sym}{x:,.0f}")
+    worst_display["Window End"] = df.loc[worst_df["Window End"], "Date"].dt.strftime("%d %b %Y").to_numpy()
+    st.dataframe(worst_display, width="stretch", hide_index=True)
+
 # -------------------------------------------------------------
-# TAB 4: BACKTESTING & BASEL TRAFFIC LIGHT
+# TAB 4: BACKTESTING
 # -------------------------------------------------------------
 with tab4:
-    st.markdown("### 🔬 VaR Model Backtesting — Kupiec & Basel Traffic Light System")
-    st.caption(f"Out-of-sample test: each day's Historical VaR is estimated from the previous {backtest['window']} trading days only, then compared with that day's actual return.")
-    
-    col_b1, col_b2 = st.columns([1, 1.2])
-    
+    st.markdown(f"### 🔬 Out-of-Sample Backtest of Every Model ({cl_label} VaR)")
+    st.caption(f"Each day's VaR is estimated from the previous {backtest_window} trading days only, then compared with that day's actual return. "
+               "**Kupiec** tests whether the breach count is right; **Christoffersen independence** tests whether breaches cluster together; "
+               "**conditional coverage** combines both. A model passes if every p-value is at least 0.05.")
+
+    bt_display = backtest_table.copy()
+    bt_display["Expected Breaches"] = bt_display["Expected Breaches"].map(lambda x: f"{x:.1f}")
+    bt_display["Breach Rate"] = bt_display["Breach Rate"].map(lambda x: f"{x:.2%}")
+    bt_display["Avg VaR"] = bt_display["Avg VaR"].map(lambda x: f"{x:.2%}")
+    for col in ("Kupiec p-value", "Independence p-value", "Conditional Coverage p-value"):
+        bt_display[col] = bt_display[col].map(lambda x: f"{x:.3f}")
+    st.dataframe(
+        bt_display[["Method", "Actual Breaches", "Expected Breaches", "Breach Rate", "Kupiec p-value",
+                    "Independence p-value", "Conditional Coverage p-value", "Back-to-Back Breaches", "Traffic Light", "Verdict", "Avg VaR"]],
+        width="stretch", hide_index=True
+    )
+
+    st.markdown("---")
+    selected_model = st.selectbox("Inspect a model", options=list(forecasts.columns), index=list(forecasts.columns).index(best_model))
+    detail = perform_kupiec_backtest(returns, forecasts[selected_model], confidence_level)
+
+    col_b1, col_b2 = st.columns([1, 1.6])
+
     with col_b1:
-        st.markdown("#### 📋 Backtest Diagnostics Table")
-        
-        traffic_badge = backtest["traffic_light"]
-        if "GREEN" in traffic_badge:
-            badge_html = f'<span class="badge-green">{traffic_badge}</span>'
-        elif "YELLOW" in traffic_badge:
-            badge_html = f'<span class="badge-yellow">{traffic_badge}</span>'
-        else:
-            badge_html = f'<span class="badge-red">{traffic_badge}</span>'
-            
-        st.markdown(f"### Status: {badge_html}", unsafe_allow_html=True)
-        st.write(f"**Interpretation**: {backtest['status_desc']}")
-        st.write(f"**Kupiec LR Test Result**: **{backtest['test_result']}**")
-        
-        bt_summary = pd.DataFrame([
-            {"Diagnostic Metric": "Estimation Window", "Value": f"{backtest['window']} days (rolling)"},
-            {"Diagnostic Metric": "Out-of-Sample Test Days (T)", "Value": f"{backtest['total_observations']} days"},
-            {"Diagnostic Metric": "Model Confidence Level", "Value": f"{backtest['confidence_level']:.1%}"},
-            {"Diagnostic Metric": "Expected VaR Failures (α × T)", "Value": f"{backtest['expected_failures']:.1f}"},
-            {"Diagnostic Metric": "Actual Failures", "Value": f"{backtest['actual_breaches']}"},
-            {"Diagnostic Metric": "Empirical Breach Rate", "Value": f"{backtest['breach_rate']:.2%}"},
-            {"Diagnostic Metric": "Kupiec LR Statistic", "Value": f"{backtest['lr_stat']:.4f}"},
-            {"Diagnostic Metric": "Kupiec p-value", "Value": f"{backtest['p_value']:.4f}"},
-            {"Diagnostic Metric": "Chi-Square Critical Value (95%)", "Value": f"{backtest['chi_sq_critical']:.3f}"},
-            {"Diagnostic Metric": "Binomial P(X ≤ breaches)", "Value": f"{backtest['cumulative_prob']:.2%}"}
-        ])
-        st.table(bt_summary)
+        traffic_badge = detail["traffic_light"]
+        badge_class = "badge-green" if "GREEN" in traffic_badge else "badge-yellow" if "YELLOW" in traffic_badge else "badge-red"
+        st.markdown(f"#### Basel status: <span class=\"{badge_class}\">{traffic_badge}</span>", unsafe_allow_html=True)
+        st.write(detail["status_desc"])
+        st.table(pd.DataFrame([
+            {"Metric": "Test Days (T)", "Value": f"{detail['total_observations']}"},
+            {"Metric": "Expected Breaches (α × T)", "Value": f"{detail['expected_failures']:.1f}"},
+            {"Metric": "Actual Breaches", "Value": f"{detail['actual_breaches']}"},
+            {"Metric": "Kupiec LR (crit. 3.841)", "Value": f"{detail['lr_stat']:.3f}"},
+            {"Metric": "Kupiec p-value", "Value": f"{detail['p_value']:.3f}"},
+            {"Metric": "Binomial P(X ≤ breaches)", "Value": f"{detail['cumulative_prob']:.2%}"},
+        ]).set_index("Metric"))
 
     with col_b2:
-        st.markdown("#### 🔴 Out-of-Sample VaR Exception Timeline")
-        df_breaches = df.loc[rolling_var.index, ["Date", "Returns"]].copy()
-        df_breaches["VaR_Threshold"] = -rolling_var
+        df_breaches = df.loc[forecasts.index, ["Date", "Returns"]].copy()
+        df_breaches["VaR_Threshold"] = -forecasts[selected_model]
         df_breaches = df_breaches.dropna()
         df_breaches["Is_Breach"] = df_breaches["Returns"] < df_breaches["VaR_Threshold"]
 
         fig_breach = px.scatter(df_breaches, x="Date", y="Returns", color="Is_Breach",
-                                title="Daily Returns vs Rolling VaR Threshold",
+                                title=f"Daily Returns vs Rolling {selected_model} VaR",
                                 color_discrete_map={True: "#FC8181", False: "#4FD1C5"},
                                 labels={"Is_Breach": "VaR Breach"}, template="plotly_dark")
         fig_breach.add_scatter(x=df_breaches["Date"], y=df_breaches["VaR_Threshold"], mode="lines",
                                line=dict(color="#F6AD55", dash="dash"), name="Rolling VaR")
+        fig_breach.update_layout(yaxis_tickformat=".1%")
         st.plotly_chart(fig_breach, width="stretch")
 
 # -------------------------------------------------------------
 # TAB 5: EXPORT & REPORTS
 # -------------------------------------------------------------
 with tab5:
-    st.markdown("### 📥 Download Custom Excel Risk Management Report")
-    st.write("Generate a complete, fully formatted `.xlsx` workbook containing all raw price data, calculated VaR statistics, backtesting results, and stress tests structured exactly like `VaR_Risk_Management_Tool.xlsx`.")
-    
+    st.markdown("### 📥 Download Excel Risk Report")
+    st.write("A formatted `.xlsx` workbook with every model's VaR and ES, the out-of-sample backtest, β-adjusted stress tests, worst historical losses and the raw price data.")
+
     excel_bytes = generate_excel_var_report(
         symbol=symbol,
         company_name=company_name,
@@ -450,27 +463,23 @@ with tab5:
         confidence_level=confidence_level,
         holding_period=holding_period,
         df_data=df,
-        stats=stats,
-        var_hist=var_hist,
-        var_param=var_param,
-        var_mc=var_mc,
-        var_by_level={
-            "Historical VaR (Non-Parametric)": {0.90: var_hist_90, 0.95: var_hist_95, 0.99: var_hist_99},
-            "Parametric VaR (Variance-Covariance)": {0.90: var_param_90, 0.95: var_param_95, 0.99: var_param_99},
-            f"Monte Carlo VaR ({num_sims:,} Simulations)": {0.90: var_mc_90, 0.95: var_mc_95, 0.99: var_mc_99},
-        },
-        backtest=backtest,
-        stress_df=stress_df
+        var_by_level={m: {cl: var_by_level[cl][m] for cl in confidence_levels} for m in method_names},
+        backtest_table=backtest_table,
+        backtest_window=backtest_window,
+        stress_df=stress_df,
+        worst_df=worst_df,
+        benchmark_name=benchmark_name,
+        beta=beta
     )
-    
+
     st.download_button(
-        label=f"📥 Download Complete Excel Report ({symbol}_VaR_Report.xlsx)",
+        label=f"📥 Download Excel Report ({symbol})",
         data=excel_bytes,
         file_name=f"{symbol}_VaR_Risk_Report_{datetime.now().strftime('%Y%m%d')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         type="primary"
     )
-    
+
     st.markdown("---")
     st.markdown("#### 📄 Raw Market Data Export (CSV)")
     csv_bytes = df.to_csv(index=False).encode('utf-8')

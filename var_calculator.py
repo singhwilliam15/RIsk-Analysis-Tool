@@ -196,6 +196,129 @@ def calculate_monte_carlo_var(returns: pd.Series, investment: float, confidence_
         "cvar_scaled_amount": cvar_scaled_amount
     }
 
+def _scaled_result(var_daily_pct: float, cvar_daily_pct: float, investment: float,
+                   confidence_level: float, holding_period: int, **extra) -> dict:
+    """Common VaR/ES result dictionary, scaled to the holding period by sqrt(time)."""
+    holding_scale = np.sqrt(holding_period)
+    return {
+        "confidence_level": confidence_level,
+        "var_daily_pct": var_daily_pct,
+        "var_daily_amount": var_daily_pct * investment,
+        "cvar_daily_pct": cvar_daily_pct,
+        "cvar_daily_amount": cvar_daily_pct * investment,
+        "holding_period": holding_period,
+        "var_scaled_amount": var_daily_pct * investment * holding_scale,
+        "cvar_scaled_amount": cvar_daily_pct * investment * holding_scale,
+        **extra
+    }
+
+
+def student_t_dof(excess_kurtosis):
+    """
+    Method-of-moments degrees of freedom: a Student-t has excess kurtosis 6 / (nu - 4).
+    Thin-tailed samples (excess kurtosis <= 0) are capped at nu = 200, which is effectively normal.
+    Works on a scalar or a pandas Series.
+    """
+    if isinstance(excess_kurtosis, pd.Series):
+        return (4 + 6 / excess_kurtosis.where(excess_kurtosis > 0)).clip(upper=200).fillna(200)
+    if not excess_kurtosis > 0:
+        return 200.0
+    return min(4 + 6 / excess_kurtosis, 200.0)
+
+
+def calculate_student_t_var(returns: pd.Series, investment: float, confidence_level: float, holding_period: int = 1) -> dict:
+    """
+    Parametric VaR with Student-t returns, which allow fatter tails than the normal.
+    Degrees of freedom come from the sample's excess kurtosis; the scale is set so the variance matches the sample.
+    """
+    from scipy.stats import t as student_t
+
+    mu = returns.mean()
+    sigma = returns.std(ddof=1)
+    nu = student_t_dof(returns.kurtosis())
+    scale = sigma * np.sqrt((nu - 2) / nu)
+    alpha = 1.0 - confidence_level
+
+    q = student_t.ppf(confidence_level, nu)
+    var_daily_pct = scale * q - mu
+    # Closed-form Student-t Expected Shortfall
+    cvar_daily_pct = scale * student_t.pdf(q, nu) / alpha * (nu + q ** 2) / (nu - 1) - mu
+    return _scaled_result(var_daily_pct, cvar_daily_pct, investment, confidence_level, holding_period,
+                          degrees_of_freedom=nu, mu=mu, sigma=sigma)
+
+
+def cornish_fisher_quantile(z, skew, excess_kurtosis):
+    """Cornish-Fisher expansion: adjusts a normal quantile z for skewness and excess kurtosis."""
+    return (z
+            + (z ** 2 - 1) * skew / 6
+            + (z ** 3 - 3 * z) * excess_kurtosis / 24
+            - (2 * z ** 3 - 5 * z) * skew ** 2 / 36)
+
+
+def calculate_cornish_fisher_var(returns: pd.Series, investment: float, confidence_level: float, holding_period: int = 1) -> dict:
+    """
+    Modified VaR: the normal quantile is adjusted for the sample's skewness and excess kurtosis.
+    Expected Shortfall is the average Cornish-Fisher loss over the tail, integrated numerically.
+    """
+    mu = returns.mean()
+    sigma = returns.std(ddof=1)
+    skew = returns.skew()
+    kurt = returns.kurtosis()
+    alpha = 1.0 - confidence_level
+
+    z_cf = cornish_fisher_quantile(norm.ppf(alpha), skew, kurt)
+    var_daily_pct = -(mu + z_cf * sigma)
+
+    # Midpoint rule over tail probabilities u in (0, alpha)
+    tail_u = alpha * (np.arange(2000) + 0.5) / 2000
+    tail_z = cornish_fisher_quantile(np.asarray(norm.ppf(tail_u)), skew, kurt)
+    cvar_daily_pct = -(mu + tail_z.mean() * sigma)
+    return _scaled_result(var_daily_pct, cvar_daily_pct, investment, confidence_level, holding_period,
+                          skewness=skew, excess_kurtosis=kurt, z_cornish_fisher=z_cf)
+
+
+def ewma_volatility(returns: pd.Series, lam: float = 0.94):
+    """
+    RiskMetrics EWMA volatility: sigma²(t) = lam * sigma²(t-1) + (1 - lam) * r²(t-1).
+    Returns the forecast for each day (using only earlier returns) and the forecast for the next day.
+    """
+    values = returns.to_numpy()
+    variance = np.empty(len(values) + 1)
+    variance[0] = np.var(values[:30], ddof=1) if len(values) >= 2 else 0.0
+    for i, r in enumerate(values):
+        variance[i + 1] = lam * variance[i] + (1 - lam) * r * r
+    sigma = np.sqrt(variance)
+    return pd.Series(sigma[:-1], index=returns.index), float(sigma[-1])
+
+
+def calculate_ewma_var(returns: pd.Series, investment: float, confidence_level: float, holding_period: int = 1, lam: float = 0.94) -> dict:
+    """
+    RiskMetrics VaR: normal quantile on tomorrow's EWMA volatility forecast, zero mean.
+    Recent returns get more weight, so VaR reacts quickly when volatility rises.
+    """
+    _, sigma_next = ewma_volatility(returns, lam)
+    z = norm.ppf(confidence_level)
+    alpha = 1.0 - confidence_level
+    var_daily_pct = z * sigma_next
+    cvar_daily_pct = norm.pdf(z) / alpha * sigma_next
+    return _scaled_result(var_daily_pct, cvar_daily_pct, investment, confidence_level, holding_period,
+                          ewma_lambda=lam, sigma_forecast=sigma_next)
+
+
+def calculate_all_var(returns: pd.Series, investment: float, confidence_level: float, holding_period: int = 1,
+                      num_simulations: int = 5000, seed: int = 42) -> dict:
+    """Every VaR model at one confidence level, keyed by display name."""
+    return {
+        "Historical": calculate_historical_var(returns, investment, confidence_level, holding_period),
+        "Parametric (Normal)": calculate_parametric_var(returns, investment, confidence_level, holding_period),
+        "Student-t": calculate_student_t_var(returns, investment, confidence_level, holding_period),
+        "Cornish-Fisher": calculate_cornish_fisher_var(returns, investment, confidence_level, holding_period),
+        "EWMA (RiskMetrics)": calculate_ewma_var(returns, investment, confidence_level, holding_period),
+        f"Monte Carlo ({num_simulations:,} sims)": calculate_monte_carlo_var(
+            returns, investment, confidence_level, holding_period, num_simulations=num_simulations, seed=seed),
+    }
+
+
 def rolling_historical_var(returns: pd.Series, confidence_level: float, window: int = 250) -> pd.Series:
     """
     Out-of-sample Historical VaR forecast for each day.
@@ -287,10 +410,133 @@ def perform_kupiec_backtest(returns: pd.Series, var_daily_pct, confidence_level:
         "status_desc": status_desc
     }
 
-def run_stress_testing(investment: float) -> pd.DataFrame:
+def rolling_var_forecasts(returns: pd.Series, confidence_level: float, window: int = 250, ewma_lambda: float = 0.94) -> pd.DataFrame:
+    """
+    Out-of-sample one-day VaR forecasts from each model, one column per model.
+    Every forecast for day t uses only returns before t. Monte Carlo is left out because it
+    samples the same normal distribution as the Parametric model.
+    """
+    from scipy.stats import t as student_t
+
+    alpha = 1.0 - confidence_level
+    z = norm.ppf(confidence_level)
+    roll = returns.rolling(window)
+    mu = roll.mean().shift(1)
+    sigma = roll.std().shift(1)
+    skew = roll.skew().shift(1)
+    kurt = roll.kurt().shift(1)
+
+    nu = student_t_dof(kurt)
+    scale = sigma * np.sqrt((nu - 2) / nu)
+    ewma_sigma, _ = ewma_volatility(returns, ewma_lambda)
+
+    forecasts = pd.DataFrame({
+        "Historical": -roll.quantile(alpha, interpolation="linear").shift(1),
+        "Parametric (Normal)": z * sigma - mu,
+        "Student-t": scale * student_t.ppf(confidence_level, nu) - mu,
+        "Cornish-Fisher": -(mu + cornish_fisher_quantile(-z, skew, kurt) * sigma),
+        "EWMA (RiskMetrics)": z * ewma_sigma,
+    }, index=returns.index)
+    # Score every model on the same days
+    forecasts.iloc[:window] = np.nan
+    return forecasts
+
+
+def _xlogy(x: float, p: float) -> float:
+    """x * ln(p), defined as 0 when x == 0 (the convention used in likelihood ratio tests)."""
+    return 0.0 if x == 0 else x * np.log(p)
+
+
+def christoffersen_test(hits) -> dict:
+    """
+    Christoffersen (1998) independence test: are VaR breaches clustered in time?
+    Compares the chance of a breach after a breach (pi11) with the chance after a normal day (pi01).
+    """
+    h = np.asarray(hits, dtype=int)
+    prev, curr = h[:-1], h[1:]
+    n00 = int(((prev == 0) & (curr == 0)).sum())
+    n01 = int(((prev == 0) & (curr == 1)).sum())
+    n10 = int(((prev == 1) & (curr == 0)).sum())
+    n11 = int(((prev == 1) & (curr == 1)).sum())
+
+    pi01 = n01 / (n00 + n01) if n00 + n01 else 0.0
+    pi11 = n11 / (n10 + n11) if n10 + n11 else 0.0
+    pi = (n01 + n11) / max(n00 + n01 + n10 + n11, 1)
+
+    log_l_restricted = _xlogy(n00 + n10, 1 - pi) + _xlogy(n01 + n11, pi)
+    log_l_markov = _xlogy(n00, 1 - pi01) + _xlogy(n01, pi01) + _xlogy(n10, 1 - pi11) + _xlogy(n11, pi11)
+    lr_ind = max(-2 * (log_l_restricted - log_l_markov), 0.0)
+    return {
+        "n00": n00, "n01": n01, "n10": n10, "n11": n11,
+        "pi01": pi01, "pi11": pi11,
+        "lr_ind": lr_ind,
+        "p_value_ind": float(2 * (1 - norm_cdf(np.sqrt(lr_ind)))),
+    }
+
+
+def backtest_all_methods(returns: pd.Series, forecasts: pd.DataFrame, confidence_level: float) -> pd.DataFrame:
+    """
+    Kupiec (coverage), Christoffersen (independence) and conditional coverage tests for each model.
+    Conditional coverage LR = Kupiec LR + independence LR ~ chi-square(2).
+    """
+    valid = forecasts.notna().all(axis=1)
+    r = returns[valid]
+    rows = []
+    for method in forecasts.columns:
+        var_series = forecasts.loc[valid, method]
+        kupiec = perform_kupiec_backtest(r, var_series, confidence_level)
+        ind = christoffersen_test(r < -var_series)
+        lr_cc = kupiec["lr_stat"] + ind["lr_ind"]
+        p_cc = float(np.exp(-lr_cc / 2))  # chi-square(2) survival function
+        rows.append({
+            "Method": method,
+            "Test Days": kupiec["total_observations"],
+            "Expected Breaches": kupiec["expected_failures"],
+            "Actual Breaches": kupiec["actual_breaches"],
+            "Breach Rate": kupiec["breach_rate"],
+            "Kupiec p-value": kupiec["p_value"],
+            "Independence p-value": ind["p_value_ind"],
+            "Conditional Coverage p-value": p_cc,
+            "Back-to-Back Breaches": ind["n11"],
+            "Traffic Light": kupiec["traffic_light"],
+            "Verdict": "PASS" if min(kupiec["p_value"], ind["p_value_ind"], p_cc) >= 0.05 else "FAIL",
+            "Avg VaR": var_series.mean(),
+        })
+    return pd.DataFrame(rows)
+
+
+def estimate_beta(stock_returns: pd.Series, index_returns: pd.Series) -> float:
+    """OLS beta of the stock against the benchmark: Cov(stock, index) / Var(index), on matching dates."""
+    joined = pd.concat([stock_returns, index_returns], axis=1, join="inner").dropna()
+    if len(joined) < 30:
+        return float("nan")
+    cov = np.cov(joined.iloc[:, 0], joined.iloc[:, 1], ddof=1)
+    return float(cov[0, 1] / cov[1, 1])
+
+
+def historical_worst_losses(returns: pd.Series, investment: float, horizons=(1, 5, 10, 21)) -> pd.DataFrame:
+    """The stock's own worst compounded loss over each horizon in the sample."""
+    growth = np.log1p(returns)
+    rows = []
+    for days in horizons:
+        if len(returns) < days:
+            continue
+        window_return = np.expm1(growth.rolling(days).sum())
+        worst = window_return.min()
+        rows.append({
+            "Horizon": f"{days} day" + ("s" if days > 1 else ""),
+            "Worst Return": worst,
+            "Loss": -worst * investment,
+            "Window End": window_return.idxmin(),
+        })
+    return pd.DataFrame(rows)
+
+
+def run_stress_testing(investment: float, beta: float = 1.0) -> pd.DataFrame:
     """
     Run predefined historical crisis scenarios against current portfolio value.
-    Matches Stress Testing sheet in VaR_Risk_Management_Tool.xlsx.
+    Shocks are approximate index drawdowns; each is scaled by the stock's beta to the
+    benchmark (capped at a 100% loss) to estimate the stock-level impact.
     """
     scenarios = [
         {"Scenario": "COVID-19 Crash (Mar 2020)", "Shock": -0.34, "Recovery_Days": 60, "Probability": "Low", "Risk_Level": "HIGH"},
@@ -305,6 +551,8 @@ def run_stress_testing(investment: float) -> pd.DataFrame:
     ]
     
     df_stress = pd.DataFrame(scenarios)
-    df_stress["Portfolio_Impact"] = investment * df_stress["Shock"]
+    df_stress["Beta"] = beta
+    df_stress["Stock_Shock"] = (df_stress["Shock"] * beta).clip(lower=-1.0)
+    df_stress["Portfolio_Impact"] = investment * df_stress["Stock_Shock"]
     df_stress["Post_Shock_Value"] = investment + df_stress["Portfolio_Impact"]
     return df_stress

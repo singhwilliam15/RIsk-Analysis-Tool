@@ -26,6 +26,13 @@ from var_calculator import (
     run_stress_testing
 )
 from excel_exporter import generate_excel_var_report
+from portfolio import (
+    normalize_weights,
+    align_asset_returns,
+    build_portfolio_frame,
+    component_var,
+    diversification_summary
+)
 
 # Page Configuration
 st.set_page_config(
@@ -100,7 +107,7 @@ st.markdown("""
 
 # App Header
 st.title("⚡ Value at Risk (VaR) Automated Analysis Tool")
-st.caption("Historical, Parametric and Monte Carlo VaR with Expected Shortfall, out-of-sample backtesting, stress testing and Excel export")
+st.caption("Six VaR / Expected Shortfall models for a stock or portfolio, with out-of-sample backtesting, risk decomposition, stress testing and Excel export")
 
 # -------------------------------------------------------------
 # SIDEBAR CONTROLS
@@ -119,14 +126,30 @@ quick_tickers = {
     "Tesla (US)": "TSLA"
 }
 
-selected_preset = st.sidebar.selectbox("Quick Preset Ticker", options=["Custom Ticker"] + list(quick_tickers.keys()))
+analysis_mode = st.sidebar.radio("Analysis Mode", ["Single Stock", "Portfolio"], horizontal=True)
+is_portfolio = analysis_mode == "Portfolio"
 
-if selected_preset != "Custom Ticker":
-    default_ticker = quick_tickers[selected_preset]
+if not is_portfolio:
+    selected_preset = st.sidebar.selectbox("Quick Preset Ticker", options=["Custom Ticker"] + list(quick_tickers.keys()))
+
+    if selected_preset != "Custom Ticker":
+        default_ticker = quick_tickers[selected_preset]
+    else:
+        default_ticker = "ASIANPAINT.NS"
+
+    ticker_input = st.sidebar.text_input("Enter Yahoo Finance Ticker Symbol", value=default_ticker, help="Examples: ASIANPAINT.NS, BRITANNIA.NS, RELIANCE.NS, AAPL, MSFT").strip().upper()
 else:
-    default_ticker = "ASIANPAINT.NS"
-
-ticker_input = st.sidebar.text_input("Enter Yahoo Finance Ticker Symbol", value=default_ticker, help="Examples: ASIANPAINT.NS, BRITANNIA.NS, RELIANCE.NS, AAPL, MSFT").strip().upper()
+    st.sidebar.caption("Holdings and weights (any units; they are scaled to 100%). Add or delete rows in the table. All holdings must trade in the same currency.")
+    holdings_input = st.sidebar.data_editor(
+        pd.DataFrame({
+            "Ticker": ["RELIANCE.NS", "HDFCBANK.NS", "TCS.NS", "ASIANPAINT.NS", "BRITANNIA.NS"],
+            "Weight": [30.0, 25.0, 20.0, 15.0, 10.0],
+        }),
+        num_rows="dynamic",
+        hide_index=True,
+        width="stretch",
+        key="holdings",
+    )
 
 period_input = st.sidebar.selectbox("Historical Lookback Window", options=["1y", "2y", "5y", "max"], index=1)
 
@@ -147,19 +170,58 @@ num_sims = st.sidebar.selectbox("Monte Carlo Simulations", options=[1000, 2500, 
 # -------------------------------------------------------------
 cached_fetch = st.cache_data(ttl=3600, show_spinner=False)(fetch_stock_data)
 
-with st.spinner(f"Fetching market data for {ticker_input} from Yahoo Finance..."):
-    data_res = cached_fetch(ticker_input, period=period_input)
+TICKER_TIP = "Tip: For Indian stocks listed on NSE, add '.NS' suffix (e.g. ASIANPAINT.NS, BRITANNIA.NS). For BSE, add '.BO'. US stocks do not require a suffix."
 
-if not data_res["success"]:
-    st.error(data_res["error"])
-    st.info("Tip: For Indian stocks listed on NSE, add '.NS' suffix (e.g. ASIANPAINT.NS, BRITANNIA.NS). For BSE, add '.BO'. US stocks do not require a suffix.")
-    st.stop()
+if not is_portfolio:
+    with st.spinner(f"Fetching market data for {ticker_input} from Yahoo Finance..."):
+        data_res = cached_fetch(ticker_input, period=period_input)
 
-symbol = data_res["symbol"]
-company_name = data_res["company_name"]
-currency = data_res["currency"]
-current_price = data_res["current_price"]
-df = data_res["df"]
+    if not data_res["success"]:
+        st.error(data_res["error"])
+        st.info(TICKER_TIP)
+        st.stop()
+
+    symbol = data_res["symbol"]
+    company_name = data_res["company_name"]
+    currency = data_res["currency"]
+    current_price = data_res["current_price"]
+    df = data_res["df"]
+    benchmark_tickers = [symbol]
+else:
+    try:
+        weights = normalize_weights(holdings_input)
+    except ValueError as exc:
+        st.error(f"Holdings table: {exc}")
+        st.stop()
+
+    with st.spinner(f"Fetching market data for {len(weights)} holdings from Yahoo Finance..."):
+        fetched = {t: cached_fetch(t, period=period_input) for t in weights.index}
+
+    failed = [res["error"] for res in fetched.values() if not res["success"]]
+    if failed:
+        st.error("Could not load every holding:\n\n" + "\n\n".join(f"- {e}" for e in failed))
+        st.info(TICKER_TIP)
+        st.stop()
+
+    currencies = {t: res["currency"] for t, res in fetched.items()}
+    if len(set(currencies.values())) > 1:
+        st.error("Holdings trade in different currencies (" + ", ".join(f"{t}: {c}" for t, c in currencies.items()) +
+                 "). Mixing currencies needs FX conversion, which this tool does not do; use holdings in one currency.")
+        st.stop()
+
+    asset_returns = align_asset_returns({t: res["df"] for t, res in fetched.items()})
+    if len(asset_returns) < 60:
+        st.error(f"The holdings share only {len(asset_returns)} common trading days; at least 60 are needed.")
+        st.stop()
+
+    asset_names = {t: res["company_name"] for t, res in fetched.items()}
+    symbol = "PORTFOLIO"
+    company_name = f"{len(weights)}-stock portfolio"
+    currency = next(iter(currencies.values()))
+    current_price = None
+    df = build_portfolio_frame(asset_returns, weights)
+    benchmark_tickers = list(weights.index)
+
 returns = df["Returns"].dropna()
 
 curr_sym = "₹" if currency == "INR" else "$" if currency == "USD" else currency + " "
@@ -181,7 +243,7 @@ var_ewma = var_selected["EWMA (RiskMetrics)"]
 cl_label = f"{int(confidence_level * 100)}%"
 
 # Benchmark beta for stress testing
-is_indian = symbol.endswith((".NS", ".BO"))
+is_indian = all(t.endswith((".NS", ".BO")) for t in benchmark_tickers)
 benchmark_symbol, benchmark_name = ("^NSEI", "Nifty 50") if is_indian else ("^GSPC", "S&P 500")
 bench_res = cached_fetch(benchmark_symbol, period=period_input)
 beta = float("nan")
@@ -201,6 +263,13 @@ backtest_table = backtest_all_methods(returns, forecasts, confidence_level)
 best_model = backtest_table.loc[backtest_table["Conditional Coverage p-value"].idxmax(), "Method"]
 passing_models = backtest_table.loc[backtest_table["Verdict"] == "PASS", "Method"].tolist()
 
+# Portfolio decomposition
+if is_portfolio:
+    component_table = component_var(asset_returns, weights, investment_amount, confidence_level, holding_period)
+    component_table.insert(1, "Company", component_table["Ticker"].map(asset_names))
+    diversification = diversification_summary(asset_returns, weights, investment_amount, confidence_level, holding_period)
+    correlation = asset_returns[weights.index].corr()
+
 # Distribution diagnostics
 skewness, excess_kurtosis = stats["skewness"], stats["kurtosis"]
 jarque_bera = stats["n_obs"] / 6 * (skewness ** 2 + excess_kurtosis ** 2 / 4)
@@ -213,8 +282,14 @@ st.subheader(f"📈 Risk Overview for {company_name} ({symbol})")
 
 col1, col2, col3, col4, col5 = st.columns(5)
 
+first_card = (
+    (col1, "Diversification Benefit", f"{curr_sym}{diversification['diversification_benefit']:,.0f}",
+     f"{diversification['diversification_ratio']:.0%} lower than standalone", "metric-sub")
+    if is_portfolio else
+    (col1, "Current Stock Price", f"{curr_sym}{current_price:,.2f}", f"Data Points: {stats['n_obs']} Days", "metric-sub")
+)
 cards = [
-    (col1, "Current Stock Price", f"{curr_sym}{current_price:,.2f}", f"Data Points: {stats['n_obs']} Days", "metric-sub"),
+    first_card,
     (col2, "Annualized Volatility", f"{stats['ann_vol']:.2%}", f"EWMA today: {var_ewma['sigma_forecast'] * np.sqrt(252):.2%}", "metric-sub"),
     (col3, f"Historical VaR ({cl_label})", f"{curr_sym}{var_hist['var_scaled_amount']:,.0f}", f"Loss ({var_hist['var_daily_pct']:.2%})", "metric-sub-red"),
     (col4, f"Expected Shortfall ({cl_label})", f"{curr_sym}{var_hist['cvar_scaled_amount']:,.0f}", f"Tail Loss ({var_hist['cvar_daily_pct']:.2%})", "metric-sub-red"),
@@ -233,13 +308,14 @@ for col, label, value, sub, sub_class in cards:
 # -------------------------------------------------------------
 # MAIN DASHBOARD TABS
 # -------------------------------------------------------------
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "📊 Model Comparison",
-    "📈 Price & Volatility",
-    "⚡ Stress Testing",
-    "🔬 Backtesting",
-    "📥 Excel Report"
-])
+tab_names = ["📊 Model Comparison", "📈 Price & Volatility", "⚡ Stress Testing", "🔬 Backtesting", "📥 Excel Report"]
+if is_portfolio:
+    tab_names.insert(1, "🧩 Portfolio Risk")
+tabs = st.tabs(tab_names)
+if is_portfolio:
+    tab1, tab_portfolio, tab2, tab3, tab4, tab5 = tabs
+else:
+    tab1, tab2, tab3, tab4, tab5 = tabs
 
 MODEL_COLORS = ["#3182CE", "#DD6B20", "#38A169", "#D53F8C", "#805AD5", "#ECC94B"]
 
@@ -318,16 +394,73 @@ with tab1:
     """)
 
 # -------------------------------------------------------------
+# PORTFOLIO TAB: RISK DECOMPOSITION
+# -------------------------------------------------------------
+if is_portfolio:
+    with tab_portfolio:
+        st.markdown(f"### 🧩 Where the Portfolio's Risk Comes From ({cl_label}, {holding_period}-day)")
+        st.caption(f"{len(weights)} holdings, constant weights rebalanced daily, {diversification['common_days']} common trading days.")
+
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Portfolio Historical VaR", f"{curr_sym}{diversification['portfolio_var']:,.0f}")
+        m2.metric("Sum of Standalone VaRs", f"{curr_sym}{diversification['undiversified_var']:,.0f}")
+        m3.metric("Diversification Benefit", f"{curr_sym}{diversification['diversification_benefit']:,.0f}",
+                  f"-{diversification['diversification_ratio']:.0%} risk", delta_color="inverse")
+        m4.metric("Average Pairwise Correlation", f"{diversification['average_correlation']:.2f}")
+
+        comp_display = component_table.copy()
+        comp_display["Weight"] = comp_display["Weight"].map(lambda x: f"{x:.1%}")
+        comp_display["Annualized Volatility"] = comp_display["Annualized Volatility"].map(lambda x: f"{x:.1%}")
+        for col in ("Standalone VaR", "Component VaR"):
+            comp_display[col] = comp_display[col].map(lambda x: f"{curr_sym}{x:,.0f}")
+        comp_display["Marginal VaR"] = comp_display["Marginal VaR"].map(lambda x: f"{x:.2%}")
+        comp_display["Contribution %"] = comp_display["Contribution %"].map(lambda x: f"{x:.1%}")
+        comp_display["Risk / Weight"] = comp_display["Risk / Weight"].map(lambda x: f"{x:.2f}×")
+        st.dataframe(comp_display, width="stretch", hide_index=True)
+        st.caption("**Standalone VaR**: Historical VaR of each holding on its own. **Component VaR**: each holding's share of the "
+                   "portfolio's parametric VaR (Euler allocation); the components add up exactly to the total. "
+                   "**Marginal VaR**: extra VaR per unit of extra weight. **Risk / Weight** above 1× means the holding adds more risk than capital.")
+
+        col_pr1, col_pr2 = st.columns(2)
+        with col_pr1:
+            df_share = component_table.melt(id_vars="Ticker", value_vars=["Weight", "Contribution %"],
+                                            var_name="Measure", value_name="Share")
+            df_share["Measure"] = df_share["Measure"].replace({"Weight": "Capital weight", "Contribution %": "Risk contribution"})
+            fig_share = px.bar(df_share, x="Ticker", y="Share", color="Measure", barmode="group",
+                               title="Capital Weight vs Risk Contribution", template="plotly_dark",
+                               color_discrete_sequence=["#63B3ED", "#FC8181"])
+            fig_share.update_layout(yaxis_tickformat=".0%")
+            st.plotly_chart(fig_share, width="stretch")
+        with col_pr2:
+            fig_corr = px.imshow(correlation, text_auto=".2f", zmin=-1, zmax=1, color_continuous_scale="RdBu_r",
+                                 title="Correlation of Daily Returns", template="plotly_dark")
+            st.plotly_chart(fig_corr, width="stretch")
+
+        top = component_table.loc[component_table["Contribution %"].idxmax()]
+        overweight_risk = component_table.loc[component_table["Risk / Weight"] > 1.1, "Ticker"].tolist()
+        pairs = correlation.where(~np.eye(len(correlation), dtype=bool)).stack()
+        most_correlated = pairs.idxmax()
+        st.info(f"""
+        📋 **Portfolio Insights**:
+        - **{top['Ticker']}** is the largest risk contributor: **{top['Contribution %']:.0%}** of portfolio VaR from a **{top['Weight']:.0%}** weight.
+        - {('Holdings adding more risk than their capital weight: **' + ', '.join(overweight_risk) + '**.') if overweight_risk else 'No holding adds much more risk than its capital weight.'}
+        - The most correlated pair is **{most_correlated[0]} / {most_correlated[1]}** ({pairs.max():.2f}); together they diversify the least.
+        - Diversification cuts Historical VaR by **{curr_sym}{diversification['diversification_benefit']:,.0f}** ({diversification['diversification_ratio']:.0%}) compared with holding each position's risk separately.
+        """)
+
+# -------------------------------------------------------------
 # TAB 2: PRICE & VOLATILITY
 # -------------------------------------------------------------
 with tab2:
-    st.markdown("### 📈 Stock Price & Volatility Analytics")
+    st.markdown("### 📈 Price & Volatility Analytics")
 
     col_p1, col_p2 = st.columns(2)
 
     with col_p1:
-        fig_price = px.line(df, x="Date", y="Close", title=f"{company_name} ({symbol}) Closing Price History",
-                            labels={"Close": f"Price ({curr_sym})"}, template="plotly_dark", color_discrete_sequence=["#4FD1C5"])
+        fig_price = px.line(df, x="Date", y="Close",
+                            title="Portfolio Value Index (start = 100)" if is_portfolio else f"{company_name} ({symbol}) Closing Price History",
+                            labels={"Close": "Index Level" if is_portfolio else f"Price ({curr_sym})"},
+                            template="plotly_dark", color_discrete_sequence=["#4FD1C5"])
         st.plotly_chart(fig_price, width="stretch")
 
     with col_p2:
@@ -351,7 +484,7 @@ with tab2:
 with tab3:
     st.markdown("### ⚡ Stress Testing")
     if np.isfinite(beta):
-        st.caption(f"Each crisis is an approximate market drawdown. It is scaled by this stock's beta to the {benchmark_name} "
+        st.caption(f"Each crisis is an approximate market drawdown. It is scaled by this {'portfolio' if is_portfolio else 'stock'}'s beta to the {benchmark_name} "
                    f"(**β = {beta:.2f}**, estimated from daily returns over the lookback window).")
     else:
         st.warning(f"Could not download {benchmark_name} data to estimate beta, so β = 1 is assumed.")
@@ -385,7 +518,7 @@ with tab3:
         st.plotly_chart(fig_stress, width="stretch")
 
     st.markdown("#### 📉 Worst Actual Losses in the Sample")
-    st.caption("The stock's own worst compounded return over each horizon. Compare these with VaR: a VaR well below them understates real tail risk.")
+    st.caption(f"The {'portfolio' if is_portfolio else 'stock'}'s own worst compounded return over each horizon. Compare these with VaR: a VaR well below them understates real tail risk.")
     worst_display = worst_df.copy()
     worst_display["Worst Return"] = worst_display["Worst Return"].map(lambda x: f"{x:.2%}")
     worst_display["Loss"] = worst_display["Loss"].map(lambda x: f"{curr_sym}{x:,.0f}")
@@ -469,7 +602,8 @@ with tab5:
         stress_df=stress_df,
         worst_df=worst_df,
         benchmark_name=benchmark_name,
-        beta=beta
+        beta=beta,
+        portfolio={"components": component_table, "diversification": diversification, "correlation": correlation} if is_portfolio else None
     )
 
     st.download_button(

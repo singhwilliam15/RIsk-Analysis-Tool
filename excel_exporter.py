@@ -59,10 +59,11 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
                               confidence_level: float, holding_period: int, df_data: pd.DataFrame,
                               var_by_level: dict, backtest_table: pd.DataFrame, backtest_window: int,
                               stress_df: pd.DataFrame, worst_df: pd.DataFrame,
-                              benchmark_name: str, beta: float) -> bytes:
+                              benchmark_name: str, beta: float, portfolio: dict = None) -> bytes:
     """
     Generate the Excel risk report and return it as .xlsx bytes.
     `var_by_level` maps model name -> {confidence level -> VaR result dict}.
+    `portfolio` (optional) holds the component VaR table, diversification summary and correlation matrix.
     """
     money = f'"{currency}" #,##0'
     wb = openpyxl.Workbook()
@@ -104,6 +105,55 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
             for model, levels in var_by_level.items()
         ],
     )
+
+    # -------------------------------------------------------------
+    # PORTFOLIO SHEET (portfolio mode only)
+    # -------------------------------------------------------------
+    if portfolio is not None:
+        ws_port = wb.create_sheet(title="Portfolio Risk")
+        ws_port["B2"] = f"🧩 PORTFOLIO RISK DECOMPOSITION ({cl_pct}, {holding_period}-DAY)"
+        ws_port["B2"].font = TITLE_FONT
+        ws_port["B3"] = "Component VaR is the Euler allocation of parametric VaR and sums to the portfolio total."
+        ws_port["B3"].font = SUBTITLE_FONT
+
+        div = portfolio["diversification"]
+        summary_rows = [
+            ("Portfolio Historical VaR", div["portfolio_var"], money),
+            ("Sum of Standalone VaRs", div["undiversified_var"], money),
+            ("Diversification Benefit", div["diversification_benefit"], money),
+            ("Diversification Ratio", div["diversification_ratio"], "0.0%"),
+            ("Average Pairwise Correlation", div["average_correlation"], "0.00"),
+            ("Common Trading Days", div["common_days"], "0"),
+        ]
+        for i, (label, val, fmt) in enumerate(summary_rows, start=5):
+            ws_port[f"B{i}"] = label
+            ws_port[f"C{i}"] = _plain(val)
+            ws_port[f"C{i}"].number_format = fmt
+            ws_port[f"C{i}"].font = BOLD_FONT
+
+        comp = portfolio["components"]
+        comp_cols = [
+            ("Ticker", "@"), ("Company", "@"), ("Weight", "0.0%"), ("Annualized Volatility", "0.0%"),
+            ("Standalone VaR", money), ("Marginal VaR", "0.00%"), ("Component VaR", money),
+            ("Contribution %", "0.0%"), ("Risk / Weight", "0.00"),
+        ]
+        next_row = _write_table(ws_port, 12, comp_cols, comp[[name for name, _ in comp_cols]].itertuples(index=False))
+        total_row = next_row - 1
+        ws_port.cell(row=total_row, column=2, value="TOTAL").font = BOLD_FONT
+        for name in ("Weight", "Component VaR", "Contribution %"):
+            col = 2 + [n for n, _ in comp_cols].index(name)
+            letter = get_column_letter(col)
+            cell = ws_port.cell(row=total_row, column=col, value=f"=SUM({letter}13:{letter}{12 + len(comp)})")
+            cell.number_format = dict(comp_cols)[name]
+            cell.font = BOLD_FONT
+
+        ws_port.cell(row=total_row + 2, column=2, value="CORRELATION OF DAILY RETURNS").font = BOLD_FONT
+        corr = portfolio["correlation"]
+        _write_table(
+            ws_port, total_row + 3,
+            [("", "@")] + [(t, "0.00") for t in corr.columns],
+            [(t, *row) for t, row in zip(corr.index, corr.to_numpy())],
+        )
 
     # -------------------------------------------------------------
     # SHEET 2: BACKTESTING

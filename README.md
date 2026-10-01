@@ -1,6 +1,6 @@
 # VaR Analysis Tool
 
-A Streamlit dashboard that measures the market risk of a single stock position and tests which risk model is reliable. It pulls daily prices from Yahoo Finance and estimates Value at Risk (VaR) and Expected Shortfall (ES) with six models. Each model is backtested out of sample with the Kupiec and Christoffersen tests. Beta-adjusted crisis scenarios are run, and everything exports to a formatted Excel report.
+A Streamlit dashboard that measures the market risk of a single stock or a multi-stock portfolio and tests which risk model is reliable. It pulls daily prices from Yahoo Finance and estimates Value at Risk (VaR) and Expected Shortfall (ES) with six models. Each model is backtested out of sample with the Kupiec and Christoffersen tests. Beta-adjusted crisis scenarios are run, and everything exports to a formatted Excel report.
 
 It started as an Excel VaR workbook. This project rebuilds it in Python, so any NSE, BSE or US ticker can be analysed in seconds, and adds the model-validation layer a spreadsheet makes hard.
 
@@ -16,6 +16,19 @@ It started as an Excel VaR workbook. This project rebuilds it in Python, so any 
 | **Monte Carlo** | 1,000–10,000 simulated returns from a fitted normal | No | No |
 
 Each model reports VaR at 90%, 95% and 99%, plus Expected Shortfall: closed form for the Normal, Student-t and EWMA models, the empirical tail average for Historical and Monte Carlo, and numerical integration for Cornish-Fisher. Multi-day horizons (1–30 days) are scaled by √t.
+
+## Portfolio mode
+
+Enter any number of tickers and weights (one currency). The portfolio is held at constant weights, rebalanced daily, on the dates every holding traded. All six models, the backtests and the stress tests then run on the portfolio's return series. A **Portfolio Risk** tab shows where the risk comes from:
+
+| Measure | Definition |
+| --- | --- |
+| **Standalone VaR** | Historical VaR of each holding on its own |
+| **Diversification benefit** | Sum of standalone VaRs − portfolio VaR: the loss diversification removes |
+| **Marginal VaR** | `∂VaR/∂wᵢ = z·(Σw)ᵢ/σₚ − μᵢ`: extra VaR per unit of extra weight |
+| **Component VaR** | `wᵢ × Marginal VaRᵢ` (Euler allocation); the components add up exactly to the portfolio's parametric VaR |
+| **Risk / weight** | Share of risk ÷ share of capital; above 1× means the holding adds more risk than capital |
+| **Correlation matrix** | Pairwise correlation of daily returns, as a heatmap |
 
 ## Backtesting
 
@@ -65,11 +78,25 @@ At 99%, the normal-based models breach more often than they should; Apple's retu
 
 Excess kurtosis is 3.19 and the Jarque-Bera test rejects normality (p < 0.0001). This is why the fat-tailed models give the highest 99% VaR. The beta to the Nifty 50 is 0.87, so a 20% market fall maps to a 17.3% fall in the stock.
 
+**Five-stock NSE portfolio: ₹10,00,000, 95% 1-day VaR, 2-year lookback (500 common days)**
+
+| Holding | Weight | Standalone VaR | Component VaR | Share of risk | Risk / weight |
+| --- | --- | --- | --- | --- | --- |
+| Reliance | 30% | ₹6,236 | ₹5,150 | 33.8% | 1.13× |
+| HDFC Bank | 25% | ₹5,038 | ₹3,620 | 23.7% | 0.95× |
+| TCS | 20% | ₹5,155 | ₹3,243 | 21.3% | 1.06× |
+| Asian Paints | 15% | ₹3,663 | ₹2,211 | 14.5% | 0.97× |
+| Britannia | 10% | ₹2,093 | ₹1,023 | 6.7% | 0.67× |
+| **Total** | 100% | **₹22,184** | **₹15,247** | 100% | |
+
+The portfolio's Historical VaR is ₹15,601, against ₹22,184 if each position's risk is added up separately. Diversification removes **₹6,583 (30%)** of the risk; the average correlation is only 0.26. Reliance contributes more risk than its weight because it is the most correlated with the others (0.41 with HDFC Bank). Britannia is the best diversifier.
+
 ## Excel report
 
-One click exports a `.xlsx` workbook with four sheets:
+One click exports a `.xlsx` workbook:
 
 - **Dashboard:** position settings and beta, plus VaR at 90/95/99% and ES for every model
+- **Portfolio Risk** (portfolio mode only): diversification summary, the component-VaR table with live `SUM` totals, and the correlation matrix
 - **Backtesting:** the full model-comparison table, with PASS/FAIL highlighted
 - **Stress Testing:** beta-adjusted scenarios and worst actual losses
 - **Raw Data:** prices, simple and log returns, rolling volatility
@@ -95,7 +122,7 @@ Use Yahoo Finance symbols: `.NS` for NSE (`RELIANCE.NS`), `.BO` for BSE, and no 
 pytest
 ```
 
-The 27 tests check each model against an independent reference:
+The 38 tests check each model against an independent reference:
 
 - Student-t VaR and ES against 2 million simulated draws
 - the EWMA recursion worked by hand
@@ -104,6 +131,9 @@ The 27 tests check each model against an independent reference:
 - the Basel zones against the regulatory table
 - that rolling forecasts never use future data
 - beta recovery on synthetic data
+- component VaR summing to portfolio VaR
+- marginal VaR against a finite-difference derivative
+- zero diversification benefit for perfectly correlated assets
 - the Excel report's contents
 
 ## Project structure
@@ -111,14 +141,17 @@ The 27 tests check each model against an independent reference:
 ```text
 app.py                 Streamlit dashboard
 var_calculator.py      VaR/ES models, backtests, beta and stress testing
+portfolio.py           Portfolio construction, component VaR, diversification
 data_fetcher.py        Yahoo Finance download, with a direct-HTTP fallback
 excel_exporter.py      Formatted Excel report
-test_var_calculator.py Unit tests
+test_*.py              Unit tests
 ```
 
 ## Limitations
 
-- **Single-asset positions only.** There is no correlation between holdings.
+- **Portfolios are long-only, in a single currency, at constant weights.** There is no FX conversion and no short positions.
+- **Component VaR** decomposes the parametric (normal) VaR. The other models report a portfolio total only.
+- **Correlations** are full-sample estimates. In a crisis, correlations usually rise, so the diversification benefit shrinks when it is needed most.
 - **√t scaling** for multi-day VaR assumes independent returns. EWMA shows that volatility clusters, so long-horizon figures are approximate.
 - **Cornish-Fisher** is an approximation. With very high kurtosis it can overstate the 99% tail and understate the 90% one, as the Apple figures show.
 - **Stress scenarios** use approximate index drawdowns scaled by a single beta. Real crisis betas are usually higher than normal-period betas.

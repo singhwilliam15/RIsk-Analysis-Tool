@@ -9,11 +9,12 @@ from openpyxl.utils import get_column_letter
 import pandas as pd
 import numpy as np
 import io
+from datetime import datetime
 
-def generate_excel_var_report(symbol: str, company_name: str, currency: str, investment: float, 
-                             confidence_level: float, holding_period: int, df_data: pd.DataFrame, 
-                             stats: dict, var_hist: dict, var_param: dict, var_mc: dict, 
-                             backtest: dict, stress_df: pd.DataFrame) -> bytes:
+def generate_excel_var_report(symbol: str, company_name: str, currency: str, investment: float,
+                             confidence_level: float, holding_period: int, df_data: pd.DataFrame,
+                             stats: dict, var_hist: dict, var_param: dict, var_mc: dict,
+                             var_by_level: dict, backtest: dict, stress_df: pd.DataFrame) -> bytes:
     """
     Generate complete Excel workbook mirroring the original VaR Risk Management Tool template.
     Returns bytes of the generated .xlsx file.
@@ -49,7 +50,7 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
     
     ws_dash["B2"] = f"⚡ VALUE AT RISK — RISK MANAGEMENT DASHBOARD ({symbol})"
     ws_dash["B2"].font = title_font
-    ws_dash["B3"] = f"Company: {company_name} | Currency: {currency} | Date Generated: Auto-Automated Tool"
+    ws_dash["B3"] = f"Company: {company_name} | Currency: {currency} | Generated: {datetime.now():%Y-%m-%d %H:%M}"
     ws_dash["B3"].font = subtitle_font
     
     # Portfolio Settings
@@ -71,20 +72,20 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
         ws_dash[f"C{i}"].font = bold_font
 
     # Risk Summary Comparison Table
-    ws_dash["B10"] = "SUMMARY RISK COMPARISON (1-DAY VAR)"
+    ws_dash["B10"] = f"SUMMARY RISK COMPARISON ({holding_period}-DAY VAR)"
     ws_dash["B10"].font = bold_font
-    
+
     headers_comp = ["Methodology", "90% VaR", "95% VaR", "99% VaR", "95% Expected Shortfall (CVaR)"]
     for col_idx, h in enumerate(headers_comp, start=2):
         cell = ws_dash.cell(row=11, column=col_idx, value=h)
         cell.font = header_font
         cell.fill = header_fill
         cell.alignment = Alignment(horizontal="center")
-        
+
     comp_rows = [
-        ("Historical VaR (Non-Parametric)", var_hist["var_daily_amount"], var_hist["var_daily_amount"], var_hist["var_daily_amount"], var_hist["cvar_daily_amount"]),
-        ("Parametric VaR (Variance-Covariance)", var_param["var_daily_amount"], var_param["var_daily_amount"], var_param["var_daily_amount"], var_param["cvar_daily_amount"]),
-        ("Monte Carlo VaR (Simulated Paths)", var_mc["var_daily_amount"], var_mc["var_daily_amount"], var_mc["var_daily_amount"], var_mc["cvar_daily_amount"])
+        (method, levels[0.90]["var_scaled_amount"], levels[0.95]["var_scaled_amount"],
+         levels[0.99]["var_scaled_amount"], levels[0.95]["cvar_scaled_amount"])
+        for method, levels in var_by_level.items()
     ]
     
     for r_idx, row_tuple in enumerate(comp_rows, start=12):
@@ -130,19 +131,22 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
     ws_back = wb.create_sheet(title="Backtesting")
     ws_back.views.sheetView[0].showGridLines = True
     
-    ws_back["B2"] = "🔬 VAR BACKTESTING — KUPIEC & BASEL TRAFFIC LIGHT TEST"
+    ws_back["B2"] = "🔬 OUT-OF-SAMPLE VAR BACKTESTING — KUPIEC & BASEL TRAFFIC LIGHT TEST"
     ws_back["B2"].font = title_font
-    
+
     back_items = [
-        ("Total Historical Observations (T)", backtest["total_observations"], "0"),
+        ("Rolling Estimation Window (Days)", backtest["window"], "0"),
+        ("Out-of-Sample Test Days (T)", backtest["total_observations"], "0"),
         ("Model Confidence Level", backtest["confidence_level"], "0.0%"),
         ("Expected VaR Exceptions", backtest["expected_failures"], "0.0"),
         ("Actual VaR Exceptions", backtest["actual_breaches"], "0"),
         ("Breach Rate (%)", backtest["breach_rate"], "0.00%"),
         ("Kupiec Likelihood Ratio (LR) Stat", backtest["lr_stat"], "0.0000"),
+        ("Kupiec p-value", backtest["p_value"], "0.0000"),
         ("Chi-Square Critical Value (95%)", backtest["chi_sq_critical"], "0.0000"),
         ("Kupiec Test Result", backtest["test_result"], "@"),
-        ("Basel II Traffic Light Status", backtest["traffic_light"], "@"),
+        ("Binomial P(X <= Exceptions)", backtest["cumulative_prob"], "0.00%"),
+        ("Basel Traffic Light Status", backtest["traffic_light"], "@"),
         ("Status Description", backtest["status_desc"], "@")
     ]
     
@@ -160,6 +164,36 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
         cell_v.font = bold_font
         if fmt != "@":
             cell_v.number_format = fmt
+
+    # -------------------------------------------------------------
+    # SHEET 4: STRESS TESTING
+    # -------------------------------------------------------------
+    ws_stress = wb.create_sheet(title="Stress Testing")
+    ws_stress.views.sheetView[0].showGridLines = True
+
+    ws_stress["B2"] = "⚡ STRESS TESTING — HISTORICAL CRISIS SCENARIOS"
+    ws_stress["B2"].font = title_font
+
+    stress_cols = [
+        ("Scenario", "Scenario", "@"),
+        ("Shock", "Shock", "0.0%"),
+        ("Portfolio Impact", "Portfolio_Impact", f'"{currency}" #,##0'),
+        ("Post-Shock Value", "Post_Shock_Value", f'"{currency}" #,##0'),
+        ("Recovery (Days)", "Recovery_Days", "0"),
+        ("Probability", "Probability", "@"),
+        ("Risk Level", "Risk_Level", "@"),
+    ]
+    for col_idx, (h, _, _) in enumerate(stress_cols, start=2):
+        cell = ws_stress.cell(row=4, column=col_idx, value=h)
+        cell.font = header_font
+        cell.fill = header_fill
+
+    for r, (_, row) in enumerate(stress_df.iterrows(), start=5):
+        for col_idx, (_, key, fmt) in enumerate(stress_cols, start=2):
+            value = row[key]
+            cell = ws_stress.cell(row=r, column=col_idx, value=value.item() if hasattr(value, "item") else value)
+            if fmt != "@":
+                cell.number_format = fmt
 
     # Auto-fit Column Widths
     for ws in wb.worksheets:

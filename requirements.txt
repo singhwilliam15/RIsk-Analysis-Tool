@@ -1,7 +1,8 @@
-streamlit
+streamlit>=1.50
 pandas
 numpy
 yfinance
 plotly
 openpyxl
 scipy
+pytest

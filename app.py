@@ -18,6 +18,7 @@ from var_calculator import (
     calculate_parametric_var,
     calculate_monte_carlo_var,
     perform_kupiec_backtest,
+    rolling_historical_var,
     run_stress_testing
 )
 from excel_exporter import generate_excel_var_report
@@ -95,7 +96,7 @@ st.markdown("""
 
 # App Header
 st.title("⚡ Value at Risk (VaR) Automated Analysis Tool")
-st.caption("Automated Risk Management Dashboard matching `VaR_Risk_Management_Tool.xlsx` & `ASIAN-PAINTS-VaR-ANALYSIS.xlsx`")
+st.caption("Historical, Parametric and Monte Carlo VaR with Expected Shortfall, out-of-sample backtesting, stress testing and Excel export")
 
 # -------------------------------------------------------------
 # SIDEBAR CONTROLS
@@ -136,8 +137,6 @@ holding_period = st.sidebar.selectbox("Holding Period (Days)", options=[1, 5, 10
 
 num_sims = st.sidebar.selectbox("Monte Carlo Simulations", options=[1000, 2500, 5000, 10000], index=2)
 
-st.sidebar.markdown("---")
-st.sidebar.caption("Antigravity Financial Risk Engine v2.0")
 
 # -------------------------------------------------------------
 # FETCH DATA
@@ -180,7 +179,11 @@ var_mc_90 = calculate_monte_carlo_var(returns, investment_amount, 0.90, holding_
 var_mc_95 = calculate_monte_carlo_var(returns, investment_amount, 0.95, holding_period, num_simulations=num_sims, seed=42)
 var_mc_99 = calculate_monte_carlo_var(returns, investment_amount, 0.99, holding_period, num_simulations=num_sims, seed=42)
 
-backtest = perform_kupiec_backtest(returns, var_hist["var_daily_pct"], confidence_level)
+# Out-of-sample backtest: each day's VaR comes only from the preceding window of returns
+backtest_window = min(250, len(returns) // 2)
+rolling_var = rolling_historical_var(returns, confidence_level, window=backtest_window)
+backtest = perform_kupiec_backtest(returns, rolling_var, confidence_level)
+backtest["window"] = backtest_window
 stress_df = run_stress_testing(investment_amount)
 
 # -------------------------------------------------------------
@@ -269,7 +272,7 @@ with tab1:
             "95% Expected Shortfall (CVaR)": f"{curr_sym}{var_param_95['cvar_scaled_amount']:,.2f} ({var_param_95['cvar_daily_pct']:.2%})"
         },
         {
-            "Methodology": "Monte Carlo VaR (5,000 Simulations)",
+            "Methodology": f"Monte Carlo VaR ({num_sims:,} Simulations)",
             "90% Confidence VaR": f"{curr_sym}{var_mc_90['var_scaled_amount']:,.2f} ({var_mc_90['var_daily_pct']:.2%})",
             "95% Confidence VaR": f"{curr_sym}{var_mc_95['var_scaled_amount']:,.2f} ({var_mc_95['var_daily_pct']:.2%})",
             "99% Confidence VaR": f"{curr_sym}{var_mc_99['var_scaled_amount']:,.2f} ({var_mc_99['var_daily_pct']:.2%})",
@@ -295,7 +298,7 @@ with tab1:
                           labels={"VaR_Amount": f"Loss Amount ({curr_sym})"},
                           color_discrete_sequence=["#3182CE", "#DD6B20", "#38A169"],
                           template="plotly_dark")
-        st.plotly_chart(fig_comp, use_container_width=True)
+        st.plotly_chart(fig_comp, width="stretch")
 
     with col_chart2:
         st.markdown("#### 📉 Return Distribution & VaR Cut-off Thresholds")
@@ -308,7 +311,7 @@ with tab1:
         fig_hist.add_vline(x=-var_hist_99['var_daily_pct'], line_dash="solid", line_color="#FC8181", annotation_text="99% Hist VaR")
         fig_hist.add_vline(x=-var_hist_95['cvar_daily_pct'], line_dash="dot", line_color="#E53E3E", annotation_text="95% CVaR (Tail)")
         
-        st.plotly_chart(fig_hist, use_container_width=True)
+        st.plotly_chart(fig_hist, width="stretch")
 
     # Interpretation Card
     st.info(f"""
@@ -329,18 +332,18 @@ with tab2:
     with col_p1:
         fig_price = px.line(df, x="Date", y="Close", title=f"{company_name} ({symbol}) Closing Price History",
                             labels={"Close": f"Price ({curr_sym})"}, template="plotly_dark", color_discrete_sequence=["#4FD1C5"])
-        st.plotly_chart(fig_price, use_container_width=True)
+        st.plotly_chart(fig_price, width="stretch")
         
     with col_p2:
         fig_returns = px.line(df, x="Date", y="Returns", title="Daily Percentage Returns",
                               labels={"Returns": "Daily Return"}, template="plotly_dark", color_discrete_sequence=["#63B3ED"])
         fig_returns.add_hline(y=0, line_dash="dash", line_color="#A0AEC0")
-        st.plotly_chart(fig_returns, use_container_width=True)
+        st.plotly_chart(fig_returns, width="stretch")
         
     st.markdown("#### 🌊 30-Day Rolling Annualized Volatility")
     fig_vol = px.area(df, x="Date", y="Rolling_30d_Vol", title="30-Day Rolling Annualized Volatility Time Series",
                       labels={"Rolling_30d_Vol": "Annualized Volatility (%)"}, template="plotly_dark", color_discrete_sequence=["#ED8936"])
-    st.plotly_chart(fig_vol, use_container_width=True)
+    st.plotly_chart(fig_vol, width="stretch")
 
 # -------------------------------------------------------------
 # TAB 3: STRESS TESTING
@@ -364,7 +367,7 @@ with tab3:
         
         st.dataframe(
             df_display_stress[["Scenario", "Shock %", "Portfolio Impact", "Post-Shock Value", "Recovery_Days", "Risk_Level"]],
-            use_container_width=True,
+            width="stretch",
             hide_index=True
         )
         
@@ -377,14 +380,14 @@ with tab3:
                             color_discrete_map={"HIGH": "#E53E3E", "MEDIUM": "#DD6B20", "LOW": "#38A169"},
                             template="plotly_dark")
         fig_stress.update_layout(xaxis_tickangle=-45)
-        st.plotly_chart(fig_stress, use_container_width=True)
+        st.plotly_chart(fig_stress, width="stretch")
 
 # -------------------------------------------------------------
 # TAB 4: BACKTESTING & BASEL TRAFFIC LIGHT
 # -------------------------------------------------------------
 with tab4:
     st.markdown("### 🔬 VaR Model Backtesting — Kupiec & Basel Traffic Light System")
-    st.caption("Validates VaR model statistical accuracy by comparing predicted exceedances vs actual historical breaches.")
+    st.caption(f"Out-of-sample test: each day's Historical VaR is estimated from the previous {backtest['window']} trading days only, then compared with that day's actual return.")
     
     col_b1, col_b2 = st.columns([1, 1.2])
     
@@ -404,29 +407,33 @@ with tab4:
         st.write(f"**Kupiec LR Test Result**: **{backtest['test_result']}**")
         
         bt_summary = pd.DataFrame([
-            {"Diagnostic Metric": "Total Historical Observations (T)", "Value": f"{backtest['total_observations']} days"},
+            {"Diagnostic Metric": "Estimation Window", "Value": f"{backtest['window']} days (rolling)"},
+            {"Diagnostic Metric": "Out-of-Sample Test Days (T)", "Value": f"{backtest['total_observations']} days"},
             {"Diagnostic Metric": "Model Confidence Level", "Value": f"{backtest['confidence_level']:.1%}"},
             {"Diagnostic Metric": "Expected VaR Failures (α × T)", "Value": f"{backtest['expected_failures']:.1f}"},
-            {"Diagnostic Metric": "Actual Historical Failures", "Value": f"{backtest['actual_breaches']}"},
+            {"Diagnostic Metric": "Actual Failures", "Value": f"{backtest['actual_breaches']}"},
             {"Diagnostic Metric": "Empirical Breach Rate", "Value": f"{backtest['breach_rate']:.2%}"},
             {"Diagnostic Metric": "Kupiec LR Statistic", "Value": f"{backtest['lr_stat']:.4f}"},
+            {"Diagnostic Metric": "Kupiec p-value", "Value": f"{backtest['p_value']:.4f}"},
             {"Diagnostic Metric": "Chi-Square Critical Value (95%)", "Value": f"{backtest['chi_sq_critical']:.3f}"},
-            {"Diagnostic Metric": "Scaled 250-Day Breaches", "Value": f"{backtest['scaled_breaches_250']}"}
+            {"Diagnostic Metric": "Binomial P(X ≤ breaches)", "Value": f"{backtest['cumulative_prob']:.2%}"}
         ])
         st.table(bt_summary)
 
     with col_b2:
-        st.markdown("#### 🔴 Historical VaR Exception Timeline")
-        df_breaches = df.copy()
-        cutoff_val = -var_hist['var_daily_pct']
-        df_breaches['Is_Breach'] = df_breaches['Returns'] < cutoff_val
-        
+        st.markdown("#### 🔴 Out-of-Sample VaR Exception Timeline")
+        df_breaches = df.loc[rolling_var.index, ["Date", "Returns"]].copy()
+        df_breaches["VaR_Threshold"] = -rolling_var
+        df_breaches = df_breaches.dropna()
+        df_breaches["Is_Breach"] = df_breaches["Returns"] < df_breaches["VaR_Threshold"]
+
         fig_breach = px.scatter(df_breaches, x="Date", y="Returns", color="Is_Breach",
-                                title="Daily Returns vs VaR Cutoff Threshold",
+                                title="Daily Returns vs Rolling VaR Threshold",
                                 color_discrete_map={True: "#FC8181", False: "#4FD1C5"},
                                 labels={"Is_Breach": "VaR Breach"}, template="plotly_dark")
-        fig_breach.add_hline(y=cutoff_val, line_dash="dash", line_color="#FC8181", annotation_text=f"VaR Cutoff ({cutoff_val:.2%})")
-        st.plotly_chart(fig_breach, use_container_width=True)
+        fig_breach.add_scatter(x=df_breaches["Date"], y=df_breaches["VaR_Threshold"], mode="lines",
+                               line=dict(color="#F6AD55", dash="dash"), name="Rolling VaR")
+        st.plotly_chart(fig_breach, width="stretch")
 
 # -------------------------------------------------------------
 # TAB 5: EXPORT & REPORTS
@@ -447,6 +454,11 @@ with tab5:
         var_hist=var_hist,
         var_param=var_param,
         var_mc=var_mc,
+        var_by_level={
+            "Historical VaR (Non-Parametric)": {0.90: var_hist_90, 0.95: var_hist_95, 0.99: var_hist_99},
+            "Parametric VaR (Variance-Covariance)": {0.90: var_param_90, 0.95: var_param_95, 0.99: var_param_99},
+            f"Monte Carlo VaR ({num_sims:,} Simulations)": {0.90: var_mc_90, 0.95: var_mc_95, 0.99: var_mc_99},
+        },
         backtest=backtest,
         stress_df=stress_df
     )

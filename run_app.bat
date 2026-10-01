@@ -1,5 +1,6 @@
 @echo off
 title VaR Risk Management Tool Launcher
+cd /d "%~dp0"
 echo Starting VaR Automated Analysis Tool...
-"C:\Users\singh\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" -m streamlit run app.py --server.port 8501 --server.headless true
+python -m streamlit run app.py --server.port 8501
 pause

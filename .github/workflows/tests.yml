@@ -22,5 +22,5 @@ jobs:
             requirements-dev.txt
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
-      - name: Run tests (offline: all market data is mocked and network access is blocked)
+      - name: "Run tests (offline: market data is mocked and network access is blocked)"
         run: pytest -q

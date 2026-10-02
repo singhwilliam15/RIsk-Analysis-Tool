@@ -119,8 +119,12 @@ def compute(ctx):
         return method_names[-1] if backtest_name == MONTE_CARLO_BACKTEST_NAME else backtest_name
 
     if recommendation["status"] == "recommended":
-        backtest_summary = (f"{', '.join(passing_models)} passed all three tests at {cl_label}; "
-                            f"**{recommended_model}** is recommended (lowest tick loss among the passing models).")
+        backtest_summary = (f"{', '.join(passing_models)} passed all three VaR tests at {cl_label}; "
+                            f"**{recommended_model}** is recommended (lowest tick loss among the models that also pass the ES test).")
+    elif recommendation["status"] == "var_only":
+        backtest_summary = (f"{', '.join(passing_models)} passed all three VaR tests at {cl_label}, but every one of them "
+                            f"fails the ES test. **{recommended_model}** has the lowest tick loss among them; its VaR is "
+                            "supported, but its ES understates the losses beyond VaR, so treat the ES figures with caution.")
     elif recommendation["status"] == "none_pass":
         backtest_summary = (f"no model passed all three tests at {cl_label}. **{recommended_model}** has the lowest tick loss, "
                             "but its breaches are still statistically off, so treat every VaR figure here with caution.")

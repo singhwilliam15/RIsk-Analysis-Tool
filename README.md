@@ -90,7 +90,7 @@ Results export to a formatted Excel report. Built in Python with Streamlit, and 
 | Position | Headline model | ES (90% range) | Grade | Main deductions |
 | --- | --- | --- | --- | --- |
 | Reliance | EWMA | ₹25,613 (₹24,068–₹27,486) | B | models disagree by 17%; 499 returns; λ is assumed |
-| HDFC Bank | EWMA | ₹26,835 (₹25,106–₹28,711) | D | EWMA is recommended on the VaR tests but fails the ES test; only FHS passes both |
+| HDFC Bank (data to 1 Oct 2026) | FHS | ₹30,582 (₹26,169–₹34,682) | C | range 28% wide; 499 returns; λ is assumed. FHS is the only model passing the VaR tests and the ES test. EWMA has a slightly lower tick loss (14.50 vs 14.52 bp) but fails the ES test, so it is no longer recommended; it was the headline (ES ₹27,501, grade D) until the October 2026 review fix |
 | Asian Paints | GARCH(1,1)-t | ₹30,088 (₹25,319–₹33,781) | B | range 28% wide; models disagree by 24% |
 | Jaiprakash Power | GARCH(1,1)-t (fit failed, shows EWMA) | ₹42,071 (₹34,497–₹49,313) | C | models disagree by 137% (Student-t ₹93,296 vs FHS ₹35,773) |
 | 5-stock portfolio | EWMA | ₹16,125 (₹15,165–₹17,114) | B | 499 returns; λ is assumed; HDFC Bank's data score |
@@ -164,7 +164,8 @@ The tool was run as of 12, 6, 3 and 1 month(s) before real Indian collapses, usi
 
 - **For liquid large-caps the pillars barely interact:** at most 0.12% of value in any scenario. Their crisis liquidity, credit and event costs are small next to the market loss.
 - **For a small-cap with a price band they interact strongly.** Jaiprakash Power's 10.9% fall breaches its 5% band (inferred from history). The resulting freeze costs more than the market move itself, a loss no single pillar shows. It rests on the inferred band and the 3-day freeze floor.
-- **Reverse stress:** the most plausible way for the portfolio to lose 15% in a month is Nifty −15.6%, Bank Nifty −15.3%, Nifty IT −17.7%, USD/INR +1.5% and Brent +8.8%. The nearest historical analogue is 6 Jun – 8 Jul 2008 (portfolio −12.5%). A move that far out has a 9.6% chance under a multivariate Student-t, against 1.8% under a normal.
+- **Replayed crashes no longer count circuit locks twice** (October 2026 fix). The freeze used to be added on top of historical replays that already contained the locked days. For Jaiprakash Power the replays hold 1–29 lower-circuit days, so the linked losses fall: the Global Financial Crisis from ₹8.51 lakh to ₹8.25 lakh, the IL&FS crisis from ₹4.83 lakh to ₹3.96 lakh, and the US credit downgrade from ₹4.00 lakh to ₹3.00 lakh. Custom market shocks, such as the −10% row above, have no daily path and are unchanged.
+- **Reverse stress:** the most plausible way for the portfolio to lose 15% in a month is Nifty −15.6%, Bank Nifty −15.3%, Nifty IT −17.7%, USD/INR +1.5% and Brent +8.8%. The nearest historical analogue is 6 Jun – 8 Jul 2008 (portfolio −12.5%). The chance of losing at least 15% in a month is **0.011% under a normal (about once in 730 years) and 0.13% under a Student-t (about once in 65 years)**; with crisis correlations, 0.049% and 0.25%. The Student-t figure is an upper-end estimate, because its ν = 8.5 is fitted to daily returns. *Correction (October 2026): this line used to say "9.6% under a Student-t, against 1.8% under a normal". Those were the shares of 5-dimensional outcomes at least this extreme in any direction, gains included, not the chance of the loss, and the Student-t share was also mis-scaled (correctly 5.1%).*
 - **Trades trade off across pillars:** switching 5% from HDFC Bank into Asian Paints trims ES by 0.2% but nearly doubles the days needed to sell 50% (₹50 crore portfolio).
 
 ### Event risk (as of 1 Oct 2026, no disclosure files loaded yet)
@@ -198,7 +199,7 @@ From live Yahoo Finance data, 5-year lookback, run on 1 Oct 2026:
 | --- | --- |
 | **Models** | Historical, Normal, Student-t (maximum likelihood), Cornish-Fisher (with a validity check), EWMA (RiskMetrics), Filtered Historical Simulation, GARCH(1,1)-t, and Monte Carlo on simulated GARCH-t paths. VaR at 90 / 95 / 97.5 / 99% and ES for each. |
 | **Horizons** | 1–30 days. √t only where appropriate: the parametric models use `z·σ·√t − μ·t`, GARCH uses its variance term structure, Monte Carlo simulates full paths. An empirical overlapping-window check is shown next to √t. |
-| **Backtesting** | Out-of-sample forecasts for every model, with the Kupiec, Christoffersen independence and conditional-coverage tests, the Basel traffic light and the McNeil-Frey ES test. The **recommended model** has the lowest tick loss among the models that pass. Verdicts show `LOW POWER` when there are too few test days. |
+| **Backtesting** | Out-of-sample forecasts for every model, with the Kupiec, Christoffersen independence and conditional-coverage tests, the Basel traffic light and the McNeil-Frey ES test. The **recommended model** has the lowest tick loss among the models that pass the VaR tests and do not fail the ES test; if every VaR-passing model fails the ES test, the best of them is shown with a warning, not as recommended. Verdicts show `LOW POWER` when there are too few test days. |
 | **Portfolio** | Daily rebalancing or buy-and-hold. Risk split on a Historical ES, Historical VaR or Parametric VaR basis, with components that add up exactly to the total. Standalone and incremental risk, diversification benefit, correlation heatmap, and a what-if panel to change a weight or add a ticker. |
 | **Stress testing** | 7 Indian and 7 US crises from an editable CSV, with drawdowns and recovery times measured from index data. Historical replay of the position, or a downside-beta proxy when it has no prices; a custom market move; a volatility shock. |
 | **Positions** | Holdings entered as weights, share counts or money values, each stored as quantity, price, value, weight and sector. |
@@ -209,7 +210,7 @@ From live Yahoo Finance data, 5-year lookback, run on 1 Oct 2026:
 | **Credit** | Merton distance to default and risk-neutral PD (historical, EWMA and GARCH-t equity volatility; KMV default point; iterative KMV cross-check; month-end history using only balance sheets public at each date). Altman Z and Z'' with zones. Six credit ratios over 4–5 years with red flags (thresholds in `config/credit_thresholds.json`), rating actions, a bank/NBFC panel, weighted PD and credit-implied expected loss. |
 | **Concentration & factors** | Daily Fama-French 3 + momentum regressions (IIM Ahmedabad for India, Kenneth French for the US, refreshed by `scripts/refresh_factor_data.py`). Newey-West t-statistics, rolling one-year betas, and a single-index fallback when factor data do not overlap. Euler split of variance and VaR into factors and specific risk. HHI, sector risk shares, PCA and Meucci's effective number of bets. Crisis-window and worst-day correlations, with the diversification benefit kept. |
 | **Event & governance** | Point-in-time signals from your NSE/BSE/agency files. Tier rules in `config/event_rules.json`. Pledge margin-call trigger and the selling that would follow. Exact mixture ES with tier-based jumps (closed-form Student-t tail), with each holding's share of the gap. |
-| **Integration & decisions** | Linked stress (replay or downside-beta returns, crisis volume and volatility, Merton re-solved, pledge forced selling, circuit freeze) vs the siloed sum. Closed-form reverse stress with normal and Student-t plausibility, macro reverse stress with the nearest 21-day analogue. Exact Shapley risk-change attribution with downloadable snapshots, Euler ES by holding, trades, ES-minimising hedge, limits (`config/limits.json`), CRO dashboard and one-page memo. |
+| **Integration & decisions** | Linked stress (replay or downside-beta returns, crisis volume and volatility, Merton re-solved, pledge forced selling, circuit freeze) vs the siloed sum. Closed-form reverse stress with the probability of the loss under a normal and a Student-t (and the scenario's Mahalanobis distance), macro reverse stress with the nearest 21-day analogue. Exact Shapley risk-change attribution with downloadable snapshots, Euler ES by holding, trades, ES-minimising hedge, limits (`config/limits.json`), CRO dashboard and one-page memo. |
 | **Excel report** | Dashboard (with 90% ranges and grades), Portfolio Risk, Backtesting, Stress Testing, Positions & Data, Trust, Liquidity, Credit, Concentration, Events, Integrated & Decisions, and Raw Data sheets. |
 
 Every formula, test and design choice is in **[docs/methodology.md](docs/methodology.md)**, with references.
@@ -389,7 +390,9 @@ The 434 tests run on every push and pull request through GitHub Actions, on Pyth
 - **Integration and decisions:**
   - with every link off, the linked engine equals the plain market stress;
   - the closed-form reverse stress matches a numerical optimiser;
-  - Student-t plausibility matches a simulation;
+  - the loss probability (normal and multivariate Student-t) and the any-direction share match 2-million- and 400,000-draw simulations;
+  - a replayed path that already contains lower-circuit days adds only the extra freeze days;
+  - the recommended model passes the VaR and ES tests, and a VaR-only fallback is graded as a failed backtest;
   - the macro analogue finds a planted window;
   - the Shapley parts sum to the change, and an unchanged input gets zero;
   - the hedge recovers a known beta;

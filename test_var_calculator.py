@@ -374,6 +374,32 @@ def test_recommended_model_is_lowest_loss_among_passing():
     assert recommend_model(table) == {"model": None, "status": "low_power"}
 
 
+@pytest.mark.parametrize("es_tests, expected", [
+    # Passes the VaR tests and the ES test: lowest tick loss among those
+    (["PASS", "PASS", "PASS"], {"model": "C", "status": "recommended"}),
+    # C fails the ES test, so B (passes both) is recommended even though C has the lower tick loss
+    (["PASS", "PASS", "FAIL"], {"model": "B", "status": "recommended"}),
+    # Too few breaches to test ES is "not tested", not a failure
+    (["PASS", "TOO FEW BREACHES", "FAIL"], {"model": "B", "status": "recommended"}),
+    # Every VaR-passing model fails the ES test: lowest tick loss among them, with a warning
+    (["PASS", "FAIL", "FAIL"], {"model": "C", "status": "var_only"}),
+])
+def test_recommendation_requires_the_es_test(es_tests, expected):
+    from var_calculator import recommend_model
+    table = pd.DataFrame({"Method": ["A", "B", "C"], "Verdict": ["FAIL", "PASS", "PASS"],
+                          "Tick Loss": [0.001, 0.003, 0.002], "ES Test": es_tests})
+    assert recommend_model(table) == expected
+
+
+def test_recommendation_when_no_model_passes_the_var_tests_ignores_the_es_test():
+    from var_calculator import recommend_model
+    table = pd.DataFrame({"Method": ["A", "B"], "Verdict": ["FAIL", "FAIL"], "Tick Loss": [0.002, 0.001],
+                          "ES Test": ["PASS", "FAIL"]})
+    assert recommend_model(table) == {"model": "B", "status": "none_pass"}
+    table["Verdict"] = "LOW POWER"
+    assert recommend_model(table) == {"model": None, "status": "low_power"}
+
+
 @pytest.mark.parametrize("confidence, days, expect_low_power", [(0.99, 249, True), (0.99, 250, False), (0.95, 99, True), (0.95, 100, False)])
 def test_backtest_flags_low_power(confidence, days, expect_low_power):
     rng = np.random.default_rng(8)

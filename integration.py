@@ -6,7 +6,8 @@ Linked stress engine, per holding and scenario:
     market loss (historical replay, or downside beta × the market's fall)
     → liquidity: volume falls to its level in that crisis (never above normal), so the exit takes longer and
       costs more (spread + square-root impact at stressed volatility); a banded stock that fell by at least its
-      band is assumed locked for its exit-freeze scenario
+      band is assumed locked for its exit-freeze scenario (in a replay, only the lock days beyond those already
+      in the replayed path)
     → credit: the lower equity value and higher volatility go back into Merton; the rise in PD on the remaining
       value is the credit deterioration (loss given default 100% for equity holders)
     → events: if the fall reaches the pledge margin-call trigger, lenders' selling adds price impact
@@ -15,14 +16,14 @@ The "siloed" figure adds the separate pillars' standalone headlines as an analys
 the difference is the interaction effect.
 
 Reverse stress test: the most plausible shock (minimum Mahalanobis distance) that loses L, in asset space and in
-macro-factor space, with its plausibility and the nearest historical analogue.
+macro-factor space, with the probability of the loss, how extreme the scenario is, and the nearest historical analogue.
 
 Methods: docs/methodology.md section 13.
 """
 
 import numpy as np
 import pandas as pd
-from scipy.stats import chi2, f as f_dist
+from scipy.stats import chi2, f as f_dist, norm, t as t_dist
 
 import credit as C
 import events as E
@@ -62,7 +63,9 @@ def scenario_inputs(holding_returns: dict, market_prices: pd.Series, scenarios: 
             actual = replay_return(r, dd["peak"], dd["trough"])
             if actual is not None:
                 inside = r.loc[s["start"]:s["end"]]
-                per[t] = {"return": actual, "method": "replay", "sigma": float(inside.std()) if len(inside) > 10 else np.nan}
+                path = r.loc[(r.index > dd["peak"]) & (r.index <= dd["trough"])]  # the days replay_return compounds
+                per[t] = {"return": actual, "method": "replay", "sigma": float(inside.std()) if len(inside) > 10 else np.nan,
+                          "path": path}
             else:
                 beta = downside_beta(lookback_returns[t], market_returns)
                 beta = beta if np.isfinite(beta) else 1.0
@@ -104,13 +107,18 @@ def linked_stress(holdings: pd.DataFrame, scenario: dict, params: dict, switches
         liq = cred = event = 0.0
         ratio = h["Volume Ratio"]
         adv_s = h["ADV"] * (min(ratio, 1.0) if np.isfinite(ratio) else 1.0)
+        # Lower-circuit days inside a replayed path are already in the market loss (from the return alone: no high/low)
+        already = 0
+        if np.isfinite(h["Band"]) and sc.get("path") is not None:
+            already = int(L.lower_circuit_days(pd.DataFrame({"Returns": sc["path"]}), h["Band"]).sum())
         if on["liquidity"]:
             spread = L.bangia_cost(after, h["Spread Mean"], h["Spread Std"], params["bangia_k"]) if np.isfinite(h["Spread Mean"]) else 0.0
             impact = L.sqrt_impact(after, sigma, h["Quantity"], adv_s, params["impact_y"])
             impact = impact if np.isfinite(impact) else 0.0
             locked = 0.0
             if np.isfinite(h["Band"]) and ret <= -h["Band"]:
-                locked = after * (1 - (1 - h["Band"]) ** h["Freeze Days"])
+                extra = max(0, int(h["Freeze Days"]) - already)
+                locked = after * (1 - (1 - h["Band"]) ** extra)
             liq = spread + impact + locked
         if on["credit"] and not h["Financial"] and np.isfinite(h["Equity"]) and np.isfinite(h["Default Point"]):
             stressed = C.solve_merton(h["Equity"] * (1 + ret), sigma * np.sqrt(C.TRADING_DAYS), h["Default Point"],
@@ -125,7 +133,7 @@ def linked_stress(holdings: pd.DataFrame, scenario: dict, params: dict, switches
                 forced = L.sqrt_impact(after, sigma, mc["shares_to_restore"], adv_s, params["impact_y"])
                 event = forced if np.isfinite(forced) else 0.0
         rows.append({"Ticker": t, "Return": ret, "Method": sc["method"], "Market Loss": market, "Liquidity": liq,
-                     "Credit": cred, "Events": event, "Total": market + liq + cred + event})
+                     "Credit": cred, "Events": event, "Total": market + liq + cred + event, "Locked Days in Replay": already})
     table = pd.DataFrame(rows)
     totals = table[["Market Loss", "Liquidity", "Credit", "Events", "Total"]].sum()
     return {"name": scenario["name"], "kind": scenario["kind"], "market": scenario["market"], "table": table,
@@ -167,13 +175,33 @@ def reverse_stress(weights: np.ndarray, cov: np.ndarray, loss: float) -> dict:
     return {"shock": x, "d2": loss ** 2 / var, "portfolio_sigma": np.sqrt(var)}
 
 
+def _valid_nu(nu) -> bool:
+    return nu is not None and np.isfinite(nu) and nu > 2
+
+
+def loss_probability(loss: float, portfolio_sigma: float, nu: float = None) -> dict:
+    """
+    Probability of the loss itself, P(wᵀx ≤ −L), over the covariance's horizon (one month here):
+    Φ(−L/σ_p) under a normal; under a multivariate Student-t whose COVARIANCE is Σ the portfolio return is
+    univariate t with scale σ_p·√((ν−2)/ν), so P = T_ν(−(L/σ_p)·√(ν/(ν−2))). Also "once every N years" = 1/(12p).
+    """
+    d = loss / portfolio_sigma
+    out = {"normal": float(norm.cdf(-d))}
+    out["student_t"] = float(t_dist.cdf(-d * np.sqrt(nu / (nu - 2)), nu)) if _valid_nu(nu) else np.nan
+    for key in ("normal", "student_t"):
+        p = out[key]
+        out[f"{key}_years"] = 1 / (12 * p) if np.isfinite(p) and p > 0 else np.nan
+    return out
+
+
 def plausibility(d2: float, k: int, nu: float = None) -> dict:
     """
-    Probability of a move at least this far from the centre: χ²(k) under a multivariate normal, and
-    1 − F_{k,ν}(d²/k) under a multivariate Student-t with ν degrees of freedom (where d²/k ~ F(k, ν)).
+    Share of outcomes at least this extreme IN ANY DIRECTION (not the probability of the loss; see
+    loss_probability): P(D² ≥ d²), χ²(k) under a multivariate normal. Under a multivariate Student-t, d² measured
+    with the covariance is rescaled to the dispersion matrix (× ν/(ν−2)), and then D²/k ~ F(k, ν).
     """
     out = {"normal": float(chi2.sf(d2, k))}
-    out["student_t"] = float(f_dist.sf(d2 / k, k, nu)) if nu is not None and np.isfinite(nu) and nu > 2 else np.nan
+    out["student_t"] = float(f_dist.sf(d2 * nu / (nu - 2) / k, k, nu)) if _valid_nu(nu) else np.nan
     return out
 
 

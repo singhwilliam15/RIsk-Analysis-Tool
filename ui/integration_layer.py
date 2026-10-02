@@ -85,14 +85,17 @@ def compute_integration(ctx):
     asset = pd.concat([lookback[t].rename(t) for t in weights.index], axis=1, join="inner").dropna()
     cov_full = asset.cov().to_numpy() * I.REVERSE_HORIZON
     nu = ctx.var_selected["Student-t"]["degrees_of_freedom"]
-    reverse = {"loss": loss, "full": I.reverse_stress(weights.to_numpy(), cov_full, loss)}
-    reverse["full"]["plausibility"] = I.plausibility(reverse["full"]["d2"], len(weights), nu)
+    def with_probabilities(res):
+        res["probability"] = I.loss_probability(loss, res["portfolio_sigma"], nu)
+        res["plausibility"] = I.plausibility(res["d2"], len(weights), nu)  # any-direction share, shown as context
+        return res
+
+    reverse = {"loss": loss, "full": with_probabilities(I.reverse_stress(weights.to_numpy(), cov_full, loss))}
     crisis = (ctx.conc.get("crisis") or {}).get("correlations", {}).get("Crisis windows") if isinstance(ctx.conc, dict) else None
     if crisis is not None:
         vols = asset.std(ddof=1).loc[crisis.index].to_numpy()
         cov_crisis = np.outer(vols, vols) * crisis.to_numpy() * I.REVERSE_HORIZON
-        reverse["crisis"] = I.reverse_stress(weights.loc[crisis.index].to_numpy(), cov_crisis, loss)
-        reverse["crisis"]["plausibility"] = I.plausibility(reverse["crisis"]["d2"], len(weights), nu)
+        reverse["crisis"] = with_probabilities(I.reverse_stress(weights.loc[crisis.index].to_numpy(), cov_crisis, loss))
     scale = np.median([v["sigma"] / today_sigma[t] for sc in scenarios if sc["kind"] == "custom"
                        for t, v in sc["holdings"].items() if today_sigma[t] > 0]) if scenarios else 2.0
     reverse_scenario = {"name": f"Reverse stress: lose {loss:.0%} in a month", "kind": "reverse", "market": np.nan,

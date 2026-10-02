@@ -68,6 +68,10 @@ def render_overview(ctx):
              f"Lowest tick loss among passing · VaR {money(var_selected[point_name(recommended_model)]['var_scaled_amount'])}"
              f"<br>{trust_line(trusted[point_name(recommended_model)]['VaR'])}", "metric-sub")
             if recommendation["status"] == "recommended" else
+            (col5, "Best VaR Model", recommended_model,
+             f"Fails the ES test; ES understated · VaR {money(var_selected[point_name(recommended_model)]['var_scaled_amount'])}"
+             f"<br>{trust_line(trusted[point_name(recommended_model)]['VaR'])}", "metric-sub-red")
+            if recommendation["status"] == "var_only" else
             (col5, "No Model Passes", recommended_model,
              f"Lowest tick loss shown; use with caution<br>{trust_line(trusted[point_name(recommended_model)]['VaR'])}",
              "metric-sub-red")

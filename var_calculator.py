@@ -836,16 +836,22 @@ def backtest_all_methods(returns: pd.Series, forecasts: pd.DataFrame, confidence
 
 def recommend_model(backtest_table: pd.DataFrame, exclude=()) -> dict:
     """
-    Recommended model = lowest tick loss among models that PASS all three tests.
-    If none pass, report the lowest-loss model with a warning; with too little data, recommend nothing.
+    Recommended model = lowest tick loss among models that PASS all three VaR tests and do not FAIL the ES test
+    (an ES test that could not run counts as not tested, not failed). If every VaR-passing model fails the ES test,
+    the lowest-loss one is the headline with status "var_only" (a warning, not a recommendation). If none pass the
+    VaR tests, report the lowest-loss model with a warning; with too little data, recommend nothing.
     Models in `exclude` are scored in the table but never recommended.
     """
     backtest_table = backtest_table[~backtest_table["Method"].isin(exclude)]
     if backtest_table.empty or (backtest_table["Verdict"] == LOW_POWER).all():
         return {"model": None, "status": "low_power"}
     passing = backtest_table[backtest_table["Verdict"] == "PASS"]
+    es_failed = passing["ES Test"] == "FAIL" if "ES Test" in passing else pd.Series(False, index=passing.index)
+    if len(passing[~es_failed]):
+        both = passing[~es_failed]
+        return {"model": both.loc[both["Tick Loss"].idxmin(), "Method"], "status": "recommended"}
     if len(passing):
-        return {"model": passing.loc[passing["Tick Loss"].idxmin(), "Method"], "status": "recommended"}
+        return {"model": passing.loc[passing["Tick Loss"].idxmin(), "Method"], "status": "var_only"}
     return {"model": backtest_table.loc[backtest_table["Tick Loss"].idxmin(), "Method"], "status": "none_pass"}
 
 

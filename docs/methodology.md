@@ -121,8 +121,9 @@ A higher p-value is not evidence of a better model. Models are ranked by the ave
 L = mean[ (α − 1{r_t < q_t}) · (r_t − q_t) ]
 ```
 The tick loss is the scoring function of quantile regression (Koenker and Bassett, 1978). Its expectation is minimised by the true conditional quantile, which makes it a consistent way to compare quantile forecasts (Giacomini and Komunjer, 2005).
-- **Recommended model:** the lowest tick loss among models that pass all three VaR tests.
-- **If none pass:** the app says so and shows the lowest-loss model with a warning.
+- **Recommended model:** the lowest tick loss among models that pass all three VaR tests **and do not fail the ES test** (§3.6). An ES test that could not run (too few breaches, low power) counts as not tested, not as a failure.
+- **If every VaR-passing model fails the ES test:** the lowest-loss VaR-passing model is shown as the headline with a warning ("passes the VaR tests, fails the ES test"); it is not called recommended.
+- **If none pass the VaR tests:** the app says so and shows the lowest-loss model with a warning.
 - **Monte Carlo** is scored but excluded from the recommendation: at one day it is the GARCH-t model plus simulation noise.
 
 ## 4. Portfolio risk (`portfolio.py`)
@@ -266,7 +267,7 @@ Ranges are the 5th and 95th percentiles of the estimate recomputed many times. E
 
 - **Passing models:** those with a VaR-test verdict of PASS and an ES test that did not FAIL.
 - **ES range across passing models**, and the **model-risk add-on** = highest passing ES − the recommended model's ES.
-- **When there's no clean recommendation:** if no model passes, or the recommended model itself fails the ES test, the add-on is not defined, and the range is taken across all models.
+- **When there's no clean recommendation:** if no model passes every backtest, the headline model fails one, so the add-on is not defined and the range is taken across all models.
 
 **Lookback sensitivity.** Every model's ES (except Monte Carlo) on the last 252, 504 and 1,260 trading days and on the full history. These are slices of the long price history already downloaded for the crisis replay.
 - A window longer than the history is reported as not available.
@@ -297,8 +298,8 @@ Each rule deducts 0, 1 or 2 points. A missing input deducts 1 point. All thresho
 - **Bands:** a total of 0–1 gives **A**, 2–3 **B**, 4–5 **C**, 6+ **D**.
 - **Caps:** a model that fails its backtest is graded at best C, and a data-quality score below 50 gives D.
 - **Inputs that count as assumptions:** EWMA's and FHS's λ = 0.94 (fixed, not estimated), and √t scaling for Historical and FHS at horizons over one day.
-- **Headline grade:** the recommended model's (Historical if there is none).
-- **Not graded:** the recommendation rule (§3.7) still uses the three VaR tests only. The grade also counts the ES test, so a recommended model can be graded D, as HDFC Bank's EWMA was on 2 Oct 2026. The Trust page says so.
+- **Headline grade:** the headline model's (the recommended model, or the best-scoring fallback of §3.7; Historical if there is too little data).
+- **Recommendation and grade agree:** the recommendation (§3.7) and the backtest rule here use the same tests, so a model called "recommended" never has a failed backtest. Until the review fixes of October 2026 the recommendation used the VaR tests only, and HDFC Bank's EWMA was recommended while failing the ES test (grade D).
 
 ## 9. Liquidity risk (`liquidity.py`)
 
@@ -579,7 +580,7 @@ Each scenario hits every pillar together, holding by holding.
   - **Historical:** every window in `stress_scenarios.csv` that the benchmark covers. The holding's return is its actual return between the market's peak and trough (replay), or downside beta × the market's drawdown if it had no prices then. Volatility is the holding's own daily volatility inside the window, or today's volatility × the market's crisis-to-normal volatility ratio.
   - **Custom:** market −10%, −20% and −30%. Downside beta sets each holding's return, and volatility is today's × the median crisis-to-normal ratio of the market across the windows.
 - **The four links:**
-  - **Liquidity:** volume falls to that crisis's own measured level for the holding (§9.3), never above normal; without one, the stress factor is used. Spread cost (Bangia) and square-root impact are charged on the post-shock value at the scenario's volatility. A holding with a price band that fell by at least its band is assumed frozen for its exit-freeze scenario, losing 1 − (1 − band)^N more of its remaining value.
+  - **Liquidity:** volume falls to that crisis's own measured level for the holding (§9.3), never above normal; without one, the stress factor is used. Spread cost (Bangia) and square-root impact are charged on the post-shock value at the scenario's volatility. A holding with a price band that fell by at least its band is assumed frozen for its exit-freeze scenario, losing 1 − (1 − band)^N more of its remaining value. In a **historical replay**, lower-circuit days already inside the replayed path (returns at or below −band + tolerance, from the return alone since the path has no high/low) are already in the market loss, so only the extra days are added: N_extra = max(0, N − days already locked).
   - **Credit:** Merton is re-solved with equity × (1 + return) and the scenario volatility. The credit deterioration is (PD_stressed − PD_today)⁺ × the remaining value, with loss given default 100%. Banks are skipped.
   - **Events:** if the fall reaches the pledge margin-call trigger (§12.3), selling the shares needed to restore cover adds square-root impact on the holding.
   - **Crisis correlation:** this changes the next day's tail rather than the scenario loss itself, so it is reported alongside: crisis-window ES against normal ES (§11.5).
@@ -590,12 +591,18 @@ Each scenario hits every pillar together, holding by holding.
 - **Liquid large-caps barely interact.** For the 5-stock portfolio the interaction is at most 0.12% of the portfolio's value in any scenario, at ₹10 lakh and at ₹50 crore. Their liquidity, credit and event effects are small whether added separately or linked.
 - **A small-cap with a price band can interact strongly.** Jaiprakash Power (inferred 5% band, 3-day freeze) in a −10% market loses ₹2.39 lakh linked, against a siloed ₹1.12 lakh: its 10.9% fall breaches the band, and the freeze adds 14% of the remaining value.
 - **The interaction is only as reliable as its inputs.** For Jaiprakash Power these are the inferred band and the 3-day floor.
+- **Replays (fix of October 2026).** Jaiprakash Power's historical replays already contain 1–29 lower-circuit days. Counting only the extra freeze days lowers its linked losses by 3% (Global Financial Crisis, 29 locked days, no extra) to 25% (US credit downgrade). Custom shocks are unchanged.
 
 ### 13.2 Reverse stress test
 
 - **Asset space:** the most plausible return vector that loses L over one month (Σ = 21 × the daily covariance) minimises xᵀΣ⁻¹x subject to wᵀx = −L. The closed form is **x\* = −L·Σw / (wᵀΣw)**, with squared Mahalanobis distance d² = L²/(wᵀΣw); it is tested against a numerical optimiser.
 - **Crisis version:** the same using crisis-window correlations with full-sample volatilities.
-- **Plausibility:** P(D² ≥ d²) under a multivariate normal (χ²ₖ) and under a multivariate Student-t, where D²/k ~ F(k, ν) and ν is the portfolio's Student-t fit.
+- **Probability of the loss itself:** P(wᵀx ≤ −L), with σ_p = √(wᵀΣw) and d = L/σ_p (which is also the Mahalanobis distance of x\*):
+  - normal: **Φ(−d)**;
+  - multivariate Student-t with covariance Σ: the portfolio return is univariate t with scale σ_p·√((ν−2)/ν), so the probability is **T_ν(−d·√(ν/(ν−2)))**;
+  - shown per month and as "about once every 1/(12p) years". Both are tested against two-million-draw simulations.
+  - **Assumption:** ν is fitted to daily returns and applied to the one-month sum. Monthly sums are closer to normal than daily returns, so the Student-t figure is an upper-end estimate and the normal figure a lower-end one.
+- **Share of outcomes at least this extreme in any direction:** P(D² ≥ d²), χ²ₖ under a normal and, under the t, (D²·ν/(ν−2))/k ~ F(k, ν) (d² is measured with the covariance, so it is rescaled to the t's dispersion matrix). This counts gains and every other direction too, so it is **not** the probability of the loss; it is shown only as a measure of how unusual the scenario is. Before October 2026 this share was presented as the probability of the loss, and the F version omitted the ν/(ν−2) rescaling.
 - **Macro space:**
   - Portfolio daily returns are regressed on Nifty 50, Bank Nifty, Nifty IT, USD/INR and Brent (S&P 500, Nasdaq 100, the dollar index and Brent for US portfolios) over the last 504 common days.
   - The most plausible one-month macro move that loses L through those betas is y\* = −L·Σ_m b / (bᵀΣ_m b).

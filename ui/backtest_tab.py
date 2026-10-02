@@ -48,8 +48,13 @@ def render(ctx, tab4):
             elif recommendation["status"] == "none_pass":
                 st.warning(f"No model passes all three tests. **{recommended_model}** has the lowest tick loss, but its breach "
                            "pattern is still statistically off.")
+            elif recommendation["status"] == "var_only":
+                st.warning(f"Every model that passes the three VaR tests fails the ES test. **{recommended_model}** has the "
+                           "lowest tick loss among them and is shown as the headline, but it is not recommended: its ES "
+                           "understates the losses beyond VaR.")
             else:
-                st.success(f"Recommended model: **{recommended_model}** (lowest tick loss among the models that pass all three tests).")
+                st.success(f"Recommended model: **{recommended_model}** (lowest tick loss among the models that pass the "
+                           "three VaR tests and the ES test).")
 
             bt_display = backtest_table.copy()
             bt_display["Expected Breaches"] = bt_display["Expected Breaches"].map(lambda x: f"{x:.1f}")

@@ -66,6 +66,37 @@ def test_crisis_volume_never_raises_liquidity():
     assert calm["Liquidity"].tolist() == pytest.approx(normal["Liquidity"].tolist())
 
 
+def _with_path(path):
+    """SCENARIO with B's replayed daily path given (its return is the compounded path)."""
+    path = pd.Series(path, index=pd.bdate_range("2020-03-02", periods=len(path)))
+    b = {"return": float(np.prod(1 + path) - 1), "method": "replay", "sigma": 0.06, "path": path}
+    return {**SCENARIO, "holdings": {"A": SCENARIO["holdings"]["A"], "B": b}}
+
+
+@pytest.mark.parametrize("freeze, locked_in_path, extra", [(3, 3, 0), (5, 3, 2), (3, 0, 3)])
+def test_circuit_freeze_counts_only_days_beyond_the_replayed_locks(freeze, locked_in_path, extra):
+    # B's band is 5%; the path has `locked_in_path` lower-circuit days among ordinary falls
+    path = [-0.05] * locked_in_path + [-0.03] * 6 + [0.01] * 2
+    scenario = _with_path(path)
+    on = {"liquidity": True, "credit": False, "events": False}
+    frame = holdings_frame(**{"Freeze Days": [0, freeze]})
+    t = I.linked_stress(frame, scenario, PARAMS, on)["table"].set_index("Ticker")
+    no_band = I.linked_stress(holdings_frame(**{"Band": [np.nan, np.nan]}), scenario, PARAMS, on)["table"].set_index("Ticker")
+    after = 400 * (1 + scenario["holdings"]["B"]["return"])
+    ret = scenario["holdings"]["B"]["return"]
+    expected = after * (1 - 0.95 ** extra) if ret <= -0.05 else 0.0
+    assert t.loc["B", "Liquidity"] - no_band.loc["B", "Liquidity"] == pytest.approx(expected)
+    assert t.loc["B", "Locked Days in Replay"] == locked_in_path
+
+
+def test_circuit_freeze_without_a_path_is_unchanged():
+    # β-proxy and custom scenarios have no daily path: the whole freeze is added, as before
+    on = {"liquidity": True, "credit": False, "events": False}
+    t = I.linked_stress(holdings_frame(), SCENARIO, PARAMS, on)["table"].set_index("Ticker")
+    no_band = I.linked_stress(holdings_frame(**{"Band": [np.nan, np.nan]}), SCENARIO, PARAMS, on)["table"].set_index("Ticker")
+    assert t.loc["B", "Liquidity"] - no_band.loc["B", "Liquidity"] == pytest.approx(400 * 0.55 * (1 - 0.95 ** 3))
+
+
 def test_run_linked_reports_the_interaction():
     table = I.run_linked(holdings_frame(), [SCENARIO], PARAMS, {"liquidity": 10.0, "credit": 1.0, "events": 0.0})
     row = table.iloc[0]
@@ -86,6 +117,10 @@ def test_scenario_inputs_replay_and_proxy():
     covid = out[0]
     assert covid["holdings"]["A"]["method"] == "replay" and covid["holdings"]["B"]["method"] == "β-proxy"
     assert covid["holdings"]["A"]["return"] < -0.2
+    # The replayed path is kept, and compounds to the replayed return
+    path = covid["holdings"]["A"]["path"]
+    assert np.prod(1 + path) - 1 == pytest.approx(covid["holdings"]["A"]["return"])
+    assert "path" not in covid["holdings"]["B"]
     assert [o["name"] for o in out[1:]] == ["Market -10%", "Market -20%", "Market -30%"]
 
 
@@ -108,15 +143,47 @@ def test_closed_form_reverse_stress_matches_an_optimiser(loss):
     assert W @ res["shock"] == pytest.approx(-loss)
 
 
-def test_plausibility_normal_and_student_t():
-    p = I.plausibility(9.0, 3, nu=5)
-    from scipy.stats import chi2, f
-    assert p["normal"] == pytest.approx(chi2.sf(9.0, 3)) and p["student_t"] == pytest.approx(f.sf(3.0, 3, 5))
-    assert p["student_t"] > p["normal"]  # fat tails make the same move more plausible
-    rng = np.random.default_rng(1)
-    k, nu, n = 3, 5, 400_000
-    t_draws = rng.standard_normal((n, k)) / np.sqrt(rng.chisquare(nu, n) / nu)[:, None]
-    assert ((t_draws ** 2).sum(axis=1) >= 9.0).mean() == pytest.approx(p["student_t"], rel=0.03)
+def _draws(nu, n, seed):
+    """Normal and multivariate Student-t draws whose COVARIANCE is COV (the t's dispersion is COV·(ν−2)/ν)."""
+    rng = np.random.default_rng(seed)
+    z = rng.standard_normal((n, 3)) @ np.linalg.cholesky(COV).T
+    t = z * np.sqrt((nu - 2) / nu) / np.sqrt(rng.chisquare(nu, n) / nu)[:, None]
+    return z, t
+
+
+def test_extreme_share_matches_a_simulation_with_covariance_distance():
+    nu = 5
+    p = I.plausibility(9.0, 3, nu=nu)
+    from scipy.stats import chi2
+    assert p["normal"] == pytest.approx(chi2.sf(9.0, 3))
+    z, t = _draws(nu, 400_000, 1)
+    inv = np.linalg.inv(COV)
+    d2_z, d2_t = np.einsum("ij,jk,ik->i", z, inv, z), np.einsum("ij,jk,ik->i", t, inv, t)
+    # d² is measured with the covariance, as reverse_stress does; the old F(k, ν) formula assumed the dispersion
+    assert (d2_z >= 9.0).mean() == pytest.approx(p["normal"], rel=0.03)
+    assert (d2_t >= 9.0).mean() == pytest.approx(p["student_t"], rel=0.03)
+
+
+@pytest.mark.parametrize("loss", [0.05, 0.10, 0.15])
+def test_loss_probability_matches_a_simulation(loss):
+    nu = 5
+    sigma = I.reverse_stress(W, COV, loss)["portfolio_sigma"]
+    p = I.loss_probability(loss, sigma, nu)
+    z, t = _draws(nu, 2_000_000, 3)
+    sim_n, sim_t = (z @ W <= -loss).mean(), (t @ W <= -loss).mean()
+    assert sim_n == pytest.approx(p["normal"], rel=0.05, abs=2e-5)
+    assert sim_t == pytest.approx(p["student_t"], rel=0.05, abs=2e-5)
+
+
+def test_loss_probability_is_one_sided_and_far_below_the_any_direction_share():
+    from scipy.stats import norm
+    res = I.reverse_stress(W, COV, 0.10)
+    p = I.loss_probability(0.10, res["portfolio_sigma"], None)
+    assert p["normal"] == pytest.approx(norm.cdf(-0.10 / res["portfolio_sigma"]))
+    assert np.isnan(p["student_t"])
+    assert p["normal"] < I.plausibility(res["d2"], 3)["normal"]
+    # Once every N years: the loss is over one month, so N = 1 / (12 p)
+    assert p["normal_years"] == pytest.approx(1 / (12 * p["normal"]))
 
 
 def test_macro_reverse_finds_the_planted_analogue():

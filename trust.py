@@ -322,7 +322,7 @@ def model_risk(var_selected: dict, backtest_table: pd.DataFrame, recommended_mod
     if not names:
         basis = "all models (not backtested)"
     elif passing:
-        basis = "all models (the recommended model fails the ES test)"
+        basis = "all models (the headline model fails a backtest)"
     else:
         basis = "all models (none passes every backtest)"
     return {"basis": basis,

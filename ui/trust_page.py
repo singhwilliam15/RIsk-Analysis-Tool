@@ -24,15 +24,13 @@ def render(ctx):
     trusted, risk = ctx.trusted, ctx.trust["model_risk"]
     headline = ctx.headline_model
     st.subheader(f"🛡️ Trust: {ctx.company_name}")
-    status_note = {"recommended": " (recommended by the backtest)",
+    status_note = {"recommended": " (recommended: passes the VaR tests and the ES test)",
+                   "var_only": " (not recommended: the best model on the VaR tests, but every such model fails the ES "
+                               "test, which the grade counts as a failed backtest)",
                    "none_pass": " (lowest tick loss, but no model passes every backtest)",
                    "low_power": " (too few test days to recommend a model, so Historical is shown)"}
-    es_failed = (ctx.recommendation["status"] == "recommended"
-                 and ctx.trust["grades"].set_index("Model").loc[headline, "Backtest"] == "fail")
     st.caption(f"{cl_label}, {ctx.holding_period}-day horizon, on {money(ctx.investment_amount)}. Headline model: "
-               f"**{headline}**{status_note[ctx.recommendation['status']]}."
-               + (" The recommendation uses the three VaR tests only; this model fails the ES backtest, which the "
-                  "grade counts as a failed backtest." if es_failed else ""))
+               f"**{headline}**{status_note[ctx.recommendation['status']]}.")
 
     # Headline metrics
     col1, col2, col3, col4 = st.columns(4)

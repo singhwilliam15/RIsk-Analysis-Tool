@@ -165,11 +165,24 @@ def test_model_risk_without_a_passing_model():
     assert risk["dispersion"] == pytest.approx(0.3)
 
 
-def test_model_risk_when_the_recommended_model_fails_the_es_test():
+def test_model_risk_when_the_headline_model_fails_the_es_test():
     points = _points({"A": 100.0, "B": 130.0, "C": 110.0})
     table = _backtests({"A": "PASS", "B": "PASS", "C": "FAIL"}, {"A": "FAIL"})
     risk = T.model_risk(points, table, "A", identity)
-    assert np.isnan(risk["add_on"]) and risk["basis"] == "all models (the recommended model fails the ES test)"
+    assert np.isnan(risk["add_on"]) and risk["basis"] == "all models (the headline model fails a backtest)"
+
+
+def test_a_recommended_model_never_fails_a_backtest():
+    """recommend_model and the grade agree: 'recommended' implies backtest status 'pass'; 'var_only' is graded as a fail."""
+    from var_calculator import recommend_model
+    table = _backtests({"A": "PASS", "B": "PASS", "C": "FAIL"}, {"A": "FAIL"}).assign(**{"Tick Loss": [0.001, 0.002, 0.0005]})
+    rec = recommend_model(table)
+    assert rec == {"model": "B", "status": "recommended"} and T.backtest_status(table, rec["model"]) == "pass"
+    table["ES Test"] = "FAIL"
+    rec = recommend_model(table)
+    assert rec == {"model": "A", "status": "var_only"} and T.backtest_status(table, rec["model"]) == "fail"
+    letter, reasons = T.grade(0.1, 0.1, "fail", 95, 1000, 0.0)
+    assert letter == T.WORST_IF_FAILED and any("fails its backtest" in r for r in reasons)
 
 
 def test_backtest_status():

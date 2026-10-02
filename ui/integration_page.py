@@ -54,7 +54,8 @@ def render(ctx):
                    f"loss today ({money(s['credit'])}) + event ES gap today ({money(s['events'])}). Linked: volume falls to "
                    "that crisis's measured level (never above normal), volatility to its crisis level; Merton is re-solved "
                    "on the shocked equity; a pledge margin call adds forced-selling impact; a banded stock that fell by its "
-                   "band is assumed frozen for its exit-freeze scenario. Custom shocks use downside beta and the median "
+                   "band is assumed frozen for its exit-freeze scenario (in a replay, only for the days beyond the "
+                   "lower circuits already in the replayed path). Custom shocks use downside beta and the median "
                    "crisis-to-normal volatility ratio.")
         with st.expander("Per-holding detail, worst scenario"):
             detail = worst["detail"].copy()
@@ -92,11 +93,36 @@ def _reverse(ctx, money):
         for row, x in zip(rows, rv["crisis"]["shock"]):
             row["Under crisis correlation"] = f"{x:+.1%}"
     st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
-    p = full["plausibility"]
-    st.caption(f"x* = −L·Σw / (wᵀΣw) minimises xᵀΣ⁻¹x subject to a {rv['loss']:.0%} loss (Σ = 21 × daily covariance). "
-               f"Mahalanobis distance {np.sqrt(full['d2']):.2f}: a move at least this far out has probability "
-               f"{p['normal']:.2%} under a multivariate normal and {p['student_t']:.2%} under a multivariate Student-t "
-               f"(ν = {ctx.var_selected['Student-t']['degrees_of_freedom']:.1f}).")
+    prob, share = full["probability"], full["plausibility"]
+    nu = ctx.var_selected["Student-t"]["degrees_of_freedom"]
+
+    def pct(p):
+        """Small probabilities keep two significant figures (0.011%, not 0.01%)."""
+        if not np.isfinite(p):
+            return "not available"
+        return f"{p:.2%}" if p >= 0.01 else f"{p * 100:.2g}%"
+
+    def chance(key):
+        p, years = prob[key], prob[f"{key}_years"]
+        if not np.isfinite(p):
+            return "not available"
+        return f"{pct(p)} a month (about once every {years:,.0f} years)" if years >= 1.5 else f"{pct(p)} a month"
+
+    st.markdown(f"**Chance of losing at least {rv['loss']:.0%} in a month:** {chance('normal')} under a normal; "
+                f"{chance('student_t')} under a Student-t (ν = {nu:.1f}).")
+
+    crisis_note = ""
+    if "crisis" in rv:
+        cp = rv["crisis"]["probability"]
+        crisis_note = f" With crisis correlations the chance is {pct(cp['normal'])} (normal) and {pct(cp['student_t'])} (Student-t)."
+    st.caption(f"P(portfolio return ≤ −{rv['loss']:.0%}) = Φ(−L/σ_p) under a normal, and the univariate t tail at the "
+               f"same distance (scaled for the t's variance) under a Student-t; σ_p = {full['portfolio_sigma']:.2%} a month."
+               + crisis_note +
+               f" **Assumption:** ν is fitted to daily returns; one-month sums are closer to normal, so the Student-t "
+               f"figure is an upper-end estimate. x* = −L·Σw / (wᵀΣw) minimises xᵀΣ⁻¹x subject to the loss "
+               f"(Σ = 21 × daily covariance). Its Mahalanobis distance is {np.sqrt(full['d2']):.2f}; the share of "
+               f"outcomes at least this extreme in any direction (gains included, so not the chance of the loss) is "
+               f"{pct(share['normal'])} under a normal and {pct(share['student_t'])} under a Student-t.")
     lk = rv["linked"]
     st.markdown(f"Run through the linked engine, this scenario loses **{money(lk['Linked Total'])}**: market "
                 f"{money(lk['Market Loss'])} + liquidity {money(lk['+ Liquidity'])} + credit {money(lk['+ Credit'])} + "

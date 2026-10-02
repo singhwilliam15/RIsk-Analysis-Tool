@@ -36,7 +36,7 @@ At each as-of date, using the last 500 trading days up to it:
 | Case | As of | Market ES (headline model, grade) | Flags | Warning | Realised loss |
 | --- | --- | --- | --- | --- | --- |
 | Yes Bank | 12m (5 Mar 2019) | 11.1% (EWMA, C) | market | **yes** | −93% |
-| Yes Bank | 6m (5 Sep 2019) | 12.1% (EWMA, D) | market, stress | **yes** | −74% |
+| Yes Bank | 6m (5 Sep 2019) | 18.2% (FHS, B) | market, stress | **yes** | −74% |
 | Yes Bank | 3m (5 Dec 2019) | 19.3% (Cornish-Fisher, C) | market, stress | **yes** | −74% |
 | Yes Bank | 1m (5 Feb 2020) | 18.8% (Cornish-Fisher, C) | market, stress | **yes** | −57% |
 | Zee Entertainment | 12m (25 Jan 2018) | 3.7% (Cornish-Fisher, B) | none | no | −46% |
@@ -53,11 +53,11 @@ At each as-of date, using the last 500 trading days up to it:
 | Jet Airways | 1m (17 Mar 2019) | 7.1% (Normal, C) | market | **yes** | −86% |
 | Future Retail | 12m (29 Aug 2019) | 5.0% (Cornish-Fisher, B) | none | no | −84% |
 | Future Retail | 6m (29 Feb 2020) | 4.6% (EWMA, B) | none | no | −79% |
-| Future Retail | 3m (29 May 2020) | 9.4% (EWMA, D) | market, **liquidity** (26 lower-circuit days, longest run 18), stress | **yes** | −20% |
-| Future Retail | 1m (29 Jul 2020) | 9.5% (EWMA, D) | market, **liquidity** (37 lower-circuit days), stress | **yes** | −39% |
+| Future Retail | 3m (29 May 2020) | 12.3% (FHS, B) | market, **liquidity** (26 lower-circuit days, longest run 18), stress | **yes** | −20% |
+| Future Retail | 1m (29 Jul 2020) | 12.1% (FHS, B) | market, **liquidity** (37 lower-circuit days), stress | **yes** | −39% |
 | DHFL | all | not available (no prices) | – | – | – |
 
-ES is 1-day at 95% for the recommended model, with the Trust grade. The 90% ranges are in `case_studies/results/results.csv`.
+ES is 1-day at 95% for the recommended model, with the Trust grade. Since the October 2026 review fix the recommended model must also pass the ES test. At three dates (Yes Bank 6m, Future Retail 3m and 1m) EWMA had been recommended while failing it, at grade D; FHS replaces it with a 27–50% higher ES. The warnings do not use the grade, so the tally is unchanged. The 90% ranges are in `case_studies/results/results.csv`.
 
 ![Realised loss after each as-of date, coloured by whether the tool warned](images/case_studies.png)
 

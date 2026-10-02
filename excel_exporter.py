@@ -205,12 +205,13 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
     ws_back["B2"].font = TITLE_FONT
     ws_back["B3"] = ("Kupiec: correct breach count. Christoffersen: breaches independent. "
                      "Conditional coverage: both. PASS requires every p-value >= 0.05. "
-                     "Recommended = lowest tick loss among PASS models. "
+                     "Recommended = lowest tick loss among PASS models that do not fail the ES test. "
                      "ES test (McNeil-Frey): breach-day (loss - ES)/sigma should average zero; low p = ES too small.")
     ws_back["B3"].font = SUBTITLE_FONT
     rec = recommendation or {"model": None, "status": "low_power"}
     ws_back["B4"] = {
         "recommended": f"Recommended model: {rec['model']}",
+        "var_only": f"Every VaR-passing model fails the ES test; lowest tick loss among them: {rec['model']} (ES understated)",
         "none_pass": f"No model passes all tests; lowest tick loss: {rec['model']} (use with caution)",
     }.get(rec["status"], "Not enough out-of-sample data for a meaningful backtest; choose a longer lookback.")
     ws_back["B4"].font = BOLD_FONT

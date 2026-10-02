@@ -68,7 +68,7 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
                               recommendation: dict = None, data_note: str = None, risk_free_rate: float = None,
                               vol_shock_table: pd.DataFrame = None, beta_down: float = float("nan"),
                               data_layer: dict = None, trust: dict = None, liquidity: dict = None,
-                              credit: dict = None) -> bytes:
+                              credit: dict = None, concentration: dict = None) -> bytes:
     """
     Generate the Risk Analysis Tool's Excel report and return it as .xlsx bytes.
     `var_by_level` maps model name -> {confidence level -> VaR result dict}.
@@ -82,7 +82,8 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
     `liquidity` (optional) holds "metrics" (TrustedMetric per headline), "holdings", "amfi", "waterfall",
     "participation", "bangia_k" and "impact_y"; it adds a Liquidity sheet.
     `credit` (optional) holds "metrics", "view" (credit_layer.portfolio_view), "results" and "vol_choice"; it adds a
-    Credit sheet.
+    Credit sheet. `concentration` (optional) holds "result" (concentration_layer.analyse), "metrics" and
+    "factor_meta"; it adds a Concentration sheet.
     """
     money = f'"{currency}" #,##0'
     wb = openpyxl.Workbook()
@@ -418,6 +419,50 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
         if flag_rows:
             ws_cr.cell(row=next_row, column=2, value="RED FLAGS AND NOTES").font = BOLD_FONT
             _write_table(ws_cr, next_row + 1, [("Ticker", "@"), ("Flag or note", "@")], flag_rows)
+
+    # -------------------------------------------------------------
+    # CONCENTRATION AND FACTORS (when the app supplies it)
+    # -------------------------------------------------------------
+    if concentration is not None:
+        ws_cf = wb.create_sheet(title="Concentration")
+        res, meta = concentration["result"], concentration.get("factor_meta") or {}
+        ws_cf["B2"] = "🧭 CONCENTRATION AND FACTOR RISK"
+        ws_cf["B2"].font = TITLE_FONT
+        ws_cf["B3"] = (f"Model: {res['model']}. Factor data: {meta.get('source', 'not available')} to "
+                       f"{meta.get('end_date', 'n/a')}. Methods in docs/methodology.md section 11.")
+        ws_cf["B3"].font = SUBTITLE_FONT
+        next_row = _write_table(
+            ws_cf, 5, [("Headline", "@"), ("Value", "0.00"), ("Low", "0.00"), ("High", "0.00"), ("Range", "@"),
+                       ("Grade", "@"), ("Reasons", "@")],
+            [(m.name, _finite(m.value), _finite(m.low), _finite(m.high), m.range_label, m.grade,
+              "; ".join(m.reasons) or "no deductions") for m in concentration["metrics"].values()],
+        )
+        fits = {t: f for t, f in res["fits"].items() if f is not None}
+        if fits:
+            names = list(next(iter(fits.values()))["betas"].index)
+            ws_cf.cell(row=next_row, column=2, value="FACTOR EXPOSURES (NEWEY-WEST t IN BRACKETS)").font = BOLD_FONT
+            next_row = _write_table(
+                ws_cf, next_row + 1, [("Ticker", "@"), ("Days", "0")] + [(n, "@") for n in names]
+                + [("Alpha (annual)", "0.0%"), ("R²", "0.00")],
+                [(t, f["nobs"], *[f"{f['betas'][n]:+.2f} ({f['t_nw'][n]:+.1f})" for n in names], f["alpha_annual"], f["r2"])
+                 for t, f in fits.items()],
+            )
+        fr = res["factor_risk"]
+        if fr is not None:
+            ws_cf.cell(row=next_row, column=2, value="EULER SPLIT OF PORTFOLIO VARIANCE").font = BOLD_FONT
+            next_row = _write_table(ws_cf, next_row + 1, [("Source", "@"), ("Share", "0.0%"), ("Parametric VaR Part", money)],
+                                    [(k, fr["shares"][k], fr["var_parts"][k]) for k in fr["shares"].index])
+        if "sectors" in res:
+            ws_cf.cell(row=next_row, column=2, value=f"SECTORS (HHI {res['hhi']:.3f}, EFFECTIVE BETS {res['pca']['enb']:.2f})").font = BOLD_FONT
+            next_row = _write_table(ws_cf, next_row + 1, [("Sector", "@"), ("Weight", "0.0%"), ("Risk Share", "0.0%")],
+                                    res["sectors"][["Sector", "Weight", "Risk Share"]].itertuples(index=False))
+        if res.get("crisis") is not None:
+            t = res["crisis"]["table"]
+            ws_cf.cell(row=next_row, column=2, value="CORRELATION IN A CRISIS").font = BOLD_FONT
+            _write_table(ws_cf, next_row + 1, [("Sample", "@"), ("Days", "0"), ("Average Correlation", "0.00"),
+                                               ("Portfolio ES", money), ("Benefit Kept", "0%")],
+                         [(r["Sample"], r["Days"], _finite(r["Average Correlation"]), _finite(r["ES"]), _finite(r["Benefit Kept"]))
+                          for r in t.to_dict("records")])
 
     # -------------------------------------------------------------
     # SHEET 4: RAW DATA

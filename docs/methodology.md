@@ -1,6 +1,6 @@
 # Methodology
 
-This document describes every calculation in the Risk Analysis Tool: the eight market-risk models, the multi-day rules, the backtests, the model-selection rule, the portfolio risk decomposition, the stress tests, and the data layer that every risk pillar shares (positions, prices and volume, fundamentals, disclosures and data quality), the trust layer (90% ranges, model risk and A–D grades), and the liquidity and credit pillars. Section numbers match the code modules named in each heading. The pillars still to come (liquidity, credit, concentration, event risk, integration) are planned in `RISK_TOOL_PLAN_V3.md` and will be documented here as they are built.
+This document describes every calculation in the Risk Analysis Tool: the eight market-risk models, the multi-day rules, the backtests, the model-selection rule, the portfolio risk decomposition, the stress tests, and the data layer that every risk pillar shares (positions, prices and volume, fundamentals, disclosures and data quality), the trust layer (90% ranges, model risk and A–D grades), and the liquidity, credit, and concentration and factor pillars. Section numbers match the code modules named in each heading. The pillars still to come (liquidity, credit, concentration, event risk, integration) are planned in `RISK_TOOL_PLAN_V3.md` and will be documented here as they are built.
 
 **Notation.** `r_t` is the simple daily return on day t. α = 1 − confidence level is the tail probability (α = 0.01 for 99%). Losses are positive numbers, so VaR and ES are reported as positive amounts. `z = Φ⁻¹(1 − α)` is the standard normal quantile and φ is the normal density. μ and σ are the sample mean and standard deviation of daily returns. `t` (in multi-day formulas) is the holding period in days.
 
@@ -442,9 +442,65 @@ The thresholds are common credit-analysis rules of thumb, not regulatory limits.
   - **Extra deductions:** a balance sheet older than 15 months, or any unmodelled value.
 - **Altman score:** no range, so that rule is skipped.
 
+## 11. Concentration and factor risk (`concentration.py`, `factor_data.py`)
+
+### 11.1 Factor data
+
+- **India:** the IIM Ahmedabad Indian Fama-French-Momentum library (Agarwalla, Jacob and Varma, 2013). Daily market excess return (MF), SMB, HML, WML (momentum) and the risk-free rate, survivorship-bias adjusted.
+- **US:** the Kenneth R. French library. Daily Fama-French 3 factors plus the momentum factor.
+- **Refreshing:** `scripts/refresh_factor_data.py --iima-release YYYY-MM` downloads both (each site's robots.txt allows it) and writes `data/factors/<region>_daily.csv` in decimals, plus `metadata.json` (source URL, download date, coverage, citation).
+  - A failed download writes nothing for that region and prints manual steps.
+  - French's −99.99 / −999 codes become missing values; no day is filled in.
+- **Latest release:** the 2 Oct 2026 download covers India to **31 Dec 2025** and the US to 31 Aug 2026.
+- **Which file:** a portfolio uses the Indian file if every holding is listed on NSE/BSE, and the US file if none is. A mix has no single factor set without FX conversion.
+
+### 11.2 Factor regressions
+
+- **Model:** rᵢ − r_f = αᵢ + βᵢ'f + εᵢ on Mkt−RF, SMB, HML and momentum, over the days the stock and the factor file both cover.
+- **Standard errors:** Newey and West (1987), Bartlett weights, with ⌊4(n/100)^(2/9)⌋ lags (Newey and West, 1994).
+- **Outputs:** betas with t-statistics, annualised α (× 252), R², and factor variance β'Σ_fβ against specific variance σ²(ε).
+- **Rolling betas:** 252-day windows, re-estimated every 21 days, each using only data up to its end date.
+- **Fallback:** with fewer than **120** overlapping days for any holding, *every* holding falls back to the single-index model on the benchmark (Nifty 50 or S&P 500). The portfolio split needs one model for all holdings, and the fallback costs a grade point.
+
+### 11.3 Portfolio factor risk
+
+- **Portfolio betas:** b = Bᵀw.
+- **Variance:** σ² = bᵀΣ_f b + Σ wᵢ²σ²(εᵢ), with Σ_f the factors' covariance over the regression days.
+- **Euler split:** factor k contributes b_k(Σ_f b)_k, and specific risk contributes Σ wᵢ²σ²(εᵢ); the parts sum to σ² exactly. A negative part is a hedge.
+- **Parametric VaR:** z·σ·investment (zero mean), split in the same proportions.
+- **Specific risks are treated as uncorrelated**, the standard factor-model assumption, so σ² can differ slightly from the portfolio's sample variance.
+
+### 11.4 Concentration
+
+- **Holdings:** HHI = Σwᵢ², and effective number of holdings = 1/HHI.
+- **Risk shares:** Euler shares of portfolio variance by holding are wᵢ(Σw)ᵢ / wᵀΣw, using the lookback window's sample covariance. Summed by sector (Yahoo's classification), they give sector risk shares.
+- **Principal components:** eigenvalues λₖ and eigenvectors eₖ of Σ. Reported:
+  - the first component's share of total variance, λ₁/Σλ;
+  - Meucci's (2009) **effective number of bets**: the portfolio's variance splits across the uncorrelated components as pₖ = λₖ(eₖᵀw)² / wᵀΣw, and ENB = exp(−Σ pₖ ln pₖ). It is 1 for one bet and N for N independent equal-risk bets.
+
+  For a long-only equity portfolio the market component usually dominates: the default five-stock portfolio had 1.24 effective bets.
+
+### 11.5 Crisis correlation
+
+- **Three samples:** correlations on the full common long history of the holdings, on the days inside the windows of `stress_scenarios.csv` (pooled), and on the market's worst 10% of days. Each needs at least 30 days.
+- **ES under each:** zero-mean normal ES uses that sample's correlations and the *full-sample* volatilities, so only correlation changes.
+- **Benefit kept** = (Σ standalone ES − portfolio ES) ÷ the same quantity under full-sample correlation.
+- **Selection bias:** choosing days by the size of the market's fall narrows the market's range inside the sample, which *lowers* measured correlation (Boyer, Gibson and Loretan, 1999; Forbes and Rigobon, 2002). For the default portfolio, worst-day correlation was 0.19 against 0.18 overall, while the crisis windows showed 0.37. The headline is therefore the lower of the two crisis measures, and the spread between them is its range.
+
+### 11.6 Ranges and grades
+
+- **Effective bets and factor share:** 90% ranges by stationary block bootstrap (§8.1), with 200 resamples, recomputing the PCA and re-running every regression.
+- **Benefit kept:** its range is "across crisis definitions", not a confidence interval.
+- **First-component share:** shown without a range.
+- **Grade deductions:**
+  - factor data ending more than 92 days before the latest price;
+  - falling back to the single-index model.
+- **Assumptions:** the choice of factor model (1 of 3 inputs); the crisis windows and the normal ES (2 of 4).
+
 ## References
 
 - Acerbi, C. and Székely, B. (2014). Backtesting expected shortfall. *Risk*, December 2014.
+- Agarwalla, S. K., Jacob, J. and Varma, J. R. (2013). Four factor model in Indian equities market. Working Paper W.P. No. 2013-09-05, Indian Institute of Management, Ahmedabad.
 - Altman, E. I. (1968). Financial ratios, discriminant analysis and the prediction of corporate bankruptcy. *Journal of Finance*, 23(4), 589–609.
 - Altman, E. I. (2000). Predicting financial distress of companies: revisiting the Z-score and ZETA models. Working paper, Stern School of Business, New York University.
 - Altman, E. I., Iwanicz-Drozdowska, M., Laitinen, E. K. and Suvas, A. (2017). Financial distress prediction in an international context: a review and empirical analysis of Altman's Z-score model. *Journal of International Financial Management and Accounting*, 28(2), 131–171.
@@ -458,9 +514,17 @@ The thresholds are common credit-analysis rules of thumb, not regulatory limits.
 - Basel Committee on Banking Supervision (2019). *Minimum capital requirements for market risk.* Bank for International Settlements.
 - Bollerslev, T. (1986). Generalized autoregressive conditional heteroskedasticity. *Journal of Econometrics*, 31(3), 307–327.
 - Bollerslev, T. (1987). A conditionally heteroskedastic time series model for speculative prices and rates of return. *Review of Economics and Statistics*, 69(3), 542–547.
+- Boyer, B. H., Gibson, M. S. and Loretan, M. (1999). Pitfalls in tests for changes in correlations. International Finance Discussion Paper 597, Board of Governors of the Federal Reserve System.
+- Carhart, M. M. (1997). On persistence in mutual fund performance. *Journal of Finance*, 52(1), 57–82.
 - Christoffersen, P. F. (1998). Evaluating interval forecasts. *International Economic Review*, 39(4), 841–862.
+- Fama, E. F. and French, K. R. (1993). Common risk factors in the returns on stocks and bonds. *Journal of Financial Economics*, 33(1), 3–56.
+- Forbes, K. J. and Rigobon, R. (2002). No contagion, only interdependence: measuring stock market comovements. *Journal of Finance*, 57(5), 2223–2261.
+- French, K. R. Data Library. Tuck School of Business at Dartmouth.
 - Giacomini, R. and Komunjer, I. (2005). Evaluation and combination of conditional quantile forecasts. *Journal of Business & Economic Statistics*, 23(4), 416–431.
 - Merton, R. C. (1974). On the pricing of corporate debt: the risk structure of interest rates. *Journal of Finance*, 29(2), 449–470.
+- Meucci, A. (2009). Managing diversification. *Risk*, May 2009, 74–79.
+- Newey, W. K. and West, K. D. (1987). A simple, positive semi-definite, heteroskedasticity and autocorrelation consistent covariance matrix. *Econometrica*, 55(3), 703–708.
+- Newey, W. K. and West, K. D. (1994). Automatic lag selection in covariance matrix estimation. *Review of Economic Studies*, 61(4), 631–653.
 - Patton, A., Politis, D. N. and White, H. (2009). Correction to "Automatic block-length selection for the dependent bootstrap". *Econometric Reviews*, 28(4), 372–375.
 - Politis, D. N. and Romano, J. P. (1994). The stationary bootstrap. *Journal of the American Statistical Association*, 89(428), 1303–1313.
 - Politis, D. N. and White, H. (2004). Automatic block-length selection for the dependent bootstrap. *Econometric Reviews*, 23(1), 53–70.

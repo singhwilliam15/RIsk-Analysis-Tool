@@ -1,0 +1,24 @@
+{
+  "india": {
+    "source": "IIM Ahmedabad Indian Fama-French-Momentum data library",
+    "url": "https://faculty.iima.ac.in/iffm/Indian-Fama-French-Momentum/DATA/2025-12_FourFactors_and_Market_Returns_Daily_SurvivorshipBiasAdjusted.csv",
+    "page": "https://faculty.iima.ac.in/iffm/Indian-Fama-French-Momentum/",
+    "release": "2025-12",
+    "downloaded_on": "2026-10-02",
+    "citation": "Agarwalla, S. K., Jacob, J. and Varma, J. R. (2013), Four factor model in Indian equities market, Working Paper W.P. No. 2013-09-05, Indian Institute of Management, Ahmedabad.",
+    "survivorship_bias_adjusted": true,
+    "first_date": "1993-10-04",
+    "end_date": "2025-12-31",
+    "rows": 8002
+  },
+  "us": {
+    "source": "Kenneth R. French data library",
+    "url": "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/F-F_Research_Data_Factors_daily_CSV.zip ; https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/F-F_Momentum_Factor_daily_CSV.zip",
+    "page": "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/data_library.html",
+    "downloaded_on": "2026-10-02",
+    "citation": "Kenneth R. French, Data Library, Tuck School of Business at Dartmouth.",
+    "first_date": "1926-11-03",
+    "end_date": "2026-08-31",
+    "rows": 26216
+  }
+}

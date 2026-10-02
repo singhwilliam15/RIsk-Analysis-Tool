@@ -48,7 +48,13 @@ The **trust layer** shows how far each number can be relied on:
 - a separate panel for banks and insurers;
 - the portfolio's weighted PD and credit-implied expected loss.
 
-Results export to a formatted Excel report. Built in Python with Streamlit, and covered by 332 offline tests in CI.
+**Concentration and factor risk** shows what the portfolio is really exposed to:
+- Fama-French 3-factor + momentum regressions with Newey-West t-statistics, using IIM Ahmedabad's Indian factors or Kenneth French's US factors;
+- an exact split of portfolio variance and VaR into factors and stock-specific risk;
+- HHI, sector risk shares, and Meucci's effective number of bets;
+- how much diversification survives the correlations seen in past crises.
+
+Results export to a formatted Excel report. Built in Python with Streamlit, and covered by 354 offline tests in CI.
 
 | Page | Status |
 | --- | --- |
@@ -56,8 +62,9 @@ Results export to a formatted Excel report. Built in Python with Streamlit, and 
 | Market | Built: every model (with 90% range and grade), backtest, portfolio, stress and export tab. |
 | Liquidity | Built: capacity, AMFI-style stress test, crisis volume, spread and impact cost, LVaR waterfall, Amihud, circuit-lock. |
 | Credit | Built: Merton DD/PD (three volatility inputs, KMV cross-check, month-end history), Altman Z/Z'', ratios and red flags, ratings, a bank panel, weighted PD and expected loss. |
+| Concentration & Factors | Built: factor exposures, the factor/specific risk split, HHI, sector risk, PCA and effective bets, crisis correlation, rolling betas. |
 | Trust | Built: ranges, grades, model risk, lookback sensitivity, ghost effect. |
-| Concentration & Factors · Event & Governance | Coming next (Phases 4–5) |
+| Event & Governance | Coming next (Phase 5) |
 | Integrated Stress · Decisions | Coming next (Phase 6) |
 
 ### How far to trust the numbers (live data to 30 Sep 2026, 95% 1-day ES on ₹10 lakh, 2-year lookback)
@@ -84,6 +91,13 @@ Results export to a formatted Excel report. Built in Python with Streamlit, and 
 - **Large caps are far from default on Merton.** Their default points are small relative to market value, so PDs are around 10⁻³⁰ and mean nothing on their own. The tool shows "below 0.001%" and grades their uncertainty on the distance-to-default scale instead.
 - **Accounts and market can disagree.** Reliance's market-based distance to default is 11.4, but its accounts put it in Altman's grey zone. Its working capital is only 2.4% of total assets, and EBIT is 6.8% of a very large asset base. Jaiprakash Power is safe on Z'' but in distress on the 1968 manufacturers' Z. The page shows both.
 - **Banks are not forced into these models.** HDFC Bank (25% of the default portfolio) gets a manual panel instead, so the portfolio PD covers 75% of the value and says so.
+
+### Concentration and factors (default 5-stock portfolio; Indian factors to 31 Dec 2025)
+
+- **Five stocks, 1.24 effective bets.** The first principal component, essentially the market, carries 95% of the portfolio's variance. HHI 0.225 suggests 4.4 effective holdings, but they move together.
+- **The market factor is 65% of the risk** (portfolio beta 0.77), and stock-specific risk is 35%. Size, value and momentum net to almost nothing; the value tilt is a slight hedge (−2%).
+- **Crisis correlation.** In past crisis windows the average correlation doubled, from 0.18 to 0.37, so only 69% of the diversification benefit survived. Picking the market's worst days instead shows no rise (0.19), a known statistical bias that the page explains.
+- **Factor tilts differ widely.** Jaiprakash Power loads on size (+1.37) and value (+1.12). TCS and Britannia have significant negative value loadings, and Reliance has a market beta of 0.96 (t = 14).
 
 ### Liquidity (live data to 1 Oct 2026, 20% participation)
 
@@ -126,7 +140,8 @@ Screenshots (add the files to docs/images/, then remove this comment wrapper):
 | **Trust** | 90% ranges for every model's VaR and ES: a stationary block bootstrap (Politis-White block length) for the unconditional models, a residual bootstrap with today's volatility fixed for EWMA and FHS, and asymptotic parameter draws for GARCH-t and Monte Carlo. A–D grades come from written rules: range width, model dispersion, backtest, data quality, sample length, and the share of inputs that are assumptions. Also the model-risk add-on, lookback sensitivity, and the ghost effect in Historical VaR. |
 | **Liquidity** | ADV, days to liquidate and share sellable in 1/5/10 days; the SEBI/AMFI-style stress test (with a fund-validation upload); crisis-window volume; Corwin-Schultz spread, Bangia spread cost, square-root impact and the liquidity-adjusted VaR waterfall; Amihud illiquidity; price bands (official or inferred), lower-circuit history and the exit-freeze loss. Every assumption (participation rate, k, Y, freeze length) is editable in the sidebar. |
 | **Credit** | Merton distance to default and risk-neutral PD (historical, EWMA and GARCH-t equity volatility; KMV default point; iterative KMV cross-check; month-end history using only balance sheets public at each date). Altman Z and Z'' with zones. Six credit ratios over 4–5 years with red flags (thresholds in `config/credit_thresholds.json`), rating actions, a bank/NBFC panel, weighted PD and credit-implied expected loss. |
-| **Excel report** | Dashboard (with 90% ranges and grades), Portfolio Risk, Backtesting, Stress Testing, Positions & Data, Trust, Liquidity, Credit, and Raw Data sheets. |
+| **Concentration & factors** | Daily Fama-French 3 + momentum regressions (IIM Ahmedabad for India, Kenneth French for the US, refreshed by `scripts/refresh_factor_data.py`). Newey-West t-statistics, rolling one-year betas, and a single-index fallback when factor data do not overlap. Euler split of variance and VaR into factors and specific risk. HHI, sector risk shares, PCA and Meucci's effective number of bets. Crisis-window and worst-day correlations, with the diversification benefit kept. |
+| **Excel report** | Dashboard (with 90% ranges and grades), Portfolio Risk, Backtesting, Stress Testing, Positions & Data, Trust, Liquidity, Credit, Concentration, and Raw Data sheets. |
 
 Every formula, test and design choice is in **[docs/methodology.md](docs/methodology.md)**, with references.
 
@@ -266,7 +281,7 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-The 332 tests run on every push and pull request through GitHub Actions, on Python 3.11 and 3.12. They run **offline**: `conftest.py` blocks outbound connections, and market data comes from a deterministic synthetic generator or mocked Yahoo responses. Every calculation is checked against an independent reference: a closed form, a simulation, a hand-worked example or known true parameters. Highlights:
+The 354 tests run on every push and pull request through GitHub Actions, on Python 3.11 and 3.12. They run **offline**: `conftest.py` blocks outbound connections, and market data comes from a deterministic synthetic generator or mocked Yahoo responses. Every calculation is checked against an independent reference: a closed form, a simulation, a hand-worked example or known true parameters. Highlights:
 - **GARCH:** recovers the true parameters from simulated GARCH-t data.
 - **Student-t ES:** matches 2 million simulated draws.
 - **Portfolio:** components add up exactly on every basis, and match the normal Euler shares on 400,000 simulated days.
@@ -289,6 +304,13 @@ The 332 tests run on every push and pull request through GitHub Actions, on Pyth
   - Altman Z and Z'' are checked by hand, and at every zone boundary;
   - a balance sheet is never used before its public date;
   - red flags are checked on a constructed weak company.
+- **Concentration and factors:**
+  - the factor-file parsers are checked on excerpts of the real IIMA and French files;
+  - regressions recover known loadings and variance splits;
+  - Newey-West matches the hand-computed White sandwich, and tracks autocorrelated errors better than OLS;
+  - the Euler parts sum exactly;
+  - identical holdings give one bet, and N independent equal-risk holdings give N;
+  - a planted crisis correlation is detected.
 - **Positions and data quality:** share, value and weight entry give the same portfolio, checked by hand. Each data-quality check is tested on synthetic histories with planted defects.
 - **App smoke tests:** `test_app.py` drives the full Streamlit app in both modes and on every page, including the error paths.
 
@@ -310,6 +332,10 @@ trust.py               TrustedMetric, 90% ranges, model risk, lookback sensitivi
 liquidity.py           Capacity, AMFI-style stress test, crisis volume, spread/impact, LVaR, Amihud, circuit lock
 credit.py              Merton/KMV, Altman Z and Z'', credit ratios and red flags, ratings, point-in-time statements
 config/                Credit thresholds and sector lists (editable)
+concentration.py       Factor regressions (Newey-West), factor risk split, HHI, sectors, PCA/effective bets, crisis correlation
+factor_data.py         Parsers and loader for the IIMA and Kenneth French factor files
+scripts/               refresh_factor_data.py: downloads the factor files into data/factors/
+data/factors/          Daily factor returns (decimals) and metadata.json with sources, dates and citations
 data/disclosures/      Your downloaded disclosure files, manifest.json, templates and download steps
 excel_exporter.py      Formatted Excel report
 docs/methodology.md    Formulas, tests, design choices and references
@@ -335,7 +361,7 @@ test_data/             Saved yfinance statements used as test fixtures
 - **Portfolios** are long-only and in one currency (no FX conversion or short positions).
 - **Portfolio crisis replay** needs every holding to have prices for the crisis. One recently listed holding (for example LICI.NS, listed May 2022) switches the whole portfolio to the β-proxy for older crises.
 - **Risk decomposition** covers Historical ES, Historical VaR and Parametric VaR only. Under buy-and-hold it applies today's drifted weights, so its total can differ from the headline figure.
-- **Correlations and betas** are estimated on the lookback window. In crises correlations usually rise, so the diversification benefit shrinks when it is needed most.
+- **Correlations and betas** are estimated on the lookback window. In crises correlations usually rise, so the diversification benefit shrinks when it is needed most. The Concentration page measures how much.
 - **√t scaling** (Historical, FHS) assumes independent returns. Compare it with the overlapping check, or use Monte Carlo.
 - **GARCH(1,1)-t** has a constant mean and a symmetric response to shocks (no GJR/EGARCH leverage term). Its multi-day formula overstates the t-day tail; Monte Carlo is the better multi-day estimate.
 - **Rolling backtests** refit Student-t and GARCH every 20 days, not daily. The first full-history run of a long-listed stock (for example AAPL `max`, about 11,000 days) takes about a minute.
@@ -357,6 +383,11 @@ test_data/             Saved yfinance statements used as test fixtures
   - Altman's zones were fitted on US firms;
   - banks are not modelled beyond the manual panel;
   - off-balance-sheet, group and promoter-level debt are not captured.
+- **Factors:**
+  - IIMA's Indian factors lag by months (to 31 Dec 2025 on 2 Oct 2026), so regressions use 309 days of a 2-year window;
+  - a mixed Indian/US portfolio has no single factor set;
+  - specific risks are assumed uncorrelated;
+  - group-company links and crowding are not captured.
 - **Disclosure layouts.** The parsers for official NSE files (except `fo_secban.csv`) match headers through an alias table that has not yet been checked against real downloads.
 
 ## License

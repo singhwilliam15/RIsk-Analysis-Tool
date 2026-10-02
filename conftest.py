@@ -119,6 +119,8 @@ def fake_market(monkeypatch):
     monkeypatch.setattr(trust, "N_BOOT", 60)
     monkeypatch.setattr(trust, "N_BOOT_REFIT", 15)
     monkeypatch.setattr(trust, "N_PARAM_DRAWS", 100)
+    import ui.concentration_layer
+    monkeypatch.setattr(ui.concentration_layer, "N_BOOT", 30)
     st.cache_data.clear()
     yield fake_fetch_stock_data
     st.cache_data.clear()

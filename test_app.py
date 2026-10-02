@@ -108,7 +108,7 @@ def test_overview_is_the_landing_page(fake_market):
     assert any("Positions" in h for h in headings) and any("Data quality" in h for h in headings)
 
 
-@pytest.mark.parametrize("page", ["Concentration & Factors", "Event & Governance", "Integrated Stress", "Decisions"])
+@pytest.mark.parametrize("page", ["Event & Governance", "Integrated Stress", "Decisions"])
 def test_unbuilt_pages_say_coming_next(fake_market, page):
     at = run_app(page=page)
     assert_clean(at)
@@ -160,6 +160,23 @@ def test_credit_page(fake_market, mode):
     at.selectbox(key="credit_vol").set_value("EWMA")
     at.run()
     assert_clean(at)
+
+
+@pytest.mark.parametrize("mode", ["Single Stock", "Portfolio"])
+def test_concentration_page(fake_market, mode):
+    at = run_app(mode if mode == "Portfolio" else None, page="Concentration & Factors")
+    assert_clean(at)
+    headings = [m.value for m in at.markdown]
+    assert any("Factor exposures (Fama-French 3 + momentum)" in h for h in headings)
+    assert any("What this metric misses" in h for h in headings)
+    assert any("Factor data:" in c.value and "IIM Ahmedabad" in c.value for c in at.caption)
+    labels = [m.label for m in at.metric]
+    assert "Factor share of variance" in labels
+    if mode == "Portfolio":
+        assert "Effective number of bets (Meucci)" in labels and "Diversification kept in a crisis" in labels
+        assert any("Correlation in a crisis" in h for h in headings)
+    else:
+        assert any("100% concentrated" in i.value for i in at.info)
 
 
 def test_headline_numbers_carry_range_and_grade(fake_market):

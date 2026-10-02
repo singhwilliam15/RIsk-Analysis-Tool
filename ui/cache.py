@@ -103,6 +103,15 @@ def cached_credit_holding(ticker: str, prices: pd.DataFrame, fund: dict, vols: d
                            config, as_of)
 
 
+@st.cache_data(show_spinner="Measuring concentration and factor risk…", max_entries=32)
+def cached_concentration(returns: dict, weights: pd.Series, factors, market: pd.Series, long_returns, long_market,
+                         scenarios: pd.DataFrame, sectors: dict, investment: float, confidence_level: float) -> dict:
+    # Imported here: ui.concentration_layer imports this module
+    from ui.concentration_layer import N_BOOT, analyse
+    return analyse(returns, weights, factors, market, long_returns, long_market, scenarios, sectors, investment,
+                   confidence_level, n_boot=N_BOOT)
+
+
 @st.cache_data(show_spinner=False, max_entries=64)
 def cached_scenarios(position_history: pd.Series, market_prices: pd.Series, scenarios: pd.DataFrame,
                      proxy_beta: float, investment: float) -> pd.DataFrame:

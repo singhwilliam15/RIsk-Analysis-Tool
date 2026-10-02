@@ -70,6 +70,7 @@ def render(ctx, tab5):
                        "bangia_k": ctx.bangia_k, "impact_y": ctx.impact_y},
             credit={"metrics": ctx.credit_metrics, "view": ctx.credit_view, "results": ctx.credit_results,
                     "vol_choice": ctx.equity_vol_choice},
+            concentration={"result": ctx.conc, "metrics": ctx.conc_metrics, "factor_meta": ctx.conc_factor_meta},
         )
 
         st.download_button(

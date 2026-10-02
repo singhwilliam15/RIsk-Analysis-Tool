@@ -22,10 +22,8 @@ PAGES = (OVERVIEW, MARKET, LIQUIDITY, CREDIT, CONCENTRATION, EVENTS, INTEGRATED,
 PAGE_KEY = "page"
 
 # Pages not built yet: the roadmap phase that builds each, and what it will contain
-BUILT = (OVERVIEW, MARKET, LIQUIDITY, CREDIT, TRUST)
+BUILT = (OVERVIEW, MARKET, LIQUIDITY, CREDIT, CONCENTRATION, TRUST)
 COMING_NEXT = {
-    CONCENTRATION: (4, "Factor betas from Indian and US Fama-French data, factor and sector risk contributions, HHI, "
-                       "PCA and the effective number of independent bets, and crisis correlations."),
     EVENTS: (5, "Promoter pledges and margin-call triggers, ASM/GSM surveillance, F&O ban, rating downgrades, "
                 "auditor events, an event-risk tier and a jump-risk overlay on ES."),
     INTEGRATED: (6, "One stress scenario hitting every pillar together, against the sum of the separate pillars, "

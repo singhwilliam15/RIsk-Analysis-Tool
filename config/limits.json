@@ -1,0 +1,12 @@
+{
+  "_about": "Risk limits across the pillars (docs/methodology.md section 14). These are example limits for a long-only equity portfolio, not recommendations; edit them here or on the Decisions page. Utilisation below 80% is green, 80-100% amber, above 100% red.",
+  "limits": {
+    "es_pct": {"label": "ES as % of value (recommended model, selected level and horizon)", "value": 0.04, "unit": "fraction"},
+    "max_weight": {"label": "Largest single holding", "value": 0.30, "unit": "fraction"},
+    "max_sector_weight": {"label": "Largest sector", "value": 0.40, "unit": "fraction"},
+    "days_to_liquidate_50": {"label": "Days to liquidate 50% (AMFI method)", "value": 5.0, "unit": "days"},
+    "max_weighted_pd": {"label": "Weighted Merton PD (risk-neutral)", "value": 0.02, "unit": "fraction"},
+    "max_high_tier": {"label": "High event-risk holdings", "value": 1, "unit": "count"},
+    "min_trust_grade": {"label": "Worst headline trust grade", "value": "C", "unit": "grade"}
+  }
+}

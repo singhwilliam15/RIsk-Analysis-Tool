@@ -58,7 +58,8 @@ def compute_events(ctx):
                 shares_out = (ctx.fundamentals_by_ticker[t]["profile"].get("shares_outstanding") or {}).get("value")
                 if shares_out and np.isfinite(pledge["pledged_pct_of_total"]):
                     shares_pledged = pledge["pledged_pct_of_total"] / 100 * shares_out
-        margin[t] = E.margin_call(shares_pledged, p["Price"], capacity.loc[t, "ADV 60d"], ctx.initial_cover, ctx.trigger_cover)
+        margin[t] = {**E.margin_call(shares_pledged, p["Price"], capacity.loc[t, "ADV 60d"], ctx.initial_cover,
+                                     ctx.trigger_cover), "pledged_shares": shares_pledged}
         rows.append({"Ticker": t, "Value": p["Value"], "Tier": result["tier"], "Basis": result["basis"],
                      "Reasons": "; ".join(text for _, text in result["fired"]) or "no rule fired"})
     panel = pd.DataFrame(rows)

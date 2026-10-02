@@ -73,6 +73,8 @@ def render(ctx, tab5):
             concentration={"result": ctx.conc, "metrics": ctx.conc_metrics, "factor_meta": ctx.conc_factor_meta},
             events={"metrics": ctx.event_metrics, "panel": ctx.event_panel, "margin": ctx.event_margin,
                     "overlay": ctx.event_overlay, "missing": ctx.event_missing},
+            integrated={"linked": ctx.linked.drop(columns=["detail"], errors="ignore"), "limits": ctx.limits_table,
+                        "risks": ctx.top_risks, "actions": ctx.top_actions, "change": ctx.risk_change},
         )
 
         st.download_button(

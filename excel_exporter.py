@@ -68,7 +68,8 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
                               recommendation: dict = None, data_note: str = None, risk_free_rate: float = None,
                               vol_shock_table: pd.DataFrame = None, beta_down: float = float("nan"),
                               data_layer: dict = None, trust: dict = None, liquidity: dict = None,
-                              credit: dict = None, concentration: dict = None, events: dict = None) -> bytes:
+                              credit: dict = None, concentration: dict = None, events: dict = None,
+                              integrated: dict = None) -> bytes:
     """
     Generate the Risk Analysis Tool's Excel report and return it as .xlsx bytes.
     `var_by_level` maps model name -> {confidence level -> VaR result dict}.
@@ -84,7 +85,8 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
     `credit` (optional) holds "metrics", "view" (credit_layer.portfolio_view), "results" and "vol_choice"; it adds a
     Credit sheet. `concentration` (optional) holds "result" (concentration_layer.analyse), "metrics" and
     "factor_meta"; it adds a Concentration sheet. `events` (optional) holds "metrics", "panel", "margin", "overlay"
-    and "missing"; it adds an Events sheet.
+    and "missing"; it adds an Events sheet. `integrated` (optional) holds "linked", "limits", "risks", "actions" and
+    "change"; it adds an Integrated & Decisions sheet.
     """
     money = f'"{currency}" #,##0'
     wb = openpyxl.Workbook()
@@ -496,6 +498,35 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
         _write_table(ws_ev, next_row + 1, [("Measure", "@"), ("Value", money)],
                      [("Standard ES", o["es"] * investment), ("Event-adjusted ES", o["event_es"] * investment),
                       ("Gap", o["gap"] * investment)] + [(f"Gap from {t}", v * investment) for t, v in o["by_holding"].items()])
+
+    # -------------------------------------------------------------
+    # INTEGRATED STRESS AND DECISIONS (when the app supplies them)
+    # -------------------------------------------------------------
+    if integrated is not None:
+        ws_in = wb.create_sheet(title="Integrated & Decisions")
+        ws_in["B2"] = "🔗 INTEGRATED STRESS, LIMITS AND ACTIONS"
+        ws_in["B2"].font = TITLE_FONT
+        ws_in["B3"] = "Linked stress: one scenario through every pillar vs the siloed sum. Methods: docs/methodology.md sections 13-14."
+        ws_in["B3"].font = SUBTITLE_FONT
+        next_row = 5
+        linked = integrated["linked"]
+        if len(linked):
+            cols = ["Scenario", "Market Move", "Market Loss", "+ Liquidity", "+ Credit", "+ Events", "Linked Total", "Siloed Sum", "Interaction"]
+            next_row = _write_table(ws_in, next_row, [(c, "0.0%" if c == "Market Move" else "@" if c == "Scenario" else money) for c in cols],
+                                    linked[cols].itertuples(index=False))
+        ws_in.cell(row=next_row, column=2, value="LIMITS").font = BOLD_FONT
+        lt = integrated["limits"]
+        next_row = _write_table(ws_in, next_row + 1, [("Limit", "@"), ("Value", "@"), ("Limit Value", "@"), ("Utilisation", "0%"), ("Status", "@")],
+                                [(r["Limit"], str(r["Value"]) if isinstance(r["Value"], str) else _finite(r["Value"]), str(r["Limit Value"]),
+                                  _finite(r["Utilisation"]), r["Status"]) for r in lt.to_dict("records")])
+        ws_in.cell(row=next_row, column=2, value="TOP RISKS AND ACTIONS").font = BOLD_FONT
+        pairs = [("Risk", r) for r in integrated["risks"]] + [("Action", a) for a in integrated["actions"]]
+        next_row = _write_table(ws_in, next_row + 1, [("Type", "@"), ("Text", "@")], pairs)
+        if integrated.get("change"):
+            ch = integrated["change"]
+            ws_in.cell(row=next_row, column=2, value="WHAT CHANGED IN ES (SHAPLEY)").font = BOLD_FONT
+            _write_table(ws_in, next_row + 1, [("Part", "@"), ("Amount", money)],
+                         [("ES then", ch["start"])] + [(k, v) for k, v in ch["contributions"].items()] + [("ES now", ch["end"])])
 
     # -------------------------------------------------------------
     # SHEET 4: RAW DATA

@@ -62,11 +62,21 @@ The **trust layer** shows how far each number can be relied on:
 - the share-price fall at which pledged shares could be sold by lenders;
 - a jump overlay showing how much event risk adds to ES.
 
-Results export to a formatted Excel report. Built in Python with Streamlit, and covered by 395 offline tests in CI.
+**Integration and decisions** tie the pillars together:
+- a **linked stress engine** runs each past crisis, and market falls of −10/−20/−30%, through market, liquidity, credit and event effects at once, and compares the result with the siloed sum of the separate pages;
+- a **reverse stress test** finds the most plausible one-month shock that loses 10–30%, in stock space and in macro space (Nifty, Bank Nifty, Nifty IT, USD/INR, Brent), with the nearest historical analogue;
+- a **Shapley explanation** of what changed in ES;
+- the **best risk-reducing trades**, with their side-effects on the other pillars, and an index hedge;
+- **limits** with traffic lights;
+- a **CRO dashboard** on the Overview page and a **one-page CRO memo** (PDF and Markdown, written by rules with no language model).
+
+Results export to a formatted Excel report. Built in Python with Streamlit, and covered by 424 offline tests in CI.
 
 | Page | Status |
 | --- | --- |
-| Overview | Built: summary cards with 90% ranges and grades, positions, data quality, fundamentals and their sources, disclosure files. Becomes the CRO dashboard in Phase 6. |
+| Overview | Built: the CRO dashboard (pillar rows with range, grade and limit status; top risks and actions; memo), then summary cards, positions, data quality, fundamentals and their sources, and disclosure files. |
+| Integrated Stress | Built: linked stress vs siloed sum for every scenario, and reverse stress (asset and macro space, nearest analogue). |
+| Decisions | Built: limits, Shapley risk-change waterfall with snapshots, ES by holding, best trades, index hedge, CRO memo. |
 | Market | Built: every model (with 90% range and grade), backtest, portfolio, stress and export tab. |
 | Liquidity | Built: capacity, AMFI-style stress test, crisis volume, spread and impact cost, LVaR waterfall, Amihud, circuit-lock. |
 | Credit | Built: Merton DD/PD (three volatility inputs, KMV cross-check, month-end history), Altman Z/Z'', ratios and red flags, ratings, a bank panel, weighted PD and expected loss. |
@@ -106,6 +116,19 @@ Results export to a formatted Excel report. Built in Python with Streamlit, and 
 - **The market factor is 65% of the risk** (portfolio beta 0.77), and stock-specific risk is 35%. Size, value and momentum net to almost nothing; the value tilt is a slight hedge (−2%).
 - **Crisis correlation.** In past crisis windows the average correlation doubled, from 0.18 to 0.37, so only 69% of the diversification benefit survived. Picking the market's worst days instead shows no rise (0.19), a known statistical bias that the page explains.
 - **Factor tilts differ widely.** Jaiprakash Power loads on size (+1.37) and value (+1.12). TCS and Britannia have significant negative value loadings, and Reliance has a market beta of 0.96 (t = 14).
+
+### Integrated stress (live data to 1 Oct 2026)
+
+| Position | Worst linked scenario | Linked loss | Siloed sum | Interaction |
+| --- | --- | --- | --- | --- |
+| 5-stock portfolio, ₹10 lakh | Global Financial Crisis | ₹4,72,342 (47.2%) | ₹4,73,548 | −₹1,206 |
+| 5-stock portfolio, ₹50 crore | Global Financial Crisis | ₹23.72 crore | ₹23.76 crore | −₹3.4 lakh |
+| Jaiprakash Power, ₹10 lakh | Market −10% | ₹2,38,629 | ₹1,11,621 | **+₹1,27,008** |
+
+- **For liquid large-caps the pillars barely interact:** at most 0.12% of value in any scenario. Their crisis liquidity, credit and event costs are small next to the market loss.
+- **For a small-cap with a price band they interact strongly.** Jaiprakash Power's 10.9% fall breaches its 5% band (inferred from history). The resulting freeze costs more than the market move itself, a loss no single pillar shows. It rests on the inferred band and the 3-day freeze floor.
+- **Reverse stress:** the most plausible way for the portfolio to lose 15% in a month is Nifty −15.6%, Bank Nifty −15.3%, Nifty IT −17.7%, USD/INR +1.5% and Brent +8.8%. The nearest historical analogue is 6 Jun – 8 Jul 2008 (portfolio −12.5%). A move that far out has a 9.6% chance under a multivariate Student-t, against 1.8% under a normal.
+- **Trades trade off across pillars:** switching 5% from HDFC Bank into Asian Paints trims ES by 0.2% but nearly doubles the days needed to sell 50% (₹50 crore portfolio).
 
 ### Event risk (as of 1 Oct 2026, no disclosure files loaded yet)
 
@@ -156,7 +179,8 @@ Screenshots (add the files to docs/images/, then remove this comment wrapper):
 | **Credit** | Merton distance to default and risk-neutral PD (historical, EWMA and GARCH-t equity volatility; KMV default point; iterative KMV cross-check; month-end history using only balance sheets public at each date). Altman Z and Z'' with zones. Six credit ratios over 4–5 years with red flags (thresholds in `config/credit_thresholds.json`), rating actions, a bank/NBFC panel, weighted PD and credit-implied expected loss. |
 | **Concentration & factors** | Daily Fama-French 3 + momentum regressions (IIM Ahmedabad for India, Kenneth French for the US, refreshed by `scripts/refresh_factor_data.py`). Newey-West t-statistics, rolling one-year betas, and a single-index fallback when factor data do not overlap. Euler split of variance and VaR into factors and specific risk. HHI, sector risk shares, PCA and Meucci's effective number of bets. Crisis-window and worst-day correlations, with the diversification benefit kept. |
 | **Event & governance** | Point-in-time signals from your NSE/BSE/agency files. Tier rules in `config/event_rules.json`. Pledge margin-call trigger and the selling that would follow. Exact mixture ES with tier-based jumps (closed-form Student-t tail), with each holding's share of the gap. |
-| **Excel report** | Dashboard (with 90% ranges and grades), Portfolio Risk, Backtesting, Stress Testing, Positions & Data, Trust, Liquidity, Credit, Concentration, Events, and Raw Data sheets. |
+| **Integration & decisions** | Linked stress (replay or downside-beta returns, crisis volume and volatility, Merton re-solved, pledge forced selling, circuit freeze) vs the siloed sum. Closed-form reverse stress with normal and Student-t plausibility, macro reverse stress with the nearest 21-day analogue. Exact Shapley risk-change attribution with downloadable snapshots, Euler ES by holding, trades, ES-minimising hedge, limits (`config/limits.json`), CRO dashboard and one-page memo. |
+| **Excel report** | Dashboard (with 90% ranges and grades), Portfolio Risk, Backtesting, Stress Testing, Positions & Data, Trust, Liquidity, Credit, Concentration, Events, Integrated & Decisions, and Raw Data sheets. |
 
 Every formula, test and design choice is in **[docs/methodology.md](docs/methodology.md)**, with references.
 
@@ -296,7 +320,7 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-The 395 tests run on every push and pull request through GitHub Actions, on Python 3.11 and 3.12. They run **offline**: `conftest.py` blocks outbound connections, and market data comes from a deterministic synthetic generator or mocked Yahoo responses. Every calculation is checked against an independent reference: a closed form, a simulation, a hand-worked example or known true parameters. Highlights:
+The 424 tests run on every push and pull request through GitHub Actions, on Python 3.11 and 3.12. They run **offline**: `conftest.py` blocks outbound connections, and market data comes from a deterministic synthetic generator or mocked Yahoo responses. Every calculation is checked against an independent reference: a closed form, a simulation, a hand-worked example or known true parameters. Highlights:
 - **GARCH:** recovers the true parameters from simulated GARCH-t data.
 - **Student-t ES:** matches 2 million simulated draws.
 - **Portfolio:** components add up exactly on every basis, and match the normal Euler shares on 400,000 simulated days.
@@ -332,6 +356,15 @@ The 395 tests run on every push and pull request through GitHub Actions, on Pyth
   - the margin-call figures are checked by hand;
   - the mixture ES matches a 2-million-draw simulation within 0.5%, and equals plain GARCH-t ES without jumps;
   - an app test with planted disclosure files exercises the High and Elevated paths.
+- **Integration and decisions:**
+  - with every link off, the linked engine equals the plain market stress;
+  - the closed-form reverse stress matches a numerical optimiser;
+  - Student-t plausibility matches a simulation;
+  - the macro analogue finds a planted window;
+  - the Shapley parts sum to the change, and an unchanged input gets zero;
+  - the hedge recovers a known beta;
+  - the traffic lights are checked at 80% and 100%;
+  - the memo PDF is exactly one page.
 - **Positions and data quality:** share, value and weight entry give the same portfolio, checked by hand. Each data-quality check is tested on synthetic histories with planted defects.
 - **App smoke tests:** `test_app.py` drives the full Streamlit app in both modes and on every page, including the error paths.
 
@@ -358,6 +391,9 @@ factor_data.py         Parsers and loader for the IIMA and Kenneth French factor
 scripts/               refresh_factor_data.py: downloads the factor files into data/factors/
 data/factors/          Daily factor returns (decimals) and metadata.json with sources, dates and citations
 events.py              Event signals, tier rules, pledge margin calls, jump-mixture ES
+integration.py         Linked multi-pillar stress engine, reverse stress (asset and macro space)
+decisions.py           Shapley risk change, Euler ES, trades, hedge, limits, top risks and actions
+memo.py                One-page CRO memo (Markdown and PDF via reportlab + matplotlib)
 data/disclosures/      Your downloaded disclosure files, manifest.json, templates and download steps
 excel_exporter.py      Formatted Excel report
 docs/methodology.md    Formulas, tests, design choices and references
@@ -414,6 +450,12 @@ test_data/             Saved yfinance statements used as test fixtures
   - most signals need disclosure files you download, and none ship with the repo;
   - tier thresholds, jump sizes and cover ratios are assumptions until the Phase 7 case studies;
   - fraud and regulatory surprises are invisible until they are disclosed.
+- **Integration:**
+  - the linked engine is one step deep (no second-round selling, rating actions or redemptions);
+  - it replays past crises;
+  - reverse stress uses one-month covariance and ignores the macro regression's residual;
+  - trades are judged on past returns without transaction costs;
+  - the limits are examples.
 - **Disclosure layouts.** The parsers for official NSE files (except `fo_secban.csv`) match headers through an alias table that has not yet been checked against real downloads.
 
 ## License

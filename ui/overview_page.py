@@ -1,7 +1,7 @@
 """
-Overview page. Until the CRO dashboard (roadmap Phase 6), it shows the market-risk summary cards,
-the positions, the data-quality score of each holding, the disclosure files loaded, and each
-holding's fundamentals with the source of every figure.
+Overview page = CRO dashboard: one row per pillar (headline, range, grade, limit status), the integrated-stress
+headline, the top risks and actions, and the memo; then the market summary cards, positions, data quality,
+fundamentals with their sources, and the disclosure files loaded.
 """
 
 import io
@@ -9,13 +9,14 @@ import io
 import pandas as pd
 import streamlit as st
 
+import memo
 from disclosures import DATASETS, template
 from fundamentals import FIELDS_BY_NAME, PROFILE_FIELDS, STATEMENTS, fundamentals_template, statement_table
 from ui.foundations import OVERRIDES_KEY
 from ui.overview import render_overview
-from ui.pages import BUILT, COMING_NEXT, PAGES
 
 STATEMENT_TITLES = {"income": "Income statement", "balance": "Balance sheet", "cashflow": "Cash flow"}
+LIGHTS = {"green": "🟢 within limit", "amber": "🟠 close to limit", "red": "🔴 limit breached"}
 
 
 def _csv(frame: pd.DataFrame) -> bytes:
@@ -23,12 +24,35 @@ def _csv(frame: pd.DataFrame) -> bytes:
 
 
 def render(ctx):
+    _cro_dashboard(ctx)
     render_overview(ctx)
     _positions(ctx)
     _data_quality(ctx)
     _fundamentals(ctx)
     _disclosures(ctx)
-    _pillar_status()
+
+
+def _cro_dashboard(ctx):
+    st.markdown("### 🧭 CRO dashboard")
+    content = ctx.memo_content
+    st.markdown(f"**Bottom line.** {memo.bottom_line(content)}")
+    rows = [{**r, "Status": LIGHTS.get(r["Status"], r["Status"])} for r in ctx.dashboard]
+    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+    counts = ctx.limits_table["Status"].value_counts()
+    st.caption(f"Limits: {counts.get('green', 0)} green, {counts.get('amber', 0)} amber, {counts.get('red', 0)} red "
+               "(Decisions page). Grades A–D and ranges come from the Trust layer.")
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("**Top risks**")
+        for i, r in enumerate(ctx.top_risks, 1):
+            st.markdown(f"{i}. {r}")
+    with c2:
+        st.markdown("**Top actions**")
+        for i, a in enumerate(ctx.top_actions, 1):
+            st.markdown(f"{i}. {a}")
+    st.download_button("Download the one-page CRO memo (PDF)", memo.pdf(content),
+                       file_name=f"CRO_memo_{ctx.prices_as_of:%Y%m%d}.pdf", mime="application/pdf", key="overview_memo")
+    st.markdown("---")
 
 
 def _positions(ctx):
@@ -130,10 +154,3 @@ def _disclosures(ctx):
         st.markdown("**Columns:** " + ", ".join(f"`{c.name}`" + ("" if c.required else " (optional)") for c in spec.columns))
         st.download_button(f"Download {spec.title.lower()} template", _csv(template(name)),
                            file_name=f"{name}_template.csv", mime="text/csv")
-
-
-def _pillar_status():
-    st.markdown("### 🧭 Pillars")
-    rows = [{"Page": page, "Status": "built" if page in BUILT else f"coming next (Phase {COMING_NEXT[page][0]})"}
-            for page in PAGES]
-    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")

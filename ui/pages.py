@@ -21,23 +21,7 @@ TRUST = "Trust"
 PAGES = (OVERVIEW, MARKET, LIQUIDITY, CREDIT, CONCENTRATION, EVENTS, INTEGRATED, DECISIONS, TRUST)
 PAGE_KEY = "page"
 
-# Pages not built yet: the roadmap phase that builds each, and what it will contain
-BUILT = (OVERVIEW, MARKET, LIQUIDITY, CREDIT, CONCENTRATION, EVENTS, TRUST)
-COMING_NEXT = {
-    INTEGRATED: (6, "One stress scenario hitting every pillar together, against the sum of the separate pillars, "
-                    "and a reverse stress test."),
-    DECISIONS: (6, "Risk-change explanation, the best risk-reducing trades, limits with traffic lights and a "
-                   "one-page CRO memo."),
-}
-
 
 def render_navigation() -> str:
     """The page selector; returns the selected page."""
     return st.radio("Page", PAGES, horizontal=True, key=PAGE_KEY, label_visibility="collapsed")
-
-
-def render_coming_next(page: str):
-    phase, contents = COMING_NEXT[page]
-    st.subheader(page)
-    st.info(f"**Coming next** (roadmap Phase {phase}). {contents}")
-    st.caption("The plan for every page is in RISK_TOOL_PLAN_V3.md; the formulas will be in docs/methodology.md.")

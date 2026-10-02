@@ -106,13 +106,43 @@ def test_overview_is_the_landing_page(fake_market):
     assert not at.tabs  # the market tabs live on the Market page
     headings = [m.value for m in at.markdown]
     assert any("Positions" in h for h in headings) and any("Data quality" in h for h in headings)
+    # The CRO dashboard opens the page: one row per pillar, bottom line, risks and actions
+    assert any("CRO dashboard" in h for h in headings) and any(h.startswith("**Bottom line.**") for h in headings)
+    dashboard = at.dataframe[0].value
+    assert dashboard["Pillar"].tolist()[:3] == ["Market", "Liquidity", "Credit"]
+    assert set(dashboard.columns) == {"Pillar", "Headline", "Range", "Grade", "Status"}
 
 
-@pytest.mark.parametrize("page", ["Integrated Stress", "Decisions"])
-def test_unbuilt_pages_say_coming_next(fake_market, page):
-    at = run_app(page=page)
+@pytest.mark.parametrize("mode", ["Single Stock", "Portfolio"])
+def test_integrated_stress_page(fake_market, mode):
+    at = run_app(mode if mode == "Portfolio" else None, page="Integrated Stress")
     assert_clean(at)
-    assert any("Coming next" in i.value for i in at.info)
+    labels = [m.label for m in at.metric]
+    assert labels[1:] == ["Siloed sum of the separate pillars", "Interaction effect"]
+    table = at.dataframe[0].value
+    assert {"Market Loss", "+ Liquidity", "+ Credit", "+ Events", "Linked Total", "Siloed Sum", "Interaction"} <= set(table.columns)
+    assert "Market -20%" in table["Scenario"].tolist()
+    assert any("Reverse stress test" in m.value for m in at.markdown)
+    at.radio(key="reverse_loss").set_value(0.30)
+    at.run()
+    assert_clean(at)
+    assert any("lose 30%" in m.value for m in at.markdown)
+
+
+@pytest.mark.parametrize("mode", ["Single Stock", "Portfolio"])
+def test_decisions_page(fake_market, mode):
+    at = run_app(mode if mode == "Portfolio" else None, page="Decisions")
+    assert_clean(at)
+    limits = at.dataframe[0].value
+    # Concentration limits apply to portfolios only
+    assert len(limits) == (7 if mode == "Portfolio" else 5) and limits["Status"].str.contains("green|amber|red|⚪").all()
+    headings = [m.value for m in at.markdown]
+    for section in ("Limits", "What changed in the risk", "Best risk-reducing trades", "One-page CRO memo"):
+        assert any(section in h for h in headings), section
+    assert any("Exact Shapley split" in c.value for c in at.caption)
+    at.selectbox(key="change_months").set_value(12)
+    at.run()
+    assert_clean(at)
 
 
 @pytest.mark.parametrize("mode", ["Single Stock", "Portfolio"])
@@ -249,7 +279,7 @@ def test_portfolio_entered_as_shares_or_value(fake_market, mode, column, amounts
     {w.label: w for w in at.sidebar.selectbox}["Holdings entered as"].set_value(mode)
     at.run()
     assert_clean(at)
-    positions = at.dataframe[0].value
+    positions = next(d.value for d in at.dataframe if list(d.value.columns[:2]) == ["Ticker", "Quantity"])
     assert list(positions.columns[:2]) == ["Ticker", "Quantity"]
     assert positions["Weight"].sum() == pytest.approx(1.0)
     if mode == "Value":

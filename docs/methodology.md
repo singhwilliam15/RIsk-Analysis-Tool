@@ -1,6 +1,6 @@
 # Methodology
 
-This document describes every calculation in the Risk Analysis Tool: the eight market-risk models, the multi-day rules, the backtests, the model-selection rule, the portfolio risk decomposition, the stress tests, and the data layer that every risk pillar shares (positions, prices and volume, fundamentals, disclosures and data quality), the trust layer (90% ranges, model risk and A–D grades), and the liquidity, credit, concentration and factor, and event and governance pillars. Section numbers match the code modules named in each heading. The pillars still to come (liquidity, credit, concentration, event risk, integration) are planned in `RISK_TOOL_PLAN_V3.md` and will be documented here as they are built.
+This document describes every calculation in the Risk Analysis Tool: the eight market-risk models, the multi-day rules, the backtests, the model-selection rule, the portfolio risk decomposition, the stress tests, and the data layer that every risk pillar shares (positions, prices and volume, fundamentals, disclosures and data quality), the trust layer (90% ranges, model risk and A–D grades), the liquidity, credit, concentration and factor, and event and governance pillars, the integrated stress engine and the decision layer. Section numbers match the code modules named in each heading. The pillars still to come (liquidity, credit, concentration, event risk, integration) are planned in `RISK_TOOL_PLAN_V3.md` and will be documented here as they are built.
 
 **Notation.** `r_t` is the simple daily return on day t. α = 1 − confidence level is the tail probability (α = 0.01 for 99%). Losses are positive numbers, so VaR and ES are reported as positive amounts. `z = Φ⁻¹(1 − α)` is the standard normal quantile and φ is the normal density. μ and σ are the sample mean and standard deviation of daily returns. `t` (in multi-day formulas) is the holding period in days.
 
@@ -569,6 +569,101 @@ Rating grades are read from the agencies' text (e.g. "CRISIL AA+", "[ICRA]A (Sta
 - **Missing data:** each disclosure dataset not loaded costs a point, capped at 2.
 - **Value in Elevated/High and the number of High holdings:** no range.
 
+## 13. Integrated stress (`integration.py`)
+
+### 13.1 Linked stress engine
+
+Each scenario hits every pillar together, holding by holding.
+
+- **Scenarios:**
+  - **Historical:** every window in `stress_scenarios.csv` that the benchmark covers. The holding's return is its actual return between the market's peak and trough (replay), or downside beta × the market's drawdown if it had no prices then. Volatility is the holding's own daily volatility inside the window, or today's volatility × the market's crisis-to-normal volatility ratio.
+  - **Custom:** market −10%, −20% and −30%. Downside beta sets each holding's return, and volatility is today's × the median crisis-to-normal ratio of the market across the windows.
+- **The four links:**
+  - **Liquidity:** volume falls to that crisis's own measured level for the holding (§9.3), never above normal; without one, the stress factor is used. Spread cost (Bangia) and square-root impact are charged on the post-shock value at the scenario's volatility. A holding with a price band that fell by at least its band is assumed frozen for its exit-freeze scenario, losing 1 − (1 − band)^N more of its remaining value.
+  - **Credit:** Merton is re-solved with equity × (1 + return) and the scenario volatility. The credit deterioration is (PD_stressed − PD_today)⁺ × the remaining value, with loss given default 100%. Banks are skipped.
+  - **Events:** if the fall reaches the pledge margin-call trigger (§12.3), selling the shares needed to restore cover adds square-root impact on the holding.
+  - **Crisis correlation:** this changes the next day's tail rather than the scenario loss itself, so it is reported alongside: crisis-window ES against normal ES (§11.5).
+- **The comparison:** the linked total (market + liquidity + credit + events) is compared with the **siloed sum**: the same market loss plus each pillar's standalone headline today (spread and impact cost, credit expected loss, event ES gap). **Interaction = linked − siloed.**
+- **Switching links off:** with every link off, the engine equals the plain market stress (tested).
+
+**What the live data show (2 Oct 2026).**
+- **Liquid large-caps barely interact.** For the 5-stock portfolio the interaction is at most 0.12% of the portfolio's value in any scenario, at ₹10 lakh and at ₹50 crore. Their liquidity, credit and event effects are small whether added separately or linked.
+- **A small-cap with a price band can interact strongly.** Jaiprakash Power (inferred 5% band, 3-day freeze) in a −10% market loses ₹2.39 lakh linked, against a siloed ₹1.12 lakh: its 10.9% fall breaches the band, and the freeze adds 14% of the remaining value.
+- **The interaction is only as reliable as its inputs.** For Jaiprakash Power these are the inferred band and the 3-day floor.
+
+### 13.2 Reverse stress test
+
+- **Asset space:** the most plausible return vector that loses L over one month (Σ = 21 × the daily covariance) minimises xᵀΣ⁻¹x subject to wᵀx = −L. The closed form is **x\* = −L·Σw / (wᵀΣw)**, with squared Mahalanobis distance d² = L²/(wᵀΣw); it is tested against a numerical optimiser.
+- **Crisis version:** the same using crisis-window correlations with full-sample volatilities.
+- **Plausibility:** P(D² ≥ d²) under a multivariate normal (χ²ₖ) and under a multivariate Student-t, where D²/k ~ F(k, ν) and ν is the portfolio's Student-t fit.
+- **Macro space:**
+  - Portfolio daily returns are regressed on Nifty 50, Bank Nifty, Nifty IT, USD/INR and Brent (S&P 500, Nasdaq 100, the dollar index and Brent for US portfolios) over the last 504 common days.
+  - The most plausible one-month macro move that loses L through those betas is y\* = −L·Σ_m b / (bᵀΣ_m b).
+  - The **nearest historical analogue** is the past 21-day window, over the whole common history, whose compounded macro moves are closest to y\* in Mahalanobis distance. The portfolio's actual return over that window is reported.
+  - A G-sec yield series is not included; Yahoo does not provide one.
+- **Linked:** the asset-space scenario is also run through the linked engine.
+
+## 14. Decisions (`decisions.py`, `memo.py`, `config/limits.json`)
+
+### 14.1 Risk-change explanation (Shapley)
+
+- **What is compared:** 1-day ES at the selected level, between today and a snapshot. The snapshot is either the same holdings N months ago (a window of the same length ending then) or an uploaded JSON snapshot saved earlier from this page.
+- **ES as a function of five inputs:** ES = f(positions, volatility, correlation, window, model). The window's returns are standardised, whitened with their own correlation (Cholesky), re-correlated with the chosen correlation and rescaled by the chosen volatilities.
+  - This reproduces the window exactly when its own moments are used (tested to 10⁻¹²).
+  - "Window" therefore carries everything about the sample's shape (tails, clustering) that volatility and correlation do not.
+- **Models:** Historical, Normal or Student-t.
+- **Shapley attribution:** each input gets the average of its marginal effect over all 5! orderings, computed exactly from the 32 coalitions. The parts add up to the change exactly, and an input that did not change gets exactly zero (both tested).
+- **Common tickers:** only tickers in both snapshots are compared.
+
+### 14.2 Trades and hedge
+
+- **ES by holding:** historical ES split into Euler (tail-conditional) contributions wᵢ·E[−rᵢ | portfolio ≤ its α-quantile]; marginal ES = contribution ÷ weight.
+- **Candidate trades:** every sale of 5% of the portfolio into cash, and every 5% switch from one holding to another, re-evaluated on the same returns.
+- **Shown:** the best sale and the two best switches, each with its effect on:
+  - days to liquidate 50% (AMFI method);
+  - the weighted Merton PD;
+  - the share of value in Elevated or High event tiers.
+
+  Selling into cash always cuts ES roughly in proportion, so switches are shown to reveal where diversification helps.
+- **Hedge:** the short index-futures notional h ∈ [0, 2] × value that minimises the historical ES of r_p − h·r_m. This is measurement only: no basis, margin, roll costs or lot sizes.
+
+### 14.3 Limits
+
+`config/limits.json` (editable on the Decisions page for the session) holds example limits:
+
+| Limit | Default |
+| --- | --- |
+| ES as % of value | 4% |
+| Largest holding | 30% |
+| Largest sector | 40% |
+| Days to liquidate 50% | 5 |
+| Weighted PD | 2% |
+| High-tier holdings | 1 |
+| Worst headline trust grade | C |
+
+- **Utilisation** = measure ÷ limit. For the grade limit it is the worst grade's rank ÷ the limit's rank (A = 1 … D = 4).
+- **Traffic lights:** green below 80%, amber from 80% to 100%, red above 100%.
+- **Single stocks:** the largest-holding and largest-sector limits apply to portfolios only.
+
+### 14.4 CRO dashboard and memo
+
+- **Dashboard (Overview page):** one row per pillar (headline, range, grade, limit status), the worst linked stress, top risks and top actions.
+- **Top risks:** ranked by explicit scores:
+
+  | Situation | Score |
+  | --- | --- |
+  | Red limit | 100 + utilisation |
+  | Worst linked loss | 60 + loss % |
+  | High-tier holding | 55 |
+  | Amber limit | 50 + utilisation/2 |
+  | Grade D | 45 |
+  | Holding with ES share ≥ 1.25 × its weight | 40 + excess |
+  | Grade C | 25 |
+  | Missing disclosure data | 20 |
+
+- **Top actions**, in order: the best ES-cutting trades, the hedge if it cuts ES by more than 10%, red limits to fix, and data to load.
+- **The one-page memo** (PDF via reportlab with a matplotlib chart, and Markdown) has these sections: Bottom line · Pillar summary · Integrated stress · What the numbers miss · Limits · Actions · Data sources and caveats. Its text is assembled from rules and the computed figures, with no language model.
+
 ## References
 
 - Acerbi, C. and Székely, B. (2014). Backtesting expected shortfall. *Risk*, December 2014.
@@ -607,6 +702,7 @@ Rating grades are read from the agencies' text (e.g. "CRISIL AA+", "[ICRA]A (Sta
 - Maillard, D. (2012). A user's guide to the Cornish Fisher expansion. SSRN working paper.
 - McNeil, A. J. and Frey, R. (2000). Estimation of tail-related risk measures for heteroscedastic financial time series: an extreme value approach. *Journal of Empirical Finance*, 7(3–4), 271–300.
 - Securities and Exchange Board of India (2015). *SEBI (Listing Obligations and Disclosure Requirements) Regulations, 2015*, Regulations 31 (shareholding pattern) and 33 (financial results), as amended.
+- Shapley, L. S. (1953). A value for n-person games. In H. W. Kuhn and A. W. Tucker (eds.), *Contributions to the Theory of Games II*, 307–317. Princeton University Press.
 - Reserve Bank of India. *Master Circular – Basel III Capital Regulations* (current edition).
 - Tasche, D. (1999). Risk contributions and performance measurement. Working paper, Technische Universität München.
 - Tóth, B., Lempérière, Y., Deremble, C., de Lataillade, J., Kockelkoren, J. and Bouchaud, J.-P. (2011). Anomalous price impact and the critical nature of liquidity in financial markets. *Physical Review X*, 1(2), 021006.

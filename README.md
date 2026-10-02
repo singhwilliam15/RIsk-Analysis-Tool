@@ -126,11 +126,15 @@ The tool was run as of 12, 6, 3 and 1 month(s) before real Indian collapses, usi
 | Yes Bank (RBI moratorium, Mar 2020) | warned | warned | warned | warned | −93% |
 | Zee Entertainment (pledge collapse, Jan 2019) | missed | missed | missed | warned | −46% |
 | Adani Enterprises (Hindenburg report, Jan 2023) | warned* | warned* | warned* | warned* | −30% |
+| Jet Airways (flights suspended, Apr 2019) | warned | warned | warned | warned | −95% |
+| Future Retail (sold after defaults, Aug 2020) | missed | missed | warned (circuits) | warned (circuits) | −84% |
 | DHFL (bond default, Jun 2019) | not available: delisted, no prices on Yahoo | | | | |
 
-- **Hit rate 9 of 12 case dates; false-positive rate 8 of 120 control dates (6.7%).**
+- **Hit rate 15 of 20 case dates; false-positive rate 19 of 200 control dates (9.5%).** Most false positives come from 2-year windows that contain the March 2020 crash.
 - **\*Adani warned only because it was always volatile.** Its ES was above 5% at every date; that is not a specific early signal.
-- **Yes Bank was already falling, which prices show; Zee's risk was in promoter pledges, which they do not.** That is the case for the event pillar, and it cannot be credited until the pledge files are loaded.
+- **Stocks already falling show up in prices** (Yes Bank, Jet Airways).
+- **Pledge- and debt-driven collapses do not show up in prices until late** (Zee, and Future Retail for six months). That is the case for the event and credit pillars, which cannot be credited until their files are loaded.
+- **Future Retail is where the liquidity pillar paid off.** From May 2020 it was locked at its lower circuit on 26–37 days (18 in a row), which a VaR model alone does not show.
 
 ![Realised loss after each as-of date: red where the tool warned](docs/images/case_studies.png)
 
@@ -475,7 +479,7 @@ test_data/             Saved yfinance statements used as test fixtures
   - trades are judged on past returns without transaction costs;
   - the limits are examples.
 - **Case studies:**
-  - only 3 of 4 cases have prices, and 12 case dates are illustrative, not statistically meaningful;
+  - only 5 of 6 cases have prices, and 20 case dates are illustrative, not statistically meaningful;
   - credit and event pillars are untested until the checklist files are loaded;
   - the warning thresholds are assumptions.
 - **Disclosure layouts.** The parsers for official NSE files (except `fo_secban.csv`) match headers through an alias table that has not yet been checked against real downloads.

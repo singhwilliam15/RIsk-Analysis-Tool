@@ -13,10 +13,10 @@
      "event": "Share price collapses on promoter-pledge and lender concerns", "financial": false, "enabled": true},
     {"key": "adani", "name": "Adani Enterprises", "ticker": "ADANIENT.NS", "event_date": "2023-01-24",
      "event": "Hindenburg Research publishes its short-seller report on the Adani Group", "financial": false, "enabled": true},
-    {"key": "jet", "name": "Jet Airways (candidate)", "ticker": "JETAIRWAYS.NS", "event_date": "2019-04-17",
-     "event": "Jet Airways suspends all flights", "financial": false, "enabled": false},
-    {"key": "fretail", "name": "Future Retail (candidate)", "ticker": "FRETAIL.NS", "event_date": "2020-08-29",
-     "event": "Future Group agrees to sell its retail business to Reliance after defaults", "financial": false, "enabled": false}
+    {"key": "jet", "name": "Jet Airways", "ticker": "JETAIRWAYS.NS", "event_date": "2019-04-17",
+     "event": "Jet Airways suspends all flights", "financial": false, "enabled": true},
+    {"key": "fretail", "name": "Future Retail", "ticker": "FRETAIL.NS", "event_date": "2020-08-29",
+     "event": "Future Group agrees to sell its retail business to Reliance after defaults", "financial": false, "enabled": true}
   ],
   "control_group": ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "HINDUNILVR.NS", "ITC.NS", "KOTAKBANK.NS",
                     "ASIANPAINT.NS", "NESTLEIND.NS", "BRITANNIA.NS"],

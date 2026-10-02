@@ -105,13 +105,13 @@ def test_case_config_is_consistent():
     assert len(keys) == len(set(keys)) and config["as_of_months_before"] == [12, 6, 3, 1]
     for c in config["cases"]:
         assert pd.Timestamp(c["event_date"]) < pd.Timestamp("2026-10-01") and c["event"]
-    assert {c["key"] for c in config["cases"] if c["enabled"]} == {"yesbank", "dhfl", "zee", "adani"}
+    assert {c["key"] for c in config["cases"] if c["enabled"]} == {"yesbank", "dhfl", "zee", "adani", "jet", "fretail"}
     assert len(config["control_group"]) == 10
 
 
 def test_committed_results_match_the_documented_tally():
     tally = pd.read_csv(K.ROOT / "results" / "tally.csv").set_index("Pillar")
-    assert tally.loc["any", "Hits"] == 9 and tally.loc["any", "Case dates"] == 12
-    assert tally.loc["any", "False positives"] == 8 and tally.loc["any", "Control dates"] == 120
+    assert tally.loc["any", "Hits"] == 15 and tally.loc["any", "Case dates"] == 20
+    assert tally.loc["any", "False positives"] == 19 and tally.loc["any", "Control dates"] == 200
     text = (K.ROOT.parent / "docs" / "case_studies.md").read_text(encoding="utf-8")
-    assert "**9 (75%)**" in text and "**8 (6.7%)**" in text
+    assert "**15 (75%)**" in text and "**19 (9.5%)**" in text

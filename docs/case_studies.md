@@ -12,7 +12,8 @@ The tool was run **as of 12, 6, 3 and 1 month(s) before** each collapse. Each ru
 | DHFL | 4 Jun 2019 | DHFL misses interest payments on its bonds | **not available** (delisted; Yahoo returns 404). Needs an NSE price file |
 | Zee Entertainment | 25 Jan 2019 | Share price collapses on promoter-pledge and lender concerns | Yahoo |
 | Adani Enterprises | 24 Jan 2023 | Hindenburg Research publishes its short-seller report | Yahoo |
-| *Candidates, not run until approved* | | Jet Airways (suspends flights, 17 Apr 2019); Future Retail (business sold to Reliance after defaults, 29 Aug 2020) | Yahoo has both |
+| Jet Airways | 17 Apr 2019 | Jet Airways suspends all flights | Yahoo |
+| Future Retail | 29 Aug 2020 | Future Group agrees to sell its retail business to Reliance after defaults | Yahoo |
 
 **Control group:** Reliance, TCS, HDFC Bank, Infosys, Hindustan Unilever, ITC, Kotak Mahindra Bank, Asian Paints, Nestlé India and Britannia, each at every case's four dates.
 
@@ -46,6 +47,14 @@ At each as-of date, using the last 500 trading days up to it:
 | Adani Enterprises | 6m (24 Jul 2022) | 6.4% (Cornish-Fisher, B) | market | **yes** | −52% |
 | Adani Enterprises | 3m (24 Oct 2022) | 6.4% (Student-t, B) | market | **yes** | −64% |
 | Adani Enterprises | 1m (24 Dec 2022) | 6.6% (Student-t, B) | market | **yes** | −67% |
+| Jet Airways | 12m (17 Apr 2018) | 5.9% (Student-t, A) | market, stress | **yes** | −95% |
+| Jet Airways | 6m (17 Oct 2018) | 7.4% (Cornish-Fisher, C) | market | **yes** | −85% |
+| Jet Airways | 3m (17 Jan 2019) | 7.0% (Normal, C) | market | **yes** | −88% |
+| Jet Airways | 1m (17 Mar 2019) | 7.1% (Normal, C) | market | **yes** | −86% |
+| Future Retail | 12m (29 Aug 2019) | 5.0% (Cornish-Fisher, B) | none | no | −84% |
+| Future Retail | 6m (29 Feb 2020) | 4.6% (EWMA, B) | none | no | −79% |
+| Future Retail | 3m (29 May 2020) | 9.4% (EWMA, D) | market, **liquidity** (26 lower-circuit days, longest run 18), stress | **yes** | −20% |
+| Future Retail | 1m (29 Jul 2020) | 9.5% (EWMA, D) | market, **liquidity** (37 lower-circuit days), stress | **yes** | −39% |
 | DHFL | all | not available (no prices) | – | – | – |
 
 ES is 1-day at 95% for the recommended model, with the Trust grade. The 90% ranges are in `case_studies/results/results.csv`.
@@ -56,21 +65,24 @@ ES is 1-day at 95% for the recommended model, with the Trust grade. The 90% rang
 
 | Pillar | Case dates | Hits | Misses | Control dates | False positives |
 | --- | --- | --- | --- | --- | --- |
-| Market | 12 | 9 | 3 | 120 | 6 (5.0%) |
-| Liquidity (circuits) | 12 | 0 | 12 | 120 | 0 |
+| Market | 20 | 15 | 5 | 200 | 15 (7.5%) |
+| Liquidity (circuits) | 20 | 2 | 18 | 200 | 0 |
 | Credit | 0 | – | – | 0 | – (not available) |
 | Events | 0 | – | – | 0 | – (not available) |
-| Integrated stress | 12 | 3 | 9 | 120 | 2 (1.7%) |
-| **Any warning** | **12** | **9 (75%)** | **3** | **120** | **8 (6.7%)** |
+| Integrated stress | 20 | 6 | 14 | 200 | 4 (2.0%) |
+| **Any warning** | **20** | **15 (75%)** | **5** | **200** | **19 (9.5%)** |
 
 ### What this shows, honestly
 
-- **Yes Bank was visible in prices a year ahead.** It had already fallen hard in 2018–19, so its ES was 11–19% a day and every date warned. A price-based tool flags a stock that is already falling; that is not a forecast of the moratorium.
-- **Zee was missed for a year.** Its volatility looked normal until a month before the collapse. The risk was in promoter pledges, which only the event pillar sees, and those files are not loaded. This is exactly the case the event pillar exists for. It cannot be credited until the pledge data are in.
-- **Adani Enterprises "warned" because it was always volatile, not because of an early signal.** Its ES was above 5% at every date. The 12-month warning also sits on a 2-year window that includes the March 2020 crash. The same artefact is behind two of the eight false positives (Reliance and Kotak Mahindra Bank, January 2022).
-- **False positives were 6.7% overall.** Most were market flags from volatility jumps in large caps (ITC in February 2020, Reliance and Asian Paints in October 2018) that were not followed by large losses. Two came from the integrated-stress rule on Reliance, whose high downside beta makes a −20% market move cost about 30%.
-- **The liquidity flag never fired.** None of these names hit lower circuits in the windows; Yes Bank and Zee were F&O stocks, which have no fixed price band. Circuit risk matters for small-caps, not for these cases.
-- **Small sample.** Twelve case dates from three stocks are not statistically meaningful; they illustrate what the tool can and cannot see.
+- **Yes Bank and Jet Airways were visible in prices a year ahead.** Both had already fallen hard, so their ES was 6–19% a day and every date warned. A price-based tool flags a stock that is already falling; that is not a forecast of the moratorium or the grounding.
+- **Zee was missed for a year, and Future Retail for six months.** Their volatility looked ordinary until shortly before the end, while a holder at the 12-month date went on to lose 46% (Zee) and 84% (Future Retail).
+  - Zee's risk was in promoter pledges, and Future Retail's in group debt and pledges. Only the event and credit pillars see those, and their files are not loaded.
+  - These are exactly the cases those pillars exist for. They cannot be credited until the data are in.
+- **Future Retail is where the liquidity pillar earned its place.** By May 2020 the stock had hit its 5% lower circuit on 26 days, including a run of 18 in a row. The circuit flag fired at 3 and 1 months, and the integrated stress showed a 70% loss on a −20% market move. A VaR model alone sees a volatile stock; the circuit history shows a holder who could not sell.
+- **Adani Enterprises "warned" because it was always volatile, not because of an early signal.** Its ES was above 5% at every date, and the 12-month window includes the March 2020 crash.
+- **False positives were 9.5% overall (19 of 200).** Most share one artefact: after March 2020, every 2-year window contains the COVID crash, so large caps' ES passes the 5% threshold. Examples are Reliance, Infosys and Kotak at the Future Retail dates, and Reliance and Kotak in January 2022. The others were volatility jumps in large caps not followed by large losses, plus 4 integrated-stress flags on Reliance, whose high downside beta makes a −20% market move cost about 30%.
+  - A rule that adapts to the market's own ES would cut these. I have not changed the rule after seeing the results, to avoid fitting the test.
+- **Small sample.** Twenty case dates from five stocks illustrate what the tool can and cannot see; they are not statistically meaningful.
 
 ### Phase 5 jump defaults: kept, not revised
 
@@ -78,13 +90,14 @@ Observed one-day falls over the 63 trading days after each as-of date:
 
 | Dates | Days | Falls ≥ 10% | Falls ≥ 20% | P(fall ≥ 10%) a day | P(fall ≥ 20%) a day |
 | --- | --- | --- | --- | --- | --- |
-| Case, warning | 567 | 21 | 6 | 3.7% | 1.06% |
-| Case, no warning | 189 | 1 | 1 | 0.53% | 0.53% |
-| Control, warning | 504 | 2 | 0 | 0.40% | 0 |
-| Control, no warning | 7,056 | 11 | 0 | 0.16% | 0 |
+| Case, warning | 945 | 30 | 9 | 3.2% | 0.95% |
+| Case, no warning | 315 | 3 | 1 | 0.95% | 0.32% |
+| Control, warning | 1,197 | 2 | 0 | 0.17% | 0 |
+| Control, no warning | 11,403 | 23 | 0 | 0.20% | 0 |
 
-- **On every warned date (cases and controls together),** falls of 20% or more happened on 6 of 1,071 days (0.56% a day). That is close to the High-tier default of 0.5% a day with J = −20%.
-- **But the sample is dominated by Yes Bank,** with 6 of the 7 falls of 20% or more. The warnings here are price flags, not the disclosure-based tiers the jump overlay uses.
+- **On every warned date (cases and controls together),** falls of 20% or more happened on 9 of 2,142 days (0.42% a day). That is close to the High-tier default of 0.5% a day with J = −20%.
+- **The 9 falls are spread across four stocks:** Yes Bank 3, Jet Airways 3, Adani Enterprises 2, Zee 1. The warnings here are price flags, not the disclosure-based tiers the jump overlay uses.
+- **Large caps had falls of 10% too.** Control stocks without a warning saw them on 0.20% of days, mostly in March 2020. The GARCH-t base distribution already carries such market-wide crashes; the jump overlay is meant for stock-specific events on top.
 - **The Elevated default** (0.1% a day, −10%) cannot be tested until disclosure files give real tiers.
 - **Decision:** the defaults stay, marked "assumption", and are to be re-run once the checklist files are loaded.
 
@@ -115,6 +128,14 @@ Put each file where the last column says, add disclosure files to `case_studies/
 | Adani Enterprises | Annual statements (consolidated) | FY2020 – FY2022 | [NSE annual reports](https://www.nseindia.com/companies-listing/corporate-filings-annual-reports) | `case_studies/data/fundamentals/ADANIENT.NS.csv` |
 | Adani Enterprises | Credit rating rationales | 2021 – 2023 | [CARE Ratings](https://www.careratings.com) | `case_studies/data/disclosures/` (ratings) |
 | Adani Enterprises | Auditor announcements | 2021 – 2023 | [NSE corporate announcements](https://www.nseindia.com/companies-listing/corporate-filings-announcements) | `case_studies/data/disclosures/` (auditor events) |
+| Jet Airways | Promoter pledged data | Mar 2017 – Mar 2019 quarters | [NSE pledged data](https://www.nseindia.com/companies-listing/corporate-filings-pledged-data) | `case_studies/data/disclosures/` (pledges) |
+| Jet Airways | Annual statements (consolidated) | FY2016 – FY2018 | [NSE annual reports](https://www.nseindia.com/companies-listing/corporate-filings-annual-reports) | `case_studies/data/fundamentals/JETAIRWAYS.NS.csv` |
+| Jet Airways | Credit rating rationales | 2018 – 2019 | [ICRA](https://www.icra.in) | `case_studies/data/disclosures/` (ratings) |
+| Jet Airways | Credit rating rationales | 2018 – 2019 | [CARE Ratings](https://www.careratings.com) | `case_studies/data/disclosures/` (ratings) |
+| Future Retail | Promoter pledged data | Sep 2018 – Jun 2020 quarters | [NSE pledged data](https://www.nseindia.com/companies-listing/corporate-filings-pledged-data) | `case_studies/data/disclosures/` (pledges) |
+| Future Retail | Annual statements (consolidated) | FY2017 – FY2020 | [NSE annual reports](https://www.nseindia.com/companies-listing/corporate-filings-annual-reports) | `case_studies/data/fundamentals/FRETAIL.NS.csv` |
+| Future Retail | Credit rating rationales | 2019 – 2020 | [CARE Ratings](https://www.careratings.com) | `case_studies/data/disclosures/` (ratings) |
+| Future Retail | Price-band changes (lower-circuit band) | Aug 2019 – Aug 2020 | [NSE all reports (equities)](https://www.nseindia.com/all-reports) | `case_studies/data/disclosures/` (price bands) |
 | Control group | Annual statements (consolidated) | three years before each case's dates | [NSE annual reports](https://www.nseindia.com/companies-listing/corporate-filings-annual-reports) | `case_studies/data/fundamentals/<TICKER>.csv` |
 | Control group | Promoter pledged data | same quarters as the cases | [NSE pledged data](https://www.nseindia.com/companies-listing/corporate-filings-pledged-data) | `case_studies/data/disclosures/` (pledges) |
 

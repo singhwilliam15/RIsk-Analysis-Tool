@@ -108,7 +108,7 @@ def test_overview_is_the_landing_page(fake_market):
     assert any("Positions" in h for h in headings) and any("Data quality" in h for h in headings)
 
 
-@pytest.mark.parametrize("page", ["Liquidity", "Credit", "Concentration & Factors", "Event & Governance",
+@pytest.mark.parametrize("page", ["Credit", "Concentration & Factors", "Event & Governance",
                                   "Integrated Stress", "Decisions"])
 def test_unbuilt_pages_say_coming_next(fake_market, page):
     at = run_app(page=page)
@@ -126,6 +126,24 @@ def test_trust_page(fake_market, mode):
     assert at.metric[2].label == "Trust grade" and at.metric[2].value in ("A", "B", "C", "D")
     models = at.dataframe[0].value
     assert len(models) == 8 and set(models["Grade"]) <= {"A", "B", "C", "D"}
+
+
+@pytest.mark.parametrize("mode", ["Single Stock", "Portfolio"])
+def test_liquidity_page(fake_market, mode):
+    at = run_app(mode if mode == "Portfolio" else None, page="Liquidity")
+    assert_clean(at)
+    headings = [m.value for m in at.markdown]
+    for section in ("Trading capacity", "SEBI/AMFI", "Volume in past crises", "liquidity-adjusted VaR",
+                    "Circuit-lock risk", "Amihud", "What this metric misses"):
+        assert any(section in h for h in headings), section
+    assert [m.label for m in at.metric] == ["Days to liquidate 50% (AMFI)", "Sellable in 5 days", "Liquidity-adjusted VaR",
+                                            "Circuit-lock loss"]
+    assert any("grade **" in c.value for c in at.caption)
+    # The assumptions are sidebar inputs, so every page (and the Excel export) sees the same values
+    at.number_input(key="liq_participation").set_value(5.0)
+    at.run()
+    assert_clean(at)
+    assert "Participation rate 5%" in at.caption[1].value or any("Participation rate 5%" in c.value for c in at.caption)
 
 
 def test_headline_numbers_carry_range_and_grade(fake_market):

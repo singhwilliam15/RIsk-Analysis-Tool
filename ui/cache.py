@@ -83,6 +83,16 @@ def cached_ghost(window: pd.Series, history: pd.Series, confidence_level: float,
     return trust.ghost_effect(window, history, confidence_level, investment=investment)
 
 
+@st.cache_data(show_spinner="Measuring liquidity…", max_entries=32)
+def cached_liquidity(positions: pd.DataFrame, frames: dict, long_frames: dict, scenarios: pd.DataFrame, official: dict,
+                     participation: float, amfi_participation: float, amfi_exclude: float, bangia_k: float,
+                     impact_y: float, user_spread_pct: float, freeze_override: int) -> dict:
+    # Imported here: ui.liquidity_layer imports this module
+    from ui.liquidity_layer import analyse
+    return analyse(positions, frames, long_frames, scenarios, official, participation, amfi_participation,
+                   amfi_exclude, bangia_k, impact_y, user_spread_pct, freeze_override)
+
+
 @st.cache_data(show_spinner=False, max_entries=64)
 def cached_scenarios(position_history: pd.Series, market_prices: pd.Series, scenarios: pd.DataFrame,
                      proxy_beta: float, investment: float) -> pd.DataFrame:

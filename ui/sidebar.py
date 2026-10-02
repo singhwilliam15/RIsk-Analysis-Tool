@@ -2,6 +2,7 @@
 
 import pandas as pd
 import streamlit as st
+from liquidity import AMFI_EXCLUDE, AMFI_PARTICIPATION, BANGIA_K, DEFAULT_PARTICIPATION, IMPACT_Y
 from portfolio import BUY_AND_HOLD, ENTRY_MODES, ENTRY_SHARES, ENTRY_VALUE, ENTRY_WEIGHT, REBALANCE_DAILY
 from ui.context import export
 from ui.formatting import pct_label
@@ -83,4 +84,20 @@ def render_sidebar(ctx):
     holding_period = st.sidebar.selectbox("Holding Period (Days)", options=[1, 5, 10, 21, 30], index=0, help="VaR scaled by sqrt(days)")
 
     num_sims = st.sidebar.selectbox("Monte Carlo Simulations", options=[1000, 2500, 5000, 10000], index=2)
+
+    with st.sidebar.expander("💧 Liquidity assumptions"):
+        st.caption("Assumptions, not data: change them to see how much the liquidity figures depend on them.")
+        participation = st.number_input("Participation rate, % of daily volume", 1.0, 100.0,
+                                        DEFAULT_PARTICIPATION * 100, 5.0, key="liq_participation",
+                                        help="How much of a day's volume you could sell without dominating trading.") / 100
+        amfi_participation = st.number_input("AMFI test: % of 3-month volume", 1.0, 100.0, AMFI_PARTICIPATION * 100, 1.0,
+                                             key="liq_amfi_participation") / 100
+        amfi_exclude = st.number_input("AMFI test: least liquid % excluded", 0.0, 90.0, AMFI_EXCLUDE * 100, 5.0,
+                                       key="liq_amfi_exclude") / 100
+        bangia_k = st.number_input("Spread volatility multiplier k (Bangia)", 0.0, 10.0, BANGIA_K, 0.5, key="liq_bangia_k")
+        impact_y = st.number_input("Market-impact constant Y (square-root law)", 0.0, 5.0, IMPACT_Y, 0.1, key="liq_impact_y")
+        user_spread_pct = st.number_input("Known bid-ask spread, % (0 = estimate from high/low)", 0.0, 20.0, 0.0, 0.05,
+                                          key="liq_user_spread")
+        freeze_override = int(st.number_input("Exit freeze, lower circuits (0 = longest past run, at least 3)", 0, 30, 0, 1,
+                                              key="liq_freeze"))
     export(ctx, locals())

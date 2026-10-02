@@ -65,6 +65,9 @@ def render(ctx, tab5):
             trust={"ranges_table": ctx.ranges_table, "grades": ctx.trust["grades"], "model_risk": ctx.trust["model_risk"],
                    "lookback": ctx.lookback, "ghost": ctx.ghost, "block_length": ctx.trust_ranges["block_length"],
                    "headline_model": ctx.headline_model},
+            liquidity={"metrics": ctx.liquidity_metrics, "holdings": ctx.liquidity_holdings, "amfi": ctx.liquidity_amfi,
+                       "waterfall": ctx.liquidity_waterfall, "participation": ctx.participation,
+                       "bangia_k": ctx.bangia_k, "impact_y": ctx.impact_y},
         )
 
         st.download_button(

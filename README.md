@@ -30,14 +30,23 @@ The **trust layer** shows how far each number can be relied on:
 - ES on 1-year, 2-year, 5-year and full-history windows;
 - a "ghost effect" detector for Historical VaR.
 
-Results export to a formatted Excel report. Built in Python with Streamlit, and covered by 276 offline tests in CI.
+**Liquidity risk** asks how fast the positions could be sold, and at what cost:
+- days to liquidate at a participation rate;
+- a SEBI/AMFI-style stress test (days to sell 25% and 50% pro rata);
+- volume in past crises;
+- a Corwin-Schultz spread estimate, Bangia spread cost and square-root-law impact, combined in a liquidity-adjusted VaR waterfall;
+- Amihud illiquidity;
+- circuit-lock risk for Indian stocks (the loss if a stock locks at its lower circuit for several days).
+
+Results export to a formatted Excel report. Built in Python with Streamlit, and covered by 298 offline tests in CI.
 
 | Page | Status |
 | --- | --- |
 | Overview | Built: summary cards with 90% ranges and grades, positions, data quality, fundamentals and their sources, disclosure files. Becomes the CRO dashboard in Phase 6. |
 | Market | Built: every model (with 90% range and grade), backtest, portfolio, stress and export tab. |
+| Liquidity | Built: capacity, AMFI-style stress test, crisis volume, spread and impact cost, LVaR waterfall, Amihud, circuit-lock. |
 | Trust | Built: ranges, grades, model risk, lookback sensitivity, ghost effect. |
-| Liquidity · Credit · Concentration & Factors · Event & Governance | Coming next (Phases 2–5) |
+| Credit · Concentration & Factors · Event & Governance | Coming next (Phases 3–5) |
 | Integrated Stress · Decisions | Coming next (Phase 6) |
 
 ### How far to trust the numbers (live data to 30 Sep 2026, 95% 1-day ES on ₹10 lakh, 2-year lookback)
@@ -49,6 +58,13 @@ Results export to a formatted Excel report. Built in Python with Streamlit, and 
 | Asian Paints | GARCH(1,1)-t | ₹30,088 (₹25,319–₹33,781) | B | range 28% wide; models disagree by 24% |
 | Jaiprakash Power | GARCH(1,1)-t (fit failed, shows EWMA) | ₹42,071 (₹34,497–₹49,313) | C | models disagree by 137% (Student-t ₹93,296 vs FHS ₹35,773) |
 | 5-stock portfolio | EWMA | ₹16,125 (₹15,165–₹17,114) | B | 499 returns; λ is assumed; HDFC Bank's data score |
+
+### Liquidity (live data to 1 Oct 2026, 20% participation)
+
+- **₹10 lakh is liquid everywhere.** Every position is under 0.11% of a day's volume, so spread cost dominates impact. For Reliance, VaR ₹20,858 + spread ₹1,601 + impact ₹104 gives a liquidity-adjusted VaR of ₹22,563.
+- **Circuit-lock risk dominates for a small-cap.** Jaiprakash Power (₹15 a share) has an inferred 5% band. Three lower circuits in a row (the 3-day floor; its longest past run was 1) would cost ₹1,42,625. That lifts its liquidity-adjusted VaR to ₹1,45,714 from a VaR of ₹33,548. The grade flags that both inputs are assumptions.
+- **₹50 crore makes the pillar bite.** The 5-stock portfolio would need 0.09 days to sell 50% pro rata under the AMFI convention, and 0.21 days without the exclusion (Asian Paints binds, at 4.2% of a day's volume). Spread and impact add ₹27 lakh to VaR, giving a liquidity-adjusted VaR of ₹89.8 lakh (90% range ₹71.6–₹103.6 lakh).
+- **Crises raise large-cap volume.** Median crisis-window volume was 1.08–1.32× the preceding four months for Reliance, HDFC Bank, TCS and Asian Paints, and 0.84× for Britannia. The tool never assumes a crisis makes selling easier, so it caps the factor at 1.
 
 ## Key findings
 
@@ -82,7 +98,8 @@ Screenshots (add the files to docs/images/, then remove this comment wrapper):
 | **Data layer** | Open, high, low, close and volume, with NSE and BSE volume summed where Yahoo has both. Annual fundamentals mapped to one set of field names, which a CSV upload can override field by field; each figure shows its source. Loaders and validators for Indian disclosure files, which you download from NSE, BSE and the rating agencies, listed in a manifest with source and date. |
 | **Data quality** | Adjusted prices, exchange-timezone dates, a visible data source, and warnings for suspicious moves. Each holding gets a 0–100 data-quality score, from checks for reversing spikes, stale prices, zero-volume days, gaps, short history and missing fundamentals. Data are never altered silently. |
 | **Trust** | 90% ranges for every model's VaR and ES: a stationary block bootstrap (Politis-White block length) for the unconditional models, a residual bootstrap with today's volatility fixed for EWMA and FHS, and asymptotic parameter draws for GARCH-t and Monte Carlo. A–D grades come from written rules: range width, model dispersion, backtest, data quality, sample length, and the share of inputs that are assumptions. Also the model-risk add-on, lookback sensitivity, and the ghost effect in Historical VaR. |
-| **Excel report** | Dashboard (with 90% ranges and grades), Portfolio Risk, Backtesting, Stress Testing, Positions & Data, Trust, and Raw Data sheets. |
+| **Liquidity** | ADV, days to liquidate and share sellable in 1/5/10 days; the SEBI/AMFI-style stress test (with a fund-validation upload); crisis-window volume; Corwin-Schultz spread, Bangia spread cost, square-root impact and the liquidity-adjusted VaR waterfall; Amihud illiquidity; price bands (official or inferred), lower-circuit history and the exit-freeze loss. Every assumption (participation rate, k, Y, freeze length) is editable in the sidebar. |
+| **Excel report** | Dashboard (with 90% ranges and grades), Portfolio Risk, Backtesting, Stress Testing, Positions & Data, Trust, Liquidity, and Raw Data sheets. |
 
 Every formula, test and design choice is in **[docs/methodology.md](docs/methodology.md)**, with references.
 
@@ -222,7 +239,7 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-The 276 tests run on every push and pull request through GitHub Actions, on Python 3.11 and 3.12. They run **offline**: `conftest.py` blocks outbound connections, and market data comes from a deterministic synthetic generator or mocked Yahoo responses. Every calculation is checked against an independent reference: a closed form, a simulation, a hand-worked example or known true parameters. Highlights:
+The 298 tests run on every push and pull request through GitHub Actions, on Python 3.11 and 3.12. They run **offline**: `conftest.py` blocks outbound connections, and market data comes from a deterministic synthetic generator or mocked Yahoo responses. Every calculation is checked against an independent reference: a closed form, a simulation, a hand-worked example or known true parameters. Highlights:
 - **GARCH:** recovers the true parameters from simulated GARCH-t data.
 - **Student-t ES:** matches 2 million simulated draws.
 - **Portfolio:** components add up exactly on every basis, and match the normal Euler shares on 400,000 simulated days.
@@ -232,6 +249,12 @@ The 276 tests run on every push and pull request through GitHub Actions, on Pyth
 - **Fundamentals:** the field mapping is checked against real RELIANCE.NS and AAPL statements saved from yfinance, including the years and rows Yahoo leaves out.
 - **Disclosures:** the parsers read sample files laid out like NSE's downloads, reject bad rows with their row number, and apply the point-in-time dates.
 - **Trust:** the bootstrap ranges contain the true VaR and ES about 90% of the time on simulated normal returns. GARCH parameter draws reproduce the fitted covariance. Every grade rule is checked at its thresholds. The ghost detector finds a planted crash as it enters and leaves the window.
+- **Liquidity:**
+  - the AMFI-style test is checked by hand on three stocks, including a holding that is partly excluded;
+  - Corwin-Schultz recovers a known 1% spread from simulated bid-ask trades;
+  - spread cost and impact are checked by hand;
+  - the crisis-volume ratio is checked on planted volume drops;
+  - circuit detection, band inference and the compounded freeze loss are checked on synthetic series.
 - **Positions and data quality:** share, value and weight entry give the same portfolio, checked by hand. Each data-quality check is tested on synthetic histories with planted defects.
 - **App smoke tests:** `test_app.py` drives the full Streamlit app in both modes and on every page, including the error paths.
 
@@ -250,6 +273,7 @@ fundamentals.py        Annual statements and profile, field mapping, CSV overrid
 disclosures.py         Loaders, templates and validators for Indian disclosure files
 data_quality.py        Data-quality score per holding
 trust.py               TrustedMetric, 90% ranges, model risk, lookback sensitivity, ghost effect, A-D grades
+liquidity.py           Capacity, AMFI-style stress test, crisis volume, spread/impact, LVaR, Amihud, circuit lock
 data/disclosures/      Your downloaded disclosure files, manifest.json, templates and download steps
 excel_exporter.py      Formatted Excel report
 docs/methodology.md    Formulas, tests, design choices and references
@@ -285,6 +309,12 @@ test_data/             Saved yfinance statements used as test fixtures
 - **BSE volume** is often missing on Yahoo for large caps. When it is, NSE volume is used alone, and the Overview page says so for each holding.
 - **Holiday rows.** Yahoo fills some exchange holidays with the previous close and zero volume. They add zero returns to the sample, which slightly lowers volatility. They are counted in the data-quality check but not removed.
 - **Trust ranges** cover estimation error only, not a change of regime. GARCH and Monte Carlo ranges cover parameter uncertainty only. Bootstrap ranges for Historical ES are too narrow at small tail sizes (84% coverage instead of 90% in a 500-day, 95% simulation). The grade thresholds are assumptions.
+- **Liquidity:**
+  - the Corwin-Schultz spread still overstates spreads for the most liquid stocks (Reliance 0.06% against a quoted spread of a few hundredths of a percent);
+  - impact uses an assumed constant;
+  - inferred price bands are guesses until you load NSE's file;
+  - the AMFI test is our reading of the convention, not an official calculation;
+  - block deals, free float and redemptions are not modelled.
 - **Disclosure layouts.** The parsers for official NSE files (except `fo_secban.csv`) match headers through an alias table that has not yet been checked against real downloads.
 
 ## License

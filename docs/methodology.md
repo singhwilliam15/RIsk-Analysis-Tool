@@ -1,6 +1,6 @@
 # Methodology
 
-This document describes every calculation in the Risk Analysis Tool: the eight market-risk models, the multi-day rules, the backtests, the model-selection rule, the portfolio risk decomposition, the stress tests, and the data layer that every risk pillar shares (positions, prices and volume, fundamentals, disclosures and data quality), and the trust layer (90% ranges, model risk and A–D grades). Section numbers match the code modules named in each heading. The pillars still to come (liquidity, credit, concentration, event risk, integration) are planned in `RISK_TOOL_PLAN_V3.md` and will be documented here as they are built.
+This document describes every calculation in the Risk Analysis Tool: the eight market-risk models, the multi-day rules, the backtests, the model-selection rule, the portfolio risk decomposition, the stress tests, and the data layer that every risk pillar shares (positions, prices and volume, fundamentals, disclosures and data quality), the trust layer (90% ranges, model risk and A–D grades), and the liquidity pillar. Section numbers match the code modules named in each heading. The pillars still to come (liquidity, credit, concentration, event risk, integration) are planned in `RISK_TOOL_PLAN_V3.md` and will be documented here as they are built.
 
 **Notation.** `r_t` is the simple daily return on day t. α = 1 − confidence level is the tail probability (α = 0.01 for 99%). Losses are positive numbers, so VaR and ES are reported as positive amounts. `z = Φ⁻¹(1 − α)` is the standard normal quantile and φ is the normal density. μ and σ are the sample mean and standard deviation of daily returns. `t` (in multi-day formulas) is the holding period in days.
 
@@ -300,9 +300,72 @@ Each rule deducts 0, 1 or 2 points. A missing input deducts 1 point. All thresho
 - **Headline grade:** the recommended model's (Historical if there is none).
 - **Not graded:** the recommendation rule (§3.7) still uses the three VaR tests only. The grade also counts the ES test, so a recommended model can be graded D, as HDFC Bank's EWMA was on 2 Oct 2026. The Trust page says so.
 
+## 9. Liquidity risk (`liquidity.py`)
+
+Positions are the share counts from §7.1. Volume is NSE + BSE where Yahoo has both (§7.2). Every parameter below that is not estimated from data is an **assumption**: it can be changed in the sidebar's "Liquidity assumptions" and is listed in the trust grade.
+
+### 9.1 Trading capacity
+
+- **Averages:** ADV and average traded value (volume × close) over 20 and 60 days.
+- **Days to liquidate** a holding = shares ÷ (participation rate × 60-day ADV). The participation rate defaults to **20%**, an assumption: about the most one seller can take of a day's volume without dominating it.
+- **Share sellable in h days** = Σ value × min(1, h ÷ days to liquidate) ÷ total value, with every holding sold at its own pace.
+
+### 9.2 SEBI/AMFI-style stress test
+
+- **Method:** days to sell 25% and 50% of the portfolio pro rata, at **10%** of 3-month (63-day) average volume, with the least liquid **20%** of the portfolio excluded. These follow the convention of the liquidity stress tests Indian equity funds disclose.
+- **Exclusion (our reading):** holdings are ranked by days to liquidate the whole position and removed, least liquid first, until 20% of the value is gone. The holding on the boundary is removed only in part, and its remaining part is sold pro rata. Days = the slowest remaining holding.
+- **Figures shown:** results are shown with and without the exclusion.
+- **Validation:** the page can run the same test on a fund's uploaded monthly portfolio and compare it with the AMC's published figure. This is not an official calculation.
+
+### 9.3 Stressed volume
+
+- **Crisis ratio:** for each window in `stress_scenarios.csv`, average volume in the window ÷ average volume over the 120 trading days before it, on the primary listing's full history. Comparing with the months just before cancels decades of volume growth and old splits.
+- **Which windows count:** a window needs at least 10 days of volume inside it and 60 before it.
+- **Measured factor:** the median ratio.
+- **Applied factor:** capped at **1**, an assumption. Large caps usually trade *more* in a sell-off (median ratios of 1.08–1.32× for Reliance, HDFC Bank, TCS and Asian Paints on 2 Oct 2026), but that volume belongs to other sellers too, so a crisis is never taken to make selling easier. Britannia's 0.84× is applied as measured.
+- **Use:** stressed days to liquidate and market impact both use ADV × the applied factor.
+
+### 9.4 Spread, impact and liquidity-adjusted VaR
+
+- **Spread:** the Corwin and Schultz (2012) high-low estimator, with the paper's adjustment for overnight gaps.
+  - From two consecutive days: β = Σ ln(Hₜ/Lₜ)², γ = ln(max H / min L)² over both days, α = (√(2β) − √β)/(3 − 2√2) − √(γ/(3 − 2√2)), S = 2(e^α − 1)/(1 + e^α).
+  - The two-day estimates are averaged within each month, keeping negative values, and only the monthly average is floored at 0. Flooring each two-day estimate first, as is common, biases the spread upwards: on simulated prices with no spread it gave 0.39%, against 0.12% for monthly flooring. With a true spread of 1%, the estimator gave 0.97–1.07%.
+  - Even so, it still overstates spreads for the most liquid stocks: Reliance's estimate is 0.06% against an actual NSE quoted spread of a few hundredths of a percent.
+  - You can enter a known spread instead.
+- **Spread cost** (Bangia et al., 1999) = ½ × value × (mean + k × standard deviation of the last 12 monthly spreads). k = **3** is an assumption; Bangia et al. chose the multiplier from the spread distribution's tails.
+- **Market impact** (square-root law; Almgren et al., 2005; Tóth et al., 2011) = Y × daily σ × √(shares ÷ stressed daily volume) × value, capped at the whole value. Y = **1** is an assumption; empirical estimates are of order one. σ is the standard deviation of the last 60 daily returns.
+- **Liquidity-adjusted VaR waterfall:** the headline VaR (the recommended model, §8) + spread cost + impact + circuit-lock add-on.
+  - The add-on is max(0, total circuit-lock loss − VaR): the loss beyond VaR if every banded holding is frozen for its exit-freeze scenario (§9.6).
+  - It is a stress add-on, not a probability-based quantity, so the total is labelled as such.
+
+### 9.5 Amihud illiquidity
+
+Amihud (2002): the 60-day rolling mean of |daily return| ÷ daily traded value, in basis points of price move per ₹1 crore traded. Each value uses data up to its own date only.
+
+### 9.6 Circuit-lock risk (India)
+
+- **Band:** from the official price-band file (§7.4) when loaded. Otherwise it is **inferred**, and labelled so: the band (2/5/10/20%) hit most often, counting days that close within 0.1% of the low with a return of −band ± 0.1 percentage points, or at the high with +band. At least 3 hits are needed; otherwise "no fixed band found" (F&O stocks have none).
+- **Past lock-downs:** lower-circuit days and the longest consecutive run, in the lookback window.
+- **Exit freeze:** N consecutive lower circuits during which the holding cannot be sold. By default N is the longest past run, but at least **3** (an assumption). The loss is 1 − (1 − band)^N of the holding's value.
+
+### 9.7 Ranges and grades
+
+- **Days to liquidate 50% and share sellable in 5 days:** the 5th–95th percentiles of the same figure recomputed with each day's rolling ADV over the past year. Today's figure can lie outside the range when recent volume is unusual.
+- **Liquidity-adjusted VaR:** the VaR range, plus the 5th–95th percentiles of the spread cost (bootstrapping the monthly spreads), plus the impact over the past year's volume. Adding the bounds assumes they move together, which errs towards a wider range.
+- **Circuit-lock loss:** a scenario with no range, so that rule is skipped.
+- **Grades:** §8.3's rules, skipping model dispersion and the backtest, which don't apply here. Sample length is the number of days with volume data. Shares of inputs that are assumptions:
+  - share sellable: participation rate, 1 of 2;
+  - LVaR: k and Y, 2 of 5;
+  - circuit-lock: an inferred band and a freeze length set by the floor or your override, up to 2 of 2;
+  - AMFI test: 0, since its parameters are a disclosure convention.
+
 ## References
 
 - Acerbi, C. and Székely, B. (2014). Backtesting expected shortfall. *Risk*, December 2014.
+- Almgren, R., Thum, C., Hauptmann, E. and Li, H. (2005). Direct estimation of equity market impact. *Risk*, July 2005.
+- Amihud, Y. (2002). Illiquidity and stock returns: cross-section and time-series effects. *Journal of Financial Markets*, 5(1), 31–56.
+- Bangia, A., Diebold, F. X., Schuermann, T. and Stroughair, J. D. (1999). Modeling liquidity risk, with implications for traditional market risk measurement and management. Wharton Financial Institutions Center working paper 99-06.
+- Corwin, S. A. and Schultz, P. (2012). A simple way to estimate bid-ask spreads from daily high and low prices. *Journal of Finance*, 67(2), 719–760.
 - Barone-Adesi, G., Giannopoulos, K. and Vosper, L. (1999). VaR without correlations for portfolios of derivative securities. *Journal of Futures Markets*, 19(5), 583–602.
 - Basel Committee on Banking Supervision (1996). *Supervisory framework for the use of "backtesting" in conjunction with the internal models approach to market risk capital requirements.* Bank for International Settlements.
 - Basel Committee on Banking Supervision (2019). *Minimum capital requirements for market risk.* Bank for International Settlements.
@@ -321,3 +384,4 @@ Each rule deducts 0, 1 or 2 points. A missing input deducts 1 point. All thresho
 - McNeil, A. J. and Frey, R. (2000). Estimation of tail-related risk measures for heteroscedastic financial time series: an extreme value approach. *Journal of Empirical Finance*, 7(3–4), 271–300.
 - Securities and Exchange Board of India (2015). *SEBI (Listing Obligations and Disclosure Requirements) Regulations, 2015*, Regulations 31 (shareholding pattern) and 33 (financial results), as amended.
 - Tasche, D. (1999). Risk contributions and performance measurement. Working paper, Technische Universität München.
+- Tóth, B., Lempérière, Y., Deremble, C., de Lataillade, J., Kockelkoren, J. and Bouchaud, J.-P. (2011). Anomalous price impact and the critical nature of liquidity in financial markets. *Physical Review X*, 1(2), 021006.

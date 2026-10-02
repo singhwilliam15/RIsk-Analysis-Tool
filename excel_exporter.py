@@ -67,7 +67,7 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
                               benchmark_name: str, beta: float, portfolio: dict = None,
                               recommendation: dict = None, data_note: str = None, risk_free_rate: float = None,
                               vol_shock_table: pd.DataFrame = None, beta_down: float = float("nan"),
-                              data_layer: dict = None, trust: dict = None) -> bytes:
+                              data_layer: dict = None, trust: dict = None, liquidity: dict = None) -> bytes:
     """
     Generate the Risk Analysis Tool's Excel report and return it as .xlsx bytes.
     `var_by_level` maps model name -> {confidence level -> VaR result dict}.
@@ -78,6 +78,8 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
     data_quality.assess_holding result), "volume_sources" and "prices_as_of"; it adds a Positions & Data sheet.
     `trust` (optional) holds "ranges_table" (trust.scale_ranges), "grades", "model_risk", "lookback", "ghost",
     "block_length" and "headline_model"; it adds 90% ranges and grades to the Dashboard and a Trust sheet.
+    `liquidity` (optional) holds "metrics" (TrustedMetric per headline), "holdings", "amfi", "waterfall",
+    "participation", "bangia_k" and "impact_y"; it adds a Liquidity sheet.
     """
     money = f'"{currency}" #,##0'
     wb = openpyxl.Workbook()
@@ -332,6 +334,49 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
              (f"Tail losses leaving within {ghost['horizon']} days", len(ghost["leaving"])),
              (f"Past VaR jumps > {ghost['jump']:.0%} caused by a loss leaving", ghost["exits"])],
         )
+
+    # -------------------------------------------------------------
+    # LIQUIDITY (when the app supplies it)
+    # -------------------------------------------------------------
+    if liquidity is not None:
+        ws_liq = wb.create_sheet(title="Liquidity")
+        ws_liq["B2"] = "💧 LIQUIDITY RISK"
+        ws_liq["B2"].font = TITLE_FONT
+        ws_liq["B3"] = (f"Participation {liquidity['participation']:.0%} of daily volume, Bangia k {liquidity['bangia_k']:g}, "
+                        f"impact constant Y {liquidity['impact_y']:g}: assumptions. Methods in docs/methodology.md section 9.")
+        ws_liq["B3"].font = SUBTITLE_FONT
+        metrics = liquidity["metrics"]
+        units = {"amfi50": "0.0", "sell5": "0%", "lvar": money, "circuit": money}
+        next_row = _write_table(
+            ws_liq, 5, [("Headline", "@"), ("Value", "@"), ("90% Low", "@"), ("90% High", "@"), ("Grade", "@"), ("Reasons", "@")],
+            [(m.name, _finite(m.value), _finite(m.low), _finite(m.high), m.grade, "; ".join(m.reasons) or "no deductions")
+             for m in metrics.values()],
+        )
+        for r, key in enumerate(metrics, start=6):
+            for c in (3, 4, 5):
+                ws_liq.cell(row=r, column=c).number_format = units[key]
+        h = liquidity["holdings"]
+        ws_liq.cell(row=next_row, column=2, value="BY HOLDING").font = BOLD_FONT
+        next_row = _write_table(
+            ws_liq, next_row + 1,
+            [("Ticker", "@"), ("Value", money), ("ADV 60d", "#,##0"), ("Days to Liquidate", "0.0"), ("Stress Factor", "0.00"),
+             ("Stressed Days", "0.0"), ("Spread", "0.00%"), ("Spread Source", "@"), ("Spread Cost", money),
+             ("Impact Cost", money), ("Band", "0%"), ("Band Source", "@"), ("Lower-Circuit Days", "0"),
+             ("Freeze Days", "0"), ("Circuit Loss", money)],
+            [(r["Ticker"], r["Value"], _finite(r["ADV 60d"]), _finite(r["Days to Liquidate"]), _finite(r["Stress Factor"]),
+              _finite(r["Stressed Days"]), _finite(r["Spread"]), r["Spread Source"], _finite(r["Spread Cost"]),
+              _finite(r["Impact Cost"]), _finite(r["Band"]), r["Band Source"], r["Lower-Circuit Days"], r["Freeze Days"],
+              r["Circuit Loss"]) for r in h.to_dict("records")],
+        )
+        ws_liq.cell(row=next_row, column=2, value="SEBI/AMFI-STYLE STRESS TEST (DAYS)").font = BOLD_FONT
+        amfi = liquidity["amfi"]
+        next_row = _write_table(
+            ws_liq, next_row + 1, [("Portfolio Sold", "@"), ("Least Liquid Excluded", "0.0"), ("Nothing Excluded", "0.0")],
+            [(f"{f:.0%}", _finite(amfi[(f, True)]["days"]), _finite(amfi[(f, False)]["days"])) for f in (0.25, 0.50)],
+        )
+        ws_liq.cell(row=next_row, column=2, value="LIQUIDITY-ADJUSTED VAR").font = BOLD_FONT
+        _write_table(ws_liq, next_row + 1, [("Step", "@"), ("Amount", money), ("Cumulative", money)],
+                     liquidity["waterfall"][["Step", "Amount", "Cumulative"]].itertuples(index=False))
 
     # -------------------------------------------------------------
     # SHEET 4: RAW DATA

@@ -448,18 +448,27 @@ def _higher_is_better(value, limits) -> int:
     return 0 if value >= limits[0] else 1 if value >= limits[1] else 2
 
 
-def grade(range_width: float, dispersion: float, backtest: str, data_quality: float, n_obs: int,
-          assumption_share: float) -> tuple:
-    """A-D grade and the reasons for every point deducted. Missing inputs cost one point each."""
-    parts = [
-        ("90% range width", _lower_is_better(range_width, GRADE_RULES["range_width"]),
-         f"{range_width:.0%} of the value" if np.isfinite(range_width) else "not available"),
-        ("Model dispersion", _lower_is_better(dispersion, GRADE_RULES["dispersion"]),
-         f"ES spread across models {dispersion:.0%} of the recommended ES" if np.isfinite(dispersion) else "not available"),
-        ("Backtest", BACKTEST_POINTS[backtest], backtest),
+def grade(range_width, dispersion, backtest, data_quality: float, n_obs: int, assumption_share: float,
+          sample_label: str = "daily returns") -> tuple:
+    """
+    A-D grade and the reasons for every point deducted. A missing (NaN) input costs one point. Pass None for a
+    rule that does not apply to the metric (e.g. no backtest exists for days to liquidate, no range for a
+    deterministic scenario); that rule is skipped. Market-risk metrics use every rule.
+    """
+    parts = []
+    if range_width is not None:
+        parts.append(("90% range width", _lower_is_better(range_width, GRADE_RULES["range_width"]),
+                      f"{range_width:.0%} of the value" if np.isfinite(range_width) else "not available"))
+    if dispersion is not None:
+        parts.append(("Model dispersion", _lower_is_better(dispersion, GRADE_RULES["dispersion"]),
+                      f"ES spread across models {dispersion:.0%} of the recommended ES" if np.isfinite(dispersion)
+                      else "not available"))
+    if backtest is not None:
+        parts.append(("Backtest", BACKTEST_POINTS[backtest], backtest))
+    parts += [
         ("Data quality", _higher_is_better(data_quality, GRADE_RULES["data_quality"]),
          f"lowest holding score {data_quality:.0f}/100" if np.isfinite(data_quality) else "not available"),
-        ("Sample length", _higher_is_better(n_obs, GRADE_RULES["sample"]), f"{n_obs} daily returns"),
+        ("Sample length", _higher_is_better(n_obs, GRADE_RULES["sample"]), f"{n_obs} {sample_label}"),
         ("Assumptions", _lower_is_better(assumption_share, GRADE_RULES["assumptions"]),
          f"{assumption_share:.0%} of inputs are assumptions"),
     ]

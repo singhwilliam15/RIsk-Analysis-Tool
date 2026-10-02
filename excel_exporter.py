@@ -68,7 +68,7 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
                               recommendation: dict = None, data_note: str = None, risk_free_rate: float = None,
                               vol_shock_table: pd.DataFrame = None, beta_down: float = float("nan"),
                               data_layer: dict = None, trust: dict = None, liquidity: dict = None,
-                              credit: dict = None, concentration: dict = None) -> bytes:
+                              credit: dict = None, concentration: dict = None, events: dict = None) -> bytes:
     """
     Generate the Risk Analysis Tool's Excel report and return it as .xlsx bytes.
     `var_by_level` maps model name -> {confidence level -> VaR result dict}.
@@ -83,7 +83,8 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
     "participation", "bangia_k" and "impact_y"; it adds a Liquidity sheet.
     `credit` (optional) holds "metrics", "view" (credit_layer.portfolio_view), "results" and "vol_choice"; it adds a
     Credit sheet. `concentration` (optional) holds "result" (concentration_layer.analyse), "metrics" and
-    "factor_meta"; it adds a Concentration sheet.
+    "factor_meta"; it adds a Concentration sheet. `events` (optional) holds "metrics", "panel", "margin", "overlay"
+    and "missing"; it adds an Events sheet.
     """
     money = f'"{currency}" #,##0'
     wb = openpyxl.Workbook()
@@ -463,6 +464,38 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
                                                ("Portfolio ES", money), ("Benefit Kept", "0%")],
                          [(r["Sample"], r["Days"], _finite(r["Average Correlation"]), _finite(r["ES"]), _finite(r["Benefit Kept"]))
                           for r in t.to_dict("records")])
+
+    # -------------------------------------------------------------
+    # EVENTS (when the app supplies it)
+    # -------------------------------------------------------------
+    if events is not None:
+        ws_ev = wb.create_sheet(title="Events")
+        ws_ev["B2"] = "⚠️ EVENT AND GOVERNANCE RISK"
+        ws_ev["B2"].font = TITLE_FONT
+        ws_ev["B3"] = ("Tiers from config/event_rules.json; signals use only disclosures public by the analysis date. "
+                       "Not loaded: " + (", ".join(events["missing"]) or "none") + ". Methods in docs/methodology.md section 12.")
+        ws_ev["B3"].font = SUBTITLE_FONT
+        next_row = _write_table(
+            ws_ev, 5, [("Headline", "@"), ("Value", "#,##0.00"), ("Low", "#,##0.00"), ("High", "#,##0.00"), ("Range", "@"),
+                       ("Grade", "@"), ("Reasons", "@")],
+            [(m.name, _finite(m.value), _finite(m.low), _finite(m.high), m.range_label, m.grade,
+              "; ".join(m.reasons) or "no deductions") for m in events["metrics"].values()],
+        )
+        ws_ev.cell(row=next_row, column=2, value="TIERS").font = BOLD_FONT
+        next_row = _write_table(ws_ev, next_row + 1, [("Ticker", "@"), ("Tier", "@"), ("Basis", "@"), ("Rules Fired", "@")],
+                                events["panel"][["Ticker", "Tier", "Basis", "Reasons"]].itertuples(index=False))
+        ws_ev.cell(row=next_row, column=2, value="PLEDGE MARGIN CALLS").font = BOLD_FONT
+        next_row = _write_table(
+            ws_ev, next_row + 1, [("Ticker", "@"), ("Trigger Fall", "0%"), ("Trigger Price", "#,##0.00"),
+                                  ("Days of Volume, All Pledged", "0.0"), ("Days of Volume, Restore Cover", "0.0")],
+            [(t, m["trigger_fall"], m["trigger_price"], _finite(m["days_all"]), _finite(m["days_restore"]))
+             for t, m in events["margin"].items()],
+        )
+        o = events["overlay"]
+        ws_ev.cell(row=next_row, column=2, value="JUMP OVERLAY (1-DAY)").font = BOLD_FONT
+        _write_table(ws_ev, next_row + 1, [("Measure", "@"), ("Value", money)],
+                     [("Standard ES", o["es"] * investment), ("Event-adjusted ES", o["event_es"] * investment),
+                      ("Gap", o["gap"] * investment)] + [(f"Gap from {t}", v * investment) for t, v in o["by_holding"].items()])
 
     # -------------------------------------------------------------
     # SHEET 4: RAW DATA

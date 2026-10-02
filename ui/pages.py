@@ -22,10 +22,8 @@ PAGES = (OVERVIEW, MARKET, LIQUIDITY, CREDIT, CONCENTRATION, EVENTS, INTEGRATED,
 PAGE_KEY = "page"
 
 # Pages not built yet: the roadmap phase that builds each, and what it will contain
-BUILT = (OVERVIEW, MARKET, LIQUIDITY, CREDIT, CONCENTRATION, TRUST)
+BUILT = (OVERVIEW, MARKET, LIQUIDITY, CREDIT, CONCENTRATION, EVENTS, TRUST)
 COMING_NEXT = {
-    EVENTS: (5, "Promoter pledges and margin-call triggers, ASM/GSM surveillance, F&O ban, rating downgrades, "
-                "auditor events, an event-risk tier and a jump-risk overlay on ES."),
     INTEGRATED: (6, "One stress scenario hitting every pillar together, against the sum of the separate pillars, "
                     "and a reverse stress test."),
     DECISIONS: (6, "Risk-change explanation, the best risk-reducing trades, limits with traffic lights and a "

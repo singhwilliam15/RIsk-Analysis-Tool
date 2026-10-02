@@ -71,6 +71,8 @@ def render(ctx, tab5):
             credit={"metrics": ctx.credit_metrics, "view": ctx.credit_view, "results": ctx.credit_results,
                     "vol_choice": ctx.equity_vol_choice},
             concentration={"result": ctx.conc, "metrics": ctx.conc_metrics, "factor_meta": ctx.conc_factor_meta},
+            events={"metrics": ctx.event_metrics, "panel": ctx.event_panel, "margin": ctx.event_margin,
+                    "overlay": ctx.event_overlay, "missing": ctx.event_missing},
         )
 
         st.download_button(

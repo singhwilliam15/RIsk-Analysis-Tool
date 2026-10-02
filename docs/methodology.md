@@ -1,6 +1,6 @@
 # Methodology
 
-This document describes every calculation in the Risk Analysis Tool: the eight market-risk models, the multi-day rules, the backtests, the model-selection rule, the portfolio risk decomposition, the stress tests, and the data layer that every risk pillar shares (positions, prices and volume, fundamentals, disclosures and data quality), the trust layer (90% ranges, model risk and A–D grades), and the liquidity, credit, and concentration and factor pillars. Section numbers match the code modules named in each heading. The pillars still to come (liquidity, credit, concentration, event risk, integration) are planned in `RISK_TOOL_PLAN_V3.md` and will be documented here as they are built.
+This document describes every calculation in the Risk Analysis Tool: the eight market-risk models, the multi-day rules, the backtests, the model-selection rule, the portfolio risk decomposition, the stress tests, and the data layer that every risk pillar shares (positions, prices and volume, fundamentals, disclosures and data quality), the trust layer (90% ranges, model risk and A–D grades), and the liquidity, credit, concentration and factor, and event and governance pillars. Section numbers match the code modules named in each heading. The pillars still to come (liquidity, credit, concentration, event risk, integration) are planned in `RISK_TOOL_PLAN_V3.md` and will be documented here as they are built.
 
 **Notation.** `r_t` is the simple daily return on day t. α = 1 − confidence level is the tail probability (α = 0.01 for 99%). Losses are positive numbers, so VaR and ES are reported as positive amounts. `z = Φ⁻¹(1 − α)` is the standard normal quantile and φ is the normal density. μ and σ are the sample mean and standard deviation of daily returns. `t` (in multi-day formulas) is the holding period in days.
 
@@ -496,6 +496,78 @@ The thresholds are common credit-analysis rules of thumb, not regulatory limits.
   - factor data ending more than 92 days before the latest price;
   - falling back to the single-index model.
 - **Assumptions:** the choice of factor model (1 of 3 inputs); the crisis windows and the normal ES (2 of 4).
+
+## 12. Event and governance risk (`events.py`, `config/event_rules.json`)
+
+### 12.1 Signals, point in time
+
+Each holding gets eight signals. Every one uses only data public by the analysis date (§7.4 public dates). A signal whose data are not loaded is **not available**: it never counts as "no risk".
+
+| Signal | Rule input | Source |
+| --- | --- | --- |
+| Promoter pledge | pledged % of promoter holding in the latest public quarter, and its change from the quarter about a year earlier | `pledges` file |
+| ASM / GSM | the most severe measure in force (GSM > long-term ASM > short-term ASM > ESM; entered on or before the date, not yet exited) | `surveillance` file |
+| F&O ban | a ban trade date within the last 30 calendar days | `fo_ban` file |
+| Rating actions | downgrades and negative watches in the last 12 months; any downgrade below BBB− | `ratings` file |
+| Auditor events | event types in the last 24 months | `auditor_events` file |
+| Merton DD trend | DD at the latest month end, and its fall over 6 calendar months | credit pillar (§10.1) |
+| Circuit history | lower-circuit days and the longest run in the lookback | liquidity pillar (§9.6) |
+| Group tag | how many holdings share the tag you enter | sidebar |
+
+Rating grades are read from the agencies' text (e.g. "CRISIL AA+", "[ICRA]A (Stable)", "CARE BBB- (CE)") on the scale AAA … D.
+
+### 12.2 Tier rules (assumptions)
+
+**High** if any of the following, otherwise **Elevated** if any of its rules fire, otherwise **Low**:
+
+| | High | Elevated |
+| --- | --- | --- |
+| Pledge | ≥ 50% of promoter holding | ≥ 20%, or up ≥ 10 pp in 4 quarters |
+| Surveillance | GSM (any stage), or long-term ASM stage ≥ III | any ASM stage |
+| F&O ban | | within 30 days |
+| Ratings (12 months) | ≥ 2 downgrades, or a downgrade below BBB− | a downgrade, or a negative watch |
+| Auditor (24 months) | resignation, adverse opinion, disclaimer | qualified opinion |
+| Merton DD | < 1.5 | < 3, or down ≥ 30% in 6 months |
+| Circuit | | ≥ 3 lower-circuit days |
+| Group | | ≥ 2 holdings with the same tag |
+
+- **Reporting:** every rule that fired is listed, and the tier states its basis ("based on n of 8 signals").
+- **Thresholds:** in `config/event_rules.json`. They are judgement calls, to be checked against the Phase 7 case studies.
+
+### 12.3 Pledge margin calls
+
+- **Loan:** sized at today's price at initial cover C₀ (pledged value ÷ loan; default **2.0×**, i.e. 50% loan-to-value). Lenders can invoke the pledge when cover falls to C_t (default **1.5×**). Both are assumptions.
+- **Trigger:** a price fall of 1 − C_t/C₀ (25% at the defaults).
+- **Selling** at the trigger price P_t is shown two ways:
+  - all pledged shares, in days of 60-day ADV;
+  - just enough to restore C₀: x = L(C₀ − C_t) / (P_t(C₀ − 1)).
+- **Pledged quantity:** from the pledge file, or pledged % of total × shares outstanding.
+
+### 12.4 Jump overlay on ES
+
+- **The model:** each holding can jump on a given day by J with probability p, both set by its tier. The defaults (assumptions) are:
+
+  | Tier | p per day | J |
+  | --- | --- | --- |
+  | Low | 0 | – |
+  | Elevated | 0.1% | −10% |
+  | High | 0.5% | −20% |
+
+- **Base distribution:** the one-day return distribution of the stock or portfolio is loc + scale·T_ν. This is the fitted GARCH(1,1)-t (σ̂·√((ν − 2)/ν) as the scale), or the Student-t fit if GARCH did not converge.
+- **Portfolio:** a jump in holding i shifts the portfolio return by wᵢJᵢ. Every combination of jumps is enumerated exactly up to 12 jumping holdings; above that, up to two jumps.
+- **Calculation:**
+  - VaR solves Σ πₖ F_ν((x − loc − sₖ)/scale) = α;
+  - ES uses the Student-t partial expectation E[T·1{T ≤ z}] = −(ν + z²)/(ν − 1)·f_ν(z);
+  - there is no simulation, so no noise. On a 2-million-draw simulation the result agreed within 0.5%.
+- **Shares of the gap:** each holding's jump switched on alone, scaled so the shares add to the total gap.
+- **How much the assumptions matter:** on Reliance's real one-day distribution (2 Oct 2026), a High tier would lift 95% ES from ₹29,295 to ₹47,136, and 99% ES from ₹42,872 to ₹1,24,904.
+
+### 12.5 Ranges and grades
+
+- **Event-adjusted ES and its gap:** the range runs from ½× to 2× every jump probability ("range across jump assumptions").
+- **Assumptions counted:** only the jump settings of tiers that some holding actually falls in.
+- **Missing data:** each disclosure dataset not loaded costs a point, capped at 2.
+- **Value in Elevated/High and the number of High holdings:** no range.
 
 ## References
 

@@ -54,7 +54,15 @@ The **trust layer** shows how far each number can be relied on:
 - HHI, sector risk shares, and Meucci's effective number of bets;
 - how much diversification survives the correlations seen in past crises.
 
-Results export to a formatted Excel report. Built in Python with Streamlit, and covered by 354 offline tests in CI.
+**Event and governance risk (India)** turns official disclosures into an early-warning tier:
+- promoter pledges, ASM/GSM surveillance, the F&O ban list, rating downgrades and auditor events, all point in time;
+- the credit pillar's distance-to-default trend and the liquidity pillar's circuit history;
+- group tags you enter yourself;
+- a Low / Elevated / High tier from written rules;
+- the share-price fall at which pledged shares could be sold by lenders;
+- a jump overlay showing how much event risk adds to ES.
+
+Results export to a formatted Excel report. Built in Python with Streamlit, and covered by 395 offline tests in CI.
 
 | Page | Status |
 | --- | --- |
@@ -63,8 +71,8 @@ Results export to a formatted Excel report. Built in Python with Streamlit, and 
 | Liquidity | Built: capacity, AMFI-style stress test, crisis volume, spread and impact cost, LVaR waterfall, Amihud, circuit-lock. |
 | Credit | Built: Merton DD/PD (three volatility inputs, KMV cross-check, month-end history), Altman Z/Z'', ratios and red flags, ratings, a bank panel, weighted PD and expected loss. |
 | Concentration & Factors | Built: factor exposures, the factor/specific risk split, HHI, sector risk, PCA and effective bets, crisis correlation, rolling betas. |
+| Event & Governance | Built: early-warning panel, event-risk tier, pledge margin calls, jump overlay on ES. It needs your disclosure files for most signals. |
 | Trust | Built: ranges, grades, model risk, lookback sensitivity, ghost effect. |
-| Event & Governance | Coming next (Phase 5) |
 | Integrated Stress · Decisions | Coming next (Phase 6) |
 
 ### How far to trust the numbers (live data to 30 Sep 2026, 95% 1-day ES on ₹10 lakh, 2-year lookback)
@@ -98,6 +106,12 @@ Results export to a formatted Excel report. Built in Python with Streamlit, and 
 - **The market factor is 65% of the risk** (portfolio beta 0.77), and stock-specific risk is 35%. Size, value and momentum net to almost nothing; the value tilt is a slight hedge (−2%).
 - **Crisis correlation.** In past crisis windows the average correlation doubled, from 0.18 to 0.37, so only 69% of the diversification benefit survived. Picking the market's worst days instead shows no rise (0.19), a known statistical bias that the page explains.
 - **Factor tilts differ widely.** Jaiprakash Power loads on size (+1.37) and value (+1.12). TCS and Britannia have significant negative value loadings, and Reliance has a market beta of 0.96 (t = 14).
+
+### Event risk (as of 1 Oct 2026, no disclosure files loaded yet)
+
+- **Every default holding is Low, but on only 1–2 of 8 signals.** These are the Merton trend and the circuit history; HDFC Bank, as a bank, has only the circuit history. The page says so, and each grade loses 2 points for the missing data. The tool never reads missing data as "no risk".
+- **The jump assumptions matter a lot.** On Reliance's actual one-day distribution, a High tier (0.5% a day chance of −20%) would raise 99% ES from ₹42,872 to ₹1,24,904. That is why Phase 7 tests these defaults against real collapses before they are trusted.
+- **Margin-call trigger:** at 2.0× initial and 1.5× trigger cover, lenders could invoke pledged shares after a 25% fall (Reliance at ₹876).
 
 ### Liquidity (live data to 1 Oct 2026, 20% participation)
 
@@ -141,7 +155,8 @@ Screenshots (add the files to docs/images/, then remove this comment wrapper):
 | **Liquidity** | ADV, days to liquidate and share sellable in 1/5/10 days; the SEBI/AMFI-style stress test (with a fund-validation upload); crisis-window volume; Corwin-Schultz spread, Bangia spread cost, square-root impact and the liquidity-adjusted VaR waterfall; Amihud illiquidity; price bands (official or inferred), lower-circuit history and the exit-freeze loss. Every assumption (participation rate, k, Y, freeze length) is editable in the sidebar. |
 | **Credit** | Merton distance to default and risk-neutral PD (historical, EWMA and GARCH-t equity volatility; KMV default point; iterative KMV cross-check; month-end history using only balance sheets public at each date). Altman Z and Z'' with zones. Six credit ratios over 4–5 years with red flags (thresholds in `config/credit_thresholds.json`), rating actions, a bank/NBFC panel, weighted PD and credit-implied expected loss. |
 | **Concentration & factors** | Daily Fama-French 3 + momentum regressions (IIM Ahmedabad for India, Kenneth French for the US, refreshed by `scripts/refresh_factor_data.py`). Newey-West t-statistics, rolling one-year betas, and a single-index fallback when factor data do not overlap. Euler split of variance and VaR into factors and specific risk. HHI, sector risk shares, PCA and Meucci's effective number of bets. Crisis-window and worst-day correlations, with the diversification benefit kept. |
-| **Excel report** | Dashboard (with 90% ranges and grades), Portfolio Risk, Backtesting, Stress Testing, Positions & Data, Trust, Liquidity, Credit, Concentration, and Raw Data sheets. |
+| **Event & governance** | Point-in-time signals from your NSE/BSE/agency files. Tier rules in `config/event_rules.json`. Pledge margin-call trigger and the selling that would follow. Exact mixture ES with tier-based jumps (closed-form Student-t tail), with each holding's share of the gap. |
+| **Excel report** | Dashboard (with 90% ranges and grades), Portfolio Risk, Backtesting, Stress Testing, Positions & Data, Trust, Liquidity, Credit, Concentration, Events, and Raw Data sheets. |
 
 Every formula, test and design choice is in **[docs/methodology.md](docs/methodology.md)**, with references.
 
@@ -281,7 +296,7 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-The 354 tests run on every push and pull request through GitHub Actions, on Python 3.11 and 3.12. They run **offline**: `conftest.py` blocks outbound connections, and market data comes from a deterministic synthetic generator or mocked Yahoo responses. Every calculation is checked against an independent reference: a closed form, a simulation, a hand-worked example or known true parameters. Highlights:
+The 395 tests run on every push and pull request through GitHub Actions, on Python 3.11 and 3.12. They run **offline**: `conftest.py` blocks outbound connections, and market data comes from a deterministic synthetic generator or mocked Yahoo responses. Every calculation is checked against an independent reference: a closed form, a simulation, a hand-worked example or known true parameters. Highlights:
 - **GARCH:** recovers the true parameters from simulated GARCH-t data.
 - **Student-t ES:** matches 2 million simulated draws.
 - **Portfolio:** components add up exactly on every basis, and match the normal Euler shares on 400,000 simulated days.
@@ -311,6 +326,12 @@ The 354 tests run on every push and pull request through GitHub Actions, on Pyth
   - the Euler parts sum exactly;
   - identical holdings give one bet, and N independent equal-risk holdings give N;
   - a planted crisis correlation is detected.
+- **Events:**
+  - every tier rule is checked at its threshold;
+  - no disclosure is used before its public date;
+  - the margin-call figures are checked by hand;
+  - the mixture ES matches a 2-million-draw simulation within 0.5%, and equals plain GARCH-t ES without jumps;
+  - an app test with planted disclosure files exercises the High and Elevated paths.
 - **Positions and data quality:** share, value and weight entry give the same portfolio, checked by hand. Each data-quality check is tested on synthetic histories with planted defects.
 - **App smoke tests:** `test_app.py` drives the full Streamlit app in both modes and on every page, including the error paths.
 
@@ -336,6 +357,7 @@ concentration.py       Factor regressions (Newey-West), factor risk split, HHI, 
 factor_data.py         Parsers and loader for the IIMA and Kenneth French factor files
 scripts/               refresh_factor_data.py: downloads the factor files into data/factors/
 data/factors/          Daily factor returns (decimals) and metadata.json with sources, dates and citations
+events.py              Event signals, tier rules, pledge margin calls, jump-mixture ES
 data/disclosures/      Your downloaded disclosure files, manifest.json, templates and download steps
 excel_exporter.py      Formatted Excel report
 docs/methodology.md    Formulas, tests, design choices and references
@@ -388,6 +410,10 @@ test_data/             Saved yfinance statements used as test fixtures
   - a mixed Indian/US portfolio has no single factor set;
   - specific risks are assumed uncorrelated;
   - group-company links and crowding are not captured.
+- **Events:**
+  - most signals need disclosure files you download, and none ship with the repo;
+  - tier thresholds, jump sizes and cover ratios are assumptions until the Phase 7 case studies;
+  - fraud and regulatory surprises are invisible until they are disclosed.
 - **Disclosure layouts.** The parsers for official NSE files (except `fo_secban.csv`) match headers through an alias table that has not yet been checked against real downloads.
 
 ## License

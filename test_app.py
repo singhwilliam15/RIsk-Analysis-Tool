@@ -108,7 +108,7 @@ def test_overview_is_the_landing_page(fake_market):
     assert any("Positions" in h for h in headings) and any("Data quality" in h for h in headings)
 
 
-@pytest.mark.parametrize("page", ["Event & Governance", "Integrated Stress", "Decisions"])
+@pytest.mark.parametrize("page", ["Integrated Stress", "Decisions"])
 def test_unbuilt_pages_say_coming_next(fake_market, page):
     at = run_app(page=page)
     assert_clean(at)
@@ -177,6 +177,49 @@ def test_concentration_page(fake_market, mode):
         assert any("Correlation in a crisis" in h for h in headings)
     else:
         assert any("100% concentrated" in i.value for i in at.info)
+
+
+@pytest.mark.parametrize("mode", ["Single Stock", "Portfolio"])
+def test_events_page_without_disclosures(fake_market, mode):
+    at = run_app(mode if mode == "Portfolio" else None, page="Event & Governance")
+    assert_clean(at)
+    assert any("Disclosure data not loaded" in w.value for w in at.warning)
+    panel = at.dataframe[0].value
+    assert (panel["Promoter pledge"] == "not available").all() and panel["Basis"].str.contains("signals").all()
+    assert [m.label for m in at.metric][:2] == ["Event-adjusted ES (95%, 1-day)", "ES added by event risk"]
+
+
+def _sample_disclosures(tmp_path):
+    """Made-up disclosure files for synthetic tickers, dated relative to the synthetic price history (ends 30 Sep 2026)."""
+    import json
+    (tmp_path / "pledges.csv").write_text(
+        "symbol,quarter_end,promoter_holding_pct,pledged_pct_of_promoter,disclosure_date\n"
+        "RELIANCE,2025-06-30,50,5,2025-07-15\nRELIANCE,2026-06-30,50,60,2026-07-15\n"
+        "TCS,2026-06-30,70,0,2026-07-15\nRELIANCE,2026-09-30,50,90,2026-10-15\n")  # the last row is not public yet
+    (tmp_path / "ratings.csv").write_text(
+        "symbol,agency,instrument,rating,outlook,action,action_date\n"
+        "HDFCBANK,CRISIL,Bonds,CRISIL AA,Negative,downgraded,2026-05-01\n")
+    (tmp_path / "ban.csv").write_text("Securities in Ban For Trade Date 25-SEP-2026:\n1,TCS\n")
+    entries = [{"file": f, "dataset": d, "source_url": "https://example.org/test", "downloaded_on": "2026-09-30",
+                "coverage_start": "2025-01-01", "coverage_end": "2026-09-30"}
+               for f, d in (("pledges.csv", "pledges"), ("ratings.csv", "ratings"), ("ban.csv", "fo_ban"))]
+    (tmp_path / "manifest.json").write_text(json.dumps({"files": entries}))
+
+
+def test_events_page_with_sample_disclosures(fake_market, monkeypatch, tmp_path):
+    import disclosures
+    import ui.foundations
+    _sample_disclosures(tmp_path)
+    monkeypatch.setattr(ui.foundations, "load_disclosures", lambda: disclosures.load_disclosures(tmp_path))
+    at = run_app("Portfolio", page="Event & Governance")
+    assert_clean(at)
+    panel = at.dataframe[0].value.set_index("Ticker")
+    assert panel.loc["RELIANCE.NS", "Tier"] == "🔴 High"  # 60% pledged; the 90% row is disclosed after the as-of date
+    assert "60.0% of promoter holding" in panel.loc["RELIANCE.NS", "Promoter pledge"]
+    assert "+55.0 pp" in panel.loc["RELIANCE.NS", "Promoter pledge"]
+    assert panel.loc["HDFCBANK.NS", "Tier"] == "🟠 Elevated" and panel.loc["TCS.NS", "Tier"] == "🟠 Elevated"
+    gap = at.metric[1].value
+    assert gap not in ("₹0", "not available")
 
 
 def test_headline_numbers_carry_range_and_grade(fake_market):

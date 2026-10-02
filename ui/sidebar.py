@@ -3,6 +3,7 @@
 import pandas as pd
 import streamlit as st
 from credit import DEFAULT_POINT_LTD_WEIGHT, HORIZON_YEARS
+from events import DEFAULT_JUMPS, ELEVATED, HIGH, INITIAL_COVER, LOW, TRIGGER_COVER
 from liquidity import AMFI_EXCLUDE, AMFI_PARTICIPATION, BANGIA_K, DEFAULT_PARTICIPATION, IMPACT_Y
 from ui.credit_layer import EQUITY_VOL_CHOICES
 from portfolio import BUY_AND_HOLD, ENTRY_MODES, ENTRY_SHARES, ENTRY_VALUE, ENTRY_WEIGHT, REBALANCE_DAILY
@@ -109,4 +110,25 @@ def render_sidebar(ctx):
         ltd_weight = st.number_input("Default point: share of long-term debt", 0.0, 1.0, DEFAULT_POINT_LTD_WEIGHT, 0.1,
                                      key="credit_ltd_weight", help="KMV convention: short-term debt + 0.5 × long-term debt.")
         merton_horizon = st.number_input("Merton horizon T, years", 0.25, 5.0, HORIZON_YEARS, 0.25, key="credit_horizon")
+
+    with st.sidebar.expander("⚠️ Event assumptions"):
+        st.caption("One-day jump per event-risk tier, added to the return distribution (assumptions, to be checked "
+                   "against the case studies).")
+        c1, c2 = st.columns(2)
+        elevated_p = c1.number_input("Elevated: jump probability, % a day", 0.0, 10.0, DEFAULT_JUMPS[ELEVATED][0] * 100, 0.05,
+                                     key="ev_elevated_p") / 100
+        elevated_j = c2.number_input("Elevated: jump size, %", -90.0, 0.0, DEFAULT_JUMPS[ELEVATED][1] * 100, 1.0,
+                                     key="ev_elevated_j") / 100
+        high_p = c1.number_input("High: jump probability, % a day", 0.0, 10.0, DEFAULT_JUMPS[HIGH][0] * 100, 0.05,
+                                 key="ev_high_p") / 100
+        high_j = c2.number_input("High: jump size, %", -90.0, 0.0, DEFAULT_JUMPS[HIGH][1] * 100, 1.0, key="ev_high_j") / 100
+        initial_cover = st.number_input("Pledge: initial cover (value ÷ loan)", 1.05, 10.0, INITIAL_COVER, 0.1, key="ev_cover0")
+        trigger_cover = st.number_input("Pledge: margin-call cover", 1.0, 10.0, TRIGGER_COVER, 0.1, key="ev_cover_t")
+        st.caption("Group tags (e.g. Tata, Adani): two or more holdings in one group raise their tier.")
+        tag_tickers = (holdings_input["Ticker"].dropna().astype(str).str.strip().str.upper().tolist()
+                       if is_portfolio else [ticker_input])
+        group_tags = st.data_editor(pd.DataFrame({"Ticker": tag_tickers, "Group": [""] * len(tag_tickers)}),
+                                    hide_index=True, width="stretch", key=f"group_tags_{'p' if is_portfolio else 's'}",
+                                    disabled=["Ticker"])
+    jump_settings = {LOW: DEFAULT_JUMPS[LOW], ELEVATED: (elevated_p, elevated_j), HIGH: (high_p, high_j)}
     export(ctx, locals())

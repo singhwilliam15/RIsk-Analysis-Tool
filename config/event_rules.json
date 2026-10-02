@@ -1,0 +1,26 @@
+{
+  "_about": "Event-risk tier rules (docs/methodology.md section 12). Every threshold is an assumption, to be checked against the Phase 7 case studies; edit here. A rule only fires on data that is loaded and public by the analysis date.",
+  "high": {
+    "pledged_pct_of_promoter_min": 50,
+    "asm_lt_stage_min": 3,
+    "gsm_any_stage": true,
+    "downgrades_12m_min": 2,
+    "downgrade_below_investment_grade_12m": true,
+    "auditor_events_24m": ["resignation", "adverse opinion", "disclaimer of opinion"],
+    "merton_dd_below": 1.5
+  },
+  "elevated": {
+    "pledged_pct_of_promoter_min": 20,
+    "pledge_increase_4q_pp_min": 10,
+    "any_asm_stage": true,
+    "fo_ban_days": 30,
+    "downgrades_12m_min": 1,
+    "negative_watch_12m": true,
+    "auditor_events_24m": ["qualified opinion"],
+    "merton_dd_below": 3.0,
+    "merton_dd_fall_6m_min": 0.30,
+    "lower_circuit_days_min": 3,
+    "same_group_holdings_min": 2
+  },
+  "investment_grade_floor": "BBB-"
+}

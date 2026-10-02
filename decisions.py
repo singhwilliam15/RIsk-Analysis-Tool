@@ -259,12 +259,15 @@ def top_risks(limits_table: pd.DataFrame, worst_scenario: dict, contributors: pd
     return [text for _, text in sorted(risks, key=lambda x: -x[0])[:n]]
 
 
+MIN_TRADE_CUT = 0.01  # a trade is recommended only if it cuts ES by at least 1%
+
+
 def top_actions(trades: pd.DataFrame, hedge: dict, limits_table: pd.DataFrame, missing_data: list, investment: float,
                 n: int = 3) -> list:
-    """The best ES-reducing trade(s), the hedge if it cuts ES by more than 10%, and data to load."""
+    """The best ES-reducing trade(s) that cut ES by at least 1%, the hedge if it cuts ES by more than 10%, and data to load."""
     actions = []
     for r in trades.head(2).to_dict("records"):
-        if r["ES Change"] < 0:
+        if r["ES Change"] <= -MIN_TRADE_CUT * r["ES Before"]:
             actions.append(f"{r['Trade']}: ES {r['ES Change'] * investment:+,.0f} ({r['ES Change'] / r['ES Before']:+.0%})")
     if hedge and hedge["es_before"] > 0 and hedge["es_after"] < 0.9 * hedge["es_before"]:
         actions.append(f"Hedge with short index futures of {hedge['ratio']:.0%} of the value: ES "

@@ -198,6 +198,13 @@ def compute_decisions(ctx):
 # Dashboard and memo content
 # ---------------------------------------------------------------
 
+def _pd_text(v) -> str:
+    """As on the Credit page: below 0.001% the exact (risk-neutral) PD means nothing."""
+    if v is None or not np.isfinite(v):
+        return "not available"
+    return "below 0.001%" if v < 1e-5 else f"{v:.3%}"
+
+
 def _money(ctx, v):
     return f"{ctx.curr_sym}{v:,.0f}" if v is not None and np.isfinite(v) else "not available"
 
@@ -213,7 +220,7 @@ def dashboard_rows(ctx) -> list:
          "Grade": es.grade, "Status": status.get("es_pct", "-")},
         {"Pillar": "Liquidity", "Headline": f"{lm['amfi50'].value:,.2f} days to sell 50%; LVaR {money(lm['lvar'].value)}",
          "Range": lm["lvar"].range_text(money), "Grade": lm["lvar"].grade, "Status": status.get("days_to_liquidate_50", "-")},
-        {"Pillar": "Credit", "Headline": "weighted PD " + (f"{cm['weighted_pd'].value:.3%}" if np.isfinite(cm["weighted_pd"].value) else "not available"),
+        {"Pillar": "Credit", "Headline": "weighted PD " + _pd_text(cm["weighted_pd"].value),
          "Range": cm["weighted_pd"].range_label + (" (see Credit)" if cm["weighted_pd"].has_range else ": not available"),
          "Grade": cm["weighted_pd"].grade, "Status": status.get("max_weighted_pd", "-")},
     ]

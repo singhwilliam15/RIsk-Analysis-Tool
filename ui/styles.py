@@ -78,6 +78,5 @@ def setup_page():
     # App Header
     st.title("⚡ Risk Analysis Tool")
     st.caption("Market, liquidity, credit, concentration and event risk for an Indian or US stock or portfolio, linked "
-               "through one stress engine, with a confidence range and trust grade on every headline number. "
-               "Market risk is live: eight VaR / ES models, out-of-sample backtests, risk decomposition, stress testing "
-               "and Excel export; the other pillars are being added.")
+               "through one stress engine, with a range and an A–D trust grade on every headline number, limits, a CRO "
+               "dashboard and memo, and evidence from past Indian collapses.")

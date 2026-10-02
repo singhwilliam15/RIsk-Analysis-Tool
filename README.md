@@ -1,6 +1,6 @@
 # Risk Analysis Tool
 
-[![tests](https://github.com/singhwilliam15/VaR-Analysis-Tool/actions/workflows/tests.yml/badge.svg)](https://github.com/singhwilliam15/VaR-Analysis-Tool/actions/workflows/tests.yml)
+[![tests](https://github.com/singhwilliam15/RIsk-Analysis-Tool/actions/workflows/tests.yml/badge.svg)](https://github.com/singhwilliam15/RIsk-Analysis-Tool/actions/workflows/tests.yml)
 ![Python 3.11 | 3.12](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
@@ -117,6 +117,22 @@ Results export to a formatted Excel report. Built in Python with Streamlit, and 
 - **Crisis correlation.** In past crisis windows the average correlation doubled, from 0.18 to 0.37, so only 69% of the diversification benefit survived. Picking the market's worst days instead shows no rise (0.19), a known statistical bias that the page explains.
 - **Factor tilts differ widely.** Jaiprakash Power loads on size (+1.37) and value (+1.12). TCS and Britannia have significant negative value loadings, and Reliance has a market beta of 0.96 (t = 14).
 
+## Screenshots
+
+Default 5-stock NSE portfolio, ₹10 lakh, live data to 1 Oct 2026.
+
+**CRO dashboard (Overview):** one row per pillar with its range, trust grade and limit status, plus top risks and actions.
+![CRO dashboard](docs/images/cro-dashboard.png)
+
+**Integrated stress:** each crisis through every pillar at once, against the siloed sum of the separate pages.
+![Integrated stress](docs/images/integrated-stress.png)
+
+**Liquidity-adjusted VaR:** VaR + spread cost + market impact + circuit-lock add-on.
+![Liquidity waterfall](docs/images/liquidity-waterfall.png)
+
+**Credit:** Merton distance to default, risk-neutral PD and Altman Z'' per holding; the bank is not forced into the model.
+![Credit panel](docs/images/credit-panel.png)
+
 ## Did it see it coming?
 
 The tool was run as of 12, 6, 3 and 1 month(s) before real Indian collapses, using only data public on each date. The results were compared with what happened, and with 10 large stable stocks at the same dates. Full method, results and the download checklist are in **[docs/case_studies.md](docs/case_studies.md)**. Only price-based pillars could be assessed so far: credit needs pre-2023 statements, and events need disclosure files, neither of which is loaded yet.
@@ -175,13 +191,6 @@ From live Yahoo Finance data, 5-year lookback, run on 1 Oct 2026:
 - **A single beta misses real crisis behaviour.** Replayed through actual prices, Asian Paints fell 25% in the 2008 crash (Nifty −60%) but 18% after demonetisation (Nifty −7%).
 - **Diversification cuts tail risk by 37%** in a five-stock NSE portfolio: Historical ES ₹31,000 → ₹19,496.
 - **The data are checked too.** Yahoo's full Reliance history contains a +337% one-day spike that reverses the next day; the app flags it as a likely data error.
-
-<!--
-Screenshots (add the files to docs/images/, then remove this comment wrapper):
-![Model comparison](docs/images/model-comparison.png)
-![Backtesting](docs/images/backtesting.png)
-![Portfolio risk](docs/images/portfolio-risk.png)
--->
 
 ## What it does
 
@@ -309,8 +318,8 @@ Asian Paints fell under half as much as the market in the GFC and COVID, but mor
 Requires Python 3.11 or 3.12.
 
 ```bash
-git clone https://github.com/singhwilliam15/VaR-Analysis-Tool.git
-cd VaR-Analysis-Tool
+git clone https://github.com/singhwilliam15/RIsk-Analysis-Tool.git
+cd RIsk-Analysis-Tool
 pip install -r requirements.txt
 streamlit run app.py
 ```
@@ -327,7 +336,7 @@ The entry point is `app.py`, the requirements are pinned and no secrets are need
 
 1. Sign in at [share.streamlit.io](https://share.streamlit.io) with the GitHub account that owns this repository.
 2. Click **Create app**, then choose **Deploy a public app from GitHub**.
-3. Pick `singhwilliam15/VaR-Analysis-Tool`, branch `main`, main file `app.py`.
+3. Pick `singhwilliam15/RIsk-Analysis-Tool`, branch `main`, main file `app.py`.
 4. Under **Advanced settings**, choose **Python 3.12**.
 5. Click **Deploy**. The first build takes a few minutes.
 6. Paste the app's URL into the **Live demo** line at the top of this README.

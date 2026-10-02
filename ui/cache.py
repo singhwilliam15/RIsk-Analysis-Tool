@@ -93,6 +93,16 @@ def cached_liquidity(positions: pd.DataFrame, frames: dict, long_frames: dict, s
                    amfi_exclude, bangia_k, impact_y, user_spread_pct, freeze_override)
 
 
+@st.cache_data(show_spinner="Measuring credit risk…", max_entries=64)
+def cached_credit_holding(ticker: str, prices: pd.DataFrame, fund: dict, vols: dict, sector, industry,
+                          trading_currency: str, ratings: pd.DataFrame, r: float, ltd_weight: float, T: float,
+                          config: dict, as_of) -> dict:
+    # Imported here: ui.credit_layer imports this module
+    from ui.credit_layer import analyse_holding
+    return analyse_holding(ticker, prices, fund, vols, sector, industry, trading_currency, ratings, r, ltd_weight, T,
+                           config, as_of)
+
+
 @st.cache_data(show_spinner=False, max_entries=64)
 def cached_scenarios(position_history: pd.Series, market_prices: pd.Series, scenarios: pd.DataFrame,
                      proxy_beta: float, investment: float) -> pd.DataFrame:

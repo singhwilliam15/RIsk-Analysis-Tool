@@ -38,15 +38,26 @@ The **trust layer** shows how far each number can be relied on:
 - Amihud illiquidity;
 - circuit-lock risk for Indian stocks (the loss if a stock locks at its lower circuit for several days).
 
-Results export to a formatted Excel report. Built in Python with Streamlit, and covered by 298 offline tests in CI.
+**Credit risk** looks at how close each company is to default, from its share price and from its accounts:
+- Merton distance to default and a model-implied (risk-neutral) PD under three equity-volatility inputs;
+- an iterative KMV cross-check;
+- distance to default month by month, using only the balance sheets public at each date;
+- Altman Z and Z'', never computed from partial inputs;
+- credit ratios with red flags;
+- rating actions;
+- a separate panel for banks and insurers;
+- the portfolio's weighted PD and credit-implied expected loss.
+
+Results export to a formatted Excel report. Built in Python with Streamlit, and covered by 332 offline tests in CI.
 
 | Page | Status |
 | --- | --- |
 | Overview | Built: summary cards with 90% ranges and grades, positions, data quality, fundamentals and their sources, disclosure files. Becomes the CRO dashboard in Phase 6. |
 | Market | Built: every model (with 90% range and grade), backtest, portfolio, stress and export tab. |
 | Liquidity | Built: capacity, AMFI-style stress test, crisis volume, spread and impact cost, LVaR waterfall, Amihud, circuit-lock. |
+| Credit | Built: Merton DD/PD (three volatility inputs, KMV cross-check, month-end history), Altman Z/Z'', ratios and red flags, ratings, a bank panel, weighted PD and expected loss. |
 | Trust | Built: ranges, grades, model risk, lookback sensitivity, ghost effect. |
-| Credit · Concentration & Factors · Event & Governance | Coming next (Phases 3–5) |
+| Concentration & Factors · Event & Governance | Coming next (Phases 4–5) |
 | Integrated Stress · Decisions | Coming next (Phase 6) |
 
 ### How far to trust the numbers (live data to 30 Sep 2026, 95% 1-day ES on ₹10 lakh, 2-year lookback)
@@ -58,6 +69,21 @@ Results export to a formatted Excel report. Built in Python with Streamlit, and 
 | Asian Paints | GARCH(1,1)-t | ₹30,088 (₹25,319–₹33,781) | B | range 28% wide; models disagree by 24% |
 | Jaiprakash Power | GARCH(1,1)-t (fit failed, shows EWMA) | ₹42,071 (₹34,497–₹49,313) | C | models disagree by 137% (Student-t ₹93,296 vs FHS ₹35,773) |
 | 5-stock portfolio | EWMA | ₹16,125 (₹15,165–₹17,114) | B | 499 returns; λ is assumed; HDFC Bank's data score |
+
+### Credit (live data and Yahoo statements to FY Mar 2026, as of 1 Oct 2026)
+
+| Company | Distance to default (range across volatility inputs) | Merton PD | Altman (primary) | Red flags |
+| --- | --- | --- | --- | --- |
+| Reliance | 11.40 (11.25–11.74) | below 0.001% | Z'' 2.18, **grey** (Z 1.90, grey) | none |
+| TCS | 17.03 (14.48–18.82) | below 0.001% | Z'' 8.46, safe | none |
+| Asian Paints | 20.97 (20.73–26.56) | below 0.001% | Z'' 6.71, safe | none |
+| Britannia | 24.32 (22.71–28.69) | below 0.001% | Z'' 5.44, safe | none |
+| Jaiprakash Power | 4.23 (4.23–6.69; GARCH fit failed) | 0.001% | Z'' 3.75, safe, **but Z 1.77, distress** | none |
+| HDFC Bank | not modelled (bank) | – | not applicable | – |
+
+- **Large caps are far from default on Merton.** Their default points are small relative to market value, so PDs are around 10⁻³⁰ and mean nothing on their own. The tool shows "below 0.001%" and grades their uncertainty on the distance-to-default scale instead.
+- **Accounts and market can disagree.** Reliance's market-based distance to default is 11.4, but its accounts put it in Altman's grey zone. Its working capital is only 2.4% of total assets, and EBIT is 6.8% of a very large asset base. Jaiprakash Power is safe on Z'' but in distress on the 1968 manufacturers' Z. The page shows both.
+- **Banks are not forced into these models.** HDFC Bank (25% of the default portfolio) gets a manual panel instead, so the portfolio PD covers 75% of the value and says so.
 
 ### Liquidity (live data to 1 Oct 2026, 20% participation)
 
@@ -99,7 +125,8 @@ Screenshots (add the files to docs/images/, then remove this comment wrapper):
 | **Data quality** | Adjusted prices, exchange-timezone dates, a visible data source, and warnings for suspicious moves. Each holding gets a 0–100 data-quality score, from checks for reversing spikes, stale prices, zero-volume days, gaps, short history and missing fundamentals. Data are never altered silently. |
 | **Trust** | 90% ranges for every model's VaR and ES: a stationary block bootstrap (Politis-White block length) for the unconditional models, a residual bootstrap with today's volatility fixed for EWMA and FHS, and asymptotic parameter draws for GARCH-t and Monte Carlo. A–D grades come from written rules: range width, model dispersion, backtest, data quality, sample length, and the share of inputs that are assumptions. Also the model-risk add-on, lookback sensitivity, and the ghost effect in Historical VaR. |
 | **Liquidity** | ADV, days to liquidate and share sellable in 1/5/10 days; the SEBI/AMFI-style stress test (with a fund-validation upload); crisis-window volume; Corwin-Schultz spread, Bangia spread cost, square-root impact and the liquidity-adjusted VaR waterfall; Amihud illiquidity; price bands (official or inferred), lower-circuit history and the exit-freeze loss. Every assumption (participation rate, k, Y, freeze length) is editable in the sidebar. |
-| **Excel report** | Dashboard (with 90% ranges and grades), Portfolio Risk, Backtesting, Stress Testing, Positions & Data, Trust, Liquidity, and Raw Data sheets. |
+| **Credit** | Merton distance to default and risk-neutral PD (historical, EWMA and GARCH-t equity volatility; KMV default point; iterative KMV cross-check; month-end history using only balance sheets public at each date). Altman Z and Z'' with zones. Six credit ratios over 4–5 years with red flags (thresholds in `config/credit_thresholds.json`), rating actions, a bank/NBFC panel, weighted PD and credit-implied expected loss. |
+| **Excel report** | Dashboard (with 90% ranges and grades), Portfolio Risk, Backtesting, Stress Testing, Positions & Data, Trust, Liquidity, Credit, and Raw Data sheets. |
 
 Every formula, test and design choice is in **[docs/methodology.md](docs/methodology.md)**, with references.
 
@@ -239,7 +266,7 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-The 298 tests run on every push and pull request through GitHub Actions, on Python 3.11 and 3.12. They run **offline**: `conftest.py` blocks outbound connections, and market data comes from a deterministic synthetic generator or mocked Yahoo responses. Every calculation is checked against an independent reference: a closed form, a simulation, a hand-worked example or known true parameters. Highlights:
+The 332 tests run on every push and pull request through GitHub Actions, on Python 3.11 and 3.12. They run **offline**: `conftest.py` blocks outbound connections, and market data comes from a deterministic synthetic generator or mocked Yahoo responses. Every calculation is checked against an independent reference: a closed form, a simulation, a hand-worked example or known true parameters. Highlights:
 - **GARCH:** recovers the true parameters from simulated GARCH-t data.
 - **Student-t ES:** matches 2 million simulated draws.
 - **Portfolio:** components add up exactly on every basis, and match the normal Euler shares on 400,000 simulated days.
@@ -255,6 +282,13 @@ The 298 tests run on every push and pull request through GitHub Actions, on Pyth
   - spread cost and impact are checked by hand;
   - the crisis-volume ratio is checked on planted volume drops;
   - circuit detection, band inference and the compounded freeze loss are checked on synthetic series.
+- **Credit:**
+  - Merton recovers known asset values and volatilities from the equity they imply;
+  - PD rises with debt and with volatility;
+  - iterative KMV agrees with the direct solution on a simulated asset path;
+  - Altman Z and Z'' are checked by hand, and at every zone boundary;
+  - a balance sheet is never used before its public date;
+  - red flags are checked on a constructed weak company.
 - **Positions and data quality:** share, value and weight entry give the same portfolio, checked by hand. Each data-quality check is tested on synthetic histories with planted defects.
 - **App smoke tests:** `test_app.py` drives the full Streamlit app in both modes and on every page, including the error paths.
 
@@ -274,6 +308,8 @@ disclosures.py         Loaders, templates and validators for Indian disclosure f
 data_quality.py        Data-quality score per holding
 trust.py               TrustedMetric, 90% ranges, model risk, lookback sensitivity, ghost effect, A-D grades
 liquidity.py           Capacity, AMFI-style stress test, crisis volume, spread/impact, LVaR, Amihud, circuit lock
+credit.py              Merton/KMV, Altman Z and Z'', credit ratios and red flags, ratings, point-in-time statements
+config/                Credit thresholds and sector lists (editable)
 data/disclosures/      Your downloaded disclosure files, manifest.json, templates and download steps
 excel_exporter.py      Formatted Excel report
 docs/methodology.md    Formulas, tests, design choices and references
@@ -315,6 +351,12 @@ test_data/             Saved yfinance statements used as test fixtures
   - inferred price bands are guesses until you load NSE's file;
   - the AMFI test is our reading of the convention, not an official calculation;
   - block deals, free float and redemptions are not modelled.
+- **Credit:**
+  - Merton PD is risk-neutral and assumes a single debt maturity;
+  - Yahoo gives annual statements only, so quarterly deterioration is missed;
+  - Altman's zones were fitted on US firms;
+  - banks are not modelled beyond the manual panel;
+  - off-balance-sheet, group and promoter-level debt are not captured.
 - **Disclosure layouts.** The parsers for official NSE files (except `fo_secban.csv`) match headers through an alias table that has not yet been checked against real downloads.
 
 ## License

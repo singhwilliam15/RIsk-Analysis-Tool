@@ -68,6 +68,8 @@ def render(ctx, tab5):
             liquidity={"metrics": ctx.liquidity_metrics, "holdings": ctx.liquidity_holdings, "amfi": ctx.liquidity_amfi,
                        "waterfall": ctx.liquidity_waterfall, "participation": ctx.participation,
                        "bangia_k": ctx.bangia_k, "impact_y": ctx.impact_y},
+            credit={"metrics": ctx.credit_metrics, "view": ctx.credit_view, "results": ctx.credit_results,
+                    "vol_choice": ctx.equity_vol_choice},
         )
 
         st.download_button(

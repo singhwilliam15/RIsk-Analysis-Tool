@@ -52,6 +52,7 @@ FIELDS = (
     Field("retained_earnings", "balance", "Retained earnings", ("Retained Earnings",)),
     Field("total_equity", "balance", "Shareholders' equity", ("Stockholders Equity", "Common Stock Equity")),
     Field("working_capital", "balance", "Working capital", ("Working Capital",)),
+    Field("shares_issued", "balance", "Shares in issue", ("Ordinary Shares Number", "Share Issued")),
     Field("operating_cash_flow", "cashflow", "Cash from operations", ("Operating Cash Flow", "Cash Flow From Continuing Operating Activities")),
     Field("capex", "cashflow", "Capital expenditure", ("Capital Expenditure",)),
     Field("free_cash_flow", "cashflow", "Free cash flow", ("Free Cash Flow",)),

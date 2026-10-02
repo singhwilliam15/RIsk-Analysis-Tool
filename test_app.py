@@ -108,8 +108,7 @@ def test_overview_is_the_landing_page(fake_market):
     assert any("Positions" in h for h in headings) and any("Data quality" in h for h in headings)
 
 
-@pytest.mark.parametrize("page", ["Credit", "Concentration & Factors", "Event & Governance",
-                                  "Integrated Stress", "Decisions"])
+@pytest.mark.parametrize("page", ["Concentration & Factors", "Event & Governance", "Integrated Stress", "Decisions"])
 def test_unbuilt_pages_say_coming_next(fake_market, page):
     at = run_app(page=page)
     assert_clean(at)
@@ -144,6 +143,23 @@ def test_liquidity_page(fake_market, mode):
     at.run()
     assert_clean(at)
     assert "Participation rate 5%" in at.caption[1].value or any("Participation rate 5%" in c.value for c in at.caption)
+
+
+@pytest.mark.parametrize("mode", ["Single Stock", "Portfolio"])
+def test_credit_page(fake_market, mode):
+    at = run_app(mode if mode == "Portfolio" else None, page="Credit")
+    assert_clean(at)
+    assert at.metric[0].label == "Weighted PD" and at.metric[1].label == "Credit-implied expected loss"
+    assert any("not an agency PD" in c.value for c in at.caption)
+    by_holding = at.dataframe[0].value
+    assert by_holding["DD"].iloc[0] != "not available"
+    if mode == "Portfolio":
+        bank = by_holding.set_index("Ticker").loc["HDFCBANK.NS"]
+        assert bank["DD"] == "not available" and bank["Altman"] == "not applicable"
+        assert any("75% of the portfolio value is modelled" in c.value for c in at.caption)  # HDFC Bank is 25%
+    at.selectbox(key="credit_vol").set_value("EWMA")
+    at.run()
+    assert_clean(at)
 
 
 def test_headline_numbers_carry_range_and_grade(fake_market):

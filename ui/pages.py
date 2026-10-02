@@ -22,10 +22,8 @@ PAGES = (OVERVIEW, MARKET, LIQUIDITY, CREDIT, CONCENTRATION, EVENTS, INTEGRATED,
 PAGE_KEY = "page"
 
 # Pages not built yet: the roadmap phase that builds each, and what it will contain
-BUILT = (OVERVIEW, MARKET, LIQUIDITY, TRUST)
+BUILT = (OVERVIEW, MARKET, LIQUIDITY, CREDIT, TRUST)
 COMING_NEXT = {
-    CREDIT: (3, "Merton distance to default and model-implied PD, Altman Z and Z'', credit ratios with red flags, "
-                "rating actions, and the portfolio's credit-implied expected loss."),
     CONCENTRATION: (4, "Factor betas from Indian and US Fama-French data, factor and sector risk contributions, HHI, "
                        "PCA and the effective number of independent bets, and crisis correlations."),
     EVENTS: (5, "Promoter pledges and margin-call triggers, ASM/GSM surveillance, F&O ban, rating downgrades, "

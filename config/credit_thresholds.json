@@ -1,0 +1,17 @@
+{
+  "_about": "Credit-pillar settings in one place (docs/methodology.md section 10). Red-flag thresholds are assumptions (common credit-analysis rules of thumb), not regulatory limits; edit them here. capital_adequacy_min_pct is the RBI minimum (9% CRAR + 2.5% capital conservation buffer).",
+  "red_flags": {
+    "debt_to_equity_max": 2.0,
+    "net_debt_to_ebitda_max": 4.0,
+    "interest_cover_min": 1.5,
+    "current_ratio_min": 1.0,
+    "quick_ratio_min": 0.7,
+    "cfo_to_ebitda_min": 0.5,
+    "negative_cfo_years": 2
+  },
+  "manufacturing_sectors": ["Industrials", "Basic Materials", "Consumer Cyclical", "Consumer Defensive", "Energy"],
+  "financial_sectors": ["Financial Services"],
+  "financial_industry_keywords": ["Bank", "Insurance", "Credit Services", "Capital Markets", "Mortgage", "Asset Management", "Financial Conglomerates"],
+  "stale_balance_sheet_months": 15,
+  "capital_adequacy_min_pct": 11.5
+}

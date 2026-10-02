@@ -61,16 +61,17 @@ class TrustedMetric:
     reasons: list = field(default_factory=list)
     sources: list = field(default_factory=list)
     assumptions: list = field(default_factory=list)
+    range_label: str = f"{CI_LEVEL:.0%} range"  # a range that is not a confidence interval says what it spans instead
 
     @property
     def has_range(self) -> bool:
         return bool(np.isfinite(self.low) and np.isfinite(self.high))
 
     def range_text(self, fmt=lambda v: f"{v:,.0f}") -> str:
-        return f"{CI_LEVEL:.0%} range {fmt(self.low)}–{fmt(self.high)}" if self.has_range else "range not available"
+        return f"{self.range_label} {fmt(self.low)}–{fmt(self.high)}" if self.has_range else "range not available"
 
     def format(self, fmt=lambda v: f"{v:,.0f}") -> str:
-        """'value (90% range low–high, grade X)'."""
+        """'value (90% range low–high, grade X)', or the metric's own range label."""
         return f"{fmt(self.value)} ({self.range_text(fmt)}, grade {self.grade})"
 
 
@@ -449,15 +450,17 @@ def _higher_is_better(value, limits) -> int:
 
 
 def grade(range_width, dispersion, backtest, data_quality: float, n_obs: int, assumption_share: float,
-          sample_label: str = "daily returns") -> tuple:
+          sample_label: str = "daily returns", sample_limits: tuple = None, extra: tuple = ()) -> tuple:
     """
     A-D grade and the reasons for every point deducted. A missing (NaN) input costs one point. Pass None for a
     rule that does not apply to the metric (e.g. no backtest exists for days to liquidate, no range for a
     deterministic scenario); that rule is skipped. Market-risk metrics use every rule.
+    `sample_limits` replaces the sample-length thresholds (e.g. years of statements instead of daily returns);
+    `extra` adds pillar-specific rules as (name, points, detail) tuples, e.g. a stale balance sheet.
     """
     parts = []
     if range_width is not None:
-        parts.append(("90% range width", _lower_is_better(range_width, GRADE_RULES["range_width"]),
+        parts.append(("Range width", _lower_is_better(range_width, GRADE_RULES["range_width"]),
                       f"{range_width:.0%} of the value" if np.isfinite(range_width) else "not available"))
     if dispersion is not None:
         parts.append(("Model dispersion", _lower_is_better(dispersion, GRADE_RULES["dispersion"]),
@@ -468,9 +471,10 @@ def grade(range_width, dispersion, backtest, data_quality: float, n_obs: int, as
     parts += [
         ("Data quality", _higher_is_better(data_quality, GRADE_RULES["data_quality"]),
          f"lowest holding score {data_quality:.0f}/100" if np.isfinite(data_quality) else "not available"),
-        ("Sample length", _higher_is_better(n_obs, GRADE_RULES["sample"]), f"{n_obs} {sample_label}"),
+        ("Sample length", _higher_is_better(n_obs, sample_limits or GRADE_RULES["sample"]), f"{n_obs} {sample_label}"),
         ("Assumptions", _lower_is_better(assumption_share, GRADE_RULES["assumptions"]),
          f"{assumption_share:.0%} of inputs are assumptions"),
+        *extra,
     ]
     total = sum(points for _, points, _ in parts)
     letter = next((g for limit, g in GRADE_BANDS if total <= limit), "D")

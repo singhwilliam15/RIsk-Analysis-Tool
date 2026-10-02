@@ -1,6 +1,6 @@
 # Methodology
 
-This document describes every calculation in the Risk Analysis Tool: the eight market-risk models, the multi-day rules, the backtests, the model-selection rule, the portfolio risk decomposition, the stress tests, and the data layer that every risk pillar shares (positions, prices and volume, fundamentals, disclosures and data quality), the trust layer (90% ranges, model risk and A–D grades), and the liquidity pillar. Section numbers match the code modules named in each heading. The pillars still to come (liquidity, credit, concentration, event risk, integration) are planned in `RISK_TOOL_PLAN_V3.md` and will be documented here as they are built.
+This document describes every calculation in the Risk Analysis Tool: the eight market-risk models, the multi-day rules, the backtests, the model-selection rule, the portfolio risk decomposition, the stress tests, and the data layer that every risk pillar shares (positions, prices and volume, fundamentals, disclosures and data quality), the trust layer (90% ranges, model risk and A–D grades), and the liquidity and credit pillars. Section numbers match the code modules named in each heading. The pillars still to come (liquidity, credit, concentration, event risk, integration) are planned in `RISK_TOOL_PLAN_V3.md` and will be documented here as they are built.
 
 **Notation.** `r_t` is the simple daily return on day t. α = 1 − confidence level is the tail probability (α = 0.01 for 99%). Losses are positive numbers, so VaR and ES are reported as positive amounts. `z = Φ⁻¹(1 − α)` is the standard normal quantile and φ is the normal density. μ and σ are the sample mean and standard deviation of daily returns. `t` (in multi-day formulas) is the holding period in days.
 
@@ -359,13 +359,100 @@ Amihud (2002): the 60-day rolling mean of |daily return| ÷ daily traded value, 
   - circuit-lock: an inferred band and a freeze length set by the floor or your override, up to 2 of 2;
   - AMFI test: 0, since its parameters are a disclosure convention.
 
+## 10. Credit risk (`credit.py`)
+
+Inputs are the annual statements from §7.3 (Yahoo Finance, or your CSV overrides). Only statements public by the analysis date are used: a fiscal year is public on its filing date if known, otherwise at fiscal year end + 60 days. A year with a late-filed figure becomes public only once all its figures are. Settings are under "Credit assumptions" in the sidebar, and red-flag thresholds are in `config/credit_thresholds.json`.
+
+### 10.1 Merton distance to default (Merton, 1974; KMV conventions)
+
+- **Inputs:**
+  - E = latest close × shares outstanding;
+  - σ_E = equity volatility;
+  - D = default point = short-term debt + **0.5** × long-term debt (the KMV convention; Crosbie and Bohn, 2003);
+  - T = **1** year;
+  - r = the sidebar risk-free rate.
+
+  D, T and r are assumptions.
+- **Missing debt:** if either debt line is missing, Merton is not computed.
+- **Solving for V and σ_V:** solve E = V·N(d₁) − D·e^(−rT)·N(d₂) and σ_E·E = N(d₁)·σ_V·V. The solver works in logs so both stay positive, with a residual tolerance of 10⁻⁸.
+- **Outputs:** DD = [ln(V/D) + (r − σ_V²/2)T] / (σ_V√T), and **PD = N(−DD)**. This is a model-implied, *risk-neutral* probability: the assets drift at r, not at their real expected return, so it usually overstates real-world default frequencies. It is not an agency PD.
+- **Three equity volatilities, with PD shown under each:**
+  - last year's daily returns, annualised;
+  - EWMA today, annualised;
+  - GARCH(1,1)-t's average variance over the next 252 days, from its term structure (§1.7), so it matches a one-year horizon.
+
+  The sidebar picks the headline one. The spread across the three is the PD's range ("range across equity-volatility inputs", not a confidence interval).
+- **Iterative KMV cross-check** (Vassalou and Xing, 2004):
+  - start from σ_V = σ_E·E/(E + D);
+  - back out each day's V from that day's equity value over the last year;
+  - re-estimate σ_V from the daily log changes in V;
+  - repeat until σ_V changes by less than 0.0001.
+
+  On simulated data it matched the two-equation DD to within 0.15.
+- **DD over time:** at each month end in the lookback window, using only the balance sheet public by then:
+  - E = that day's close × that balance sheet's shares in issue;
+  - σ_E = the last year of daily returns.
+
+  Closes are dividend-adjusted, which slightly understates past market values.
+
+### 10.2 Altman Z-scores
+
+| Model | Formula | Zones |
+| --- | --- | --- |
+| Z (Altman, 1968; listed manufacturers) | 1.2·X1 + 1.4·X2 + 3.3·X3 + 0.6·X4 + 1.0·X5, X4 = market value of equity / total liabilities | > 2.99 safe, 1.81–2.99 grey, < 1.81 distress |
+| Z'' (Altman, 2000; Altman et al., 2017; non-manufacturers and emerging markets) | 6.56·X1 + 3.26·X2 + 6.72·X3 + 1.05·X4, X4 = book equity / total liabilities | > 2.60 safe, 1.10–2.60 grey, < 1.10 distress |
+
+- **Ratios:** X1 = working capital / total assets (current assets − current liabilities, or the reported working-capital line); X2 = retained earnings / TA; X3 = EBIT / TA; X5 = sales / TA.
+- **Z'' variant:** the version used is the one without the +3.25 constant that the emerging-market bond score adds; its zones are the ones above.
+- **Sources:** coefficients and cut-offs follow the cited papers. They were checked on 2 Oct 2026 against a secondary reproduction (Wikipedia, citing Altman, 1968, and Altman et al., 2017), because Altman's own copies on the NYU site returned server errors.
+- **Which is primary:** Z'' for Indian firms and US non-manufacturers; Z for US firms in the manufacturing sectors listed in the config. Both are shown whenever the inputs exist.
+- **Never from partial inputs:** if any input is missing, the score is "not available" and the missing items are named.
+
+### 10.3 Credit ratios and red flags
+
+Each fiscal year's ratios, trended over 4–5 years:
+
+| Ratio | Formula | Red flag on the latest year (assumption) |
+| --- | --- | --- |
+| Debt / equity | total debt / equity | > 2, or equity ≤ 0 |
+| Net debt / EBITDA | (total debt − cash) / EBITDA | > 4, or EBITDA ≤ 0 |
+| Interest cover | EBIT / interest expense | < 1.5 |
+| Current ratio | current assets / current liabilities | < 1 |
+| Quick ratio | (current assets − inventory) / current liabilities | < 0.7 |
+| Cash from operations / EBITDA | | < 0.5 |
+| Negative cash from operations | consecutive latest years | 2 or more |
+
+The thresholds are common credit-analysis rules of thumb, not regulatory limits.
+
+### 10.4 Ratings and financial companies
+
+- **Ratings:** the latest rating action public by the analysis date in your rating-action file (§7.4) gives the current rating, last action and direction.
+- **Financial companies:** banks, NBFCs and insurers are identified by Yahoo sector "Financial Services" or industry keywords. Merton, Altman and leverage ratios are skipped for them: deposits and policyholder liabilities are their business, not debt in the Merton sense.
+- **Manual panel for financials:** GNPA, NNPA, capital adequacy (CAR), CASA and net interest margin, typed in from the annual report. CAR is compared with the RBI minimum of 11.5% (9% CRAR plus the 2.5% capital conservation buffer; RBI Master Circular on Basel III capital regulations).
+
+### 10.5 Portfolio view, ranges and grades
+
+- **Weighted PD** = Σ PDᵢ·valueᵢ / Σ valueᵢ over the modelled holdings. The unmodelled share (financials, missing data) is stated.
+- **Credit-implied expected loss** = Σ PDᵢ × valueᵢ with **loss given default = 100%**: equity holders are last in line and usually recover nothing.
+- **Ranges** span the three equity volatilities.
+- **Grade adjustments for PD and expected loss:**
+  - **Range width** is measured on the distance-to-default scale, DD = −Φ⁻¹(PD). For strong firms PDs are around 10⁻³⁰, where a relative width in PD means nothing.
+  - **Sample length** is years of statements: ≥ 4 for 0 points, ≥ 3 for 1.
+  - **Assumptions:** 3 of 6 Merton inputs (default-point weight, T, r).
+  - **Extra deductions:** a balance sheet older than 15 months, or any unmodelled value.
+- **Altman score:** no range, so that rule is skipped.
+
 ## References
 
 - Acerbi, C. and Székely, B. (2014). Backtesting expected shortfall. *Risk*, December 2014.
+- Altman, E. I. (1968). Financial ratios, discriminant analysis and the prediction of corporate bankruptcy. *Journal of Finance*, 23(4), 589–609.
+- Altman, E. I. (2000). Predicting financial distress of companies: revisiting the Z-score and ZETA models. Working paper, Stern School of Business, New York University.
+- Altman, E. I., Iwanicz-Drozdowska, M., Laitinen, E. K. and Suvas, A. (2017). Financial distress prediction in an international context: a review and empirical analysis of Altman's Z-score model. *Journal of International Financial Management and Accounting*, 28(2), 131–171.
 - Almgren, R., Thum, C., Hauptmann, E. and Li, H. (2005). Direct estimation of equity market impact. *Risk*, July 2005.
 - Amihud, Y. (2002). Illiquidity and stock returns: cross-section and time-series effects. *Journal of Financial Markets*, 5(1), 31–56.
 - Bangia, A., Diebold, F. X., Schuermann, T. and Stroughair, J. D. (1999). Modeling liquidity risk, with implications for traditional market risk measurement and management. Wharton Financial Institutions Center working paper 99-06.
 - Corwin, S. A. and Schultz, P. (2012). A simple way to estimate bid-ask spreads from daily high and low prices. *Journal of Finance*, 67(2), 719–760.
+- Crosbie, P. and Bohn, J. (2003). *Modeling default risk.* Moody's KMV.
 - Barone-Adesi, G., Giannopoulos, K. and Vosper, L. (1999). VaR without correlations for portfolios of derivative securities. *Journal of Futures Markets*, 19(5), 583–602.
 - Basel Committee on Banking Supervision (1996). *Supervisory framework for the use of "backtesting" in conjunction with the internal models approach to market risk capital requirements.* Bank for International Settlements.
 - Basel Committee on Banking Supervision (2019). *Minimum capital requirements for market risk.* Bank for International Settlements.
@@ -373,6 +460,7 @@ Amihud (2002): the 60-day rolling mean of |daily return| ÷ daily traded value, 
 - Bollerslev, T. (1987). A conditionally heteroskedastic time series model for speculative prices and rates of return. *Review of Economics and Statistics*, 69(3), 542–547.
 - Christoffersen, P. F. (1998). Evaluating interval forecasts. *International Economic Review*, 39(4), 841–862.
 - Giacomini, R. and Komunjer, I. (2005). Evaluation and combination of conditional quantile forecasts. *Journal of Business & Economic Statistics*, 23(4), 416–431.
+- Merton, R. C. (1974). On the pricing of corporate debt: the risk structure of interest rates. *Journal of Finance*, 29(2), 449–470.
 - Patton, A., Politis, D. N. and White, H. (2009). Correction to "Automatic block-length selection for the dependent bootstrap". *Econometric Reviews*, 28(4), 372–375.
 - Politis, D. N. and Romano, J. P. (1994). The stationary bootstrap. *Journal of the American Statistical Association*, 89(428), 1303–1313.
 - Politis, D. N. and White, H. (2004). Automatic block-length selection for the dependent bootstrap. *Econometric Reviews*, 23(1), 53–70.
@@ -383,5 +471,7 @@ Amihud (2002): the 60-day rolling mean of |daily return| ÷ daily traded value, 
 - Maillard, D. (2012). A user's guide to the Cornish Fisher expansion. SSRN working paper.
 - McNeil, A. J. and Frey, R. (2000). Estimation of tail-related risk measures for heteroscedastic financial time series: an extreme value approach. *Journal of Empirical Finance*, 7(3–4), 271–300.
 - Securities and Exchange Board of India (2015). *SEBI (Listing Obligations and Disclosure Requirements) Regulations, 2015*, Regulations 31 (shareholding pattern) and 33 (financial results), as amended.
+- Reserve Bank of India. *Master Circular – Basel III Capital Regulations* (current edition).
 - Tasche, D. (1999). Risk contributions and performance measurement. Working paper, Technische Universität München.
 - Tóth, B., Lempérière, Y., Deremble, C., de Lataillade, J., Kockelkoren, J. and Bouchaud, J.-P. (2011). Anomalous price impact and the critical nature of liquidity in financial markets. *Physical Review X*, 1(2), 021006.
+- Vassalou, M. and Xing, Y. (2004). Default risk in equity returns. *Journal of Finance*, 59(2), 831–868.

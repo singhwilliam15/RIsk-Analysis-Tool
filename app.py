@@ -8,13 +8,14 @@ This file only wires the UI sections together; each lives in ui/ and the calcula
 The sidebar, data loading and calculations run once per rerun and are shared by every page.
 """
 
-from ui import liquidity_page, market_page, overview_page, trust_page
+from ui import credit_page, liquidity_page, market_page, overview_page, trust_page
 from ui.analysis import compute
 from ui.context import new_context
+from ui.credit_layer import compute_credit
 from ui.data import load_data
 from ui.foundations import load_foundations
 from ui.liquidity_layer import compute_liquidity
-from ui.pages import LIQUIDITY, MARKET, OVERVIEW, TRUST, render_coming_next, render_navigation
+from ui.pages import CREDIT, LIQUIDITY, MARKET, OVERVIEW, TRUST, render_coming_next, render_navigation
 from ui.sidebar import render_sidebar
 from ui.styles import setup_page
 from ui.trust_layer import compute_trust
@@ -28,6 +29,7 @@ compute(ctx)
 load_foundations(ctx)
 compute_trust(ctx)
 compute_liquidity(ctx)
+compute_credit(ctx)
 
 if page == OVERVIEW:
     overview_page.render(ctx)
@@ -35,6 +37,8 @@ elif page == MARKET:
     market_page.render(ctx)
 elif page == LIQUIDITY:
     liquidity_page.render(ctx)
+elif page == CREDIT:
+    credit_page.render(ctx)
 elif page == TRUST:
     trust_page.render(ctx)
 else:

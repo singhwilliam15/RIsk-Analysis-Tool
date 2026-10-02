@@ -2,7 +2,9 @@
 
 import pandas as pd
 import streamlit as st
+from credit import DEFAULT_POINT_LTD_WEIGHT, HORIZON_YEARS
 from liquidity import AMFI_EXCLUDE, AMFI_PARTICIPATION, BANGIA_K, DEFAULT_PARTICIPATION, IMPACT_Y
+from ui.credit_layer import EQUITY_VOL_CHOICES
 from portfolio import BUY_AND_HOLD, ENTRY_MODES, ENTRY_SHARES, ENTRY_VALUE, ENTRY_WEIGHT, REBALANCE_DAILY
 from ui.context import export
 from ui.formatting import pct_label
@@ -100,4 +102,11 @@ def render_sidebar(ctx):
                                           key="liq_user_spread")
         freeze_override = int(st.number_input("Exit freeze, lower circuits (0 = longest past run, at least 3)", 0, 30, 0, 1,
                                               key="liq_freeze"))
+
+    with st.sidebar.expander("🏦 Credit assumptions"):
+        equity_vol_choice = st.selectbox("Equity volatility for Merton", EQUITY_VOL_CHOICES, key="credit_vol",
+                                         help="PD is shown under all three on the Credit page; this one is the headline.")
+        ltd_weight = st.number_input("Default point: share of long-term debt", 0.0, 1.0, DEFAULT_POINT_LTD_WEIGHT, 0.1,
+                                     key="credit_ltd_weight", help="KMV convention: short-term debt + 0.5 × long-term debt.")
+        merton_horizon = st.number_input("Merton horizon T, years", 0.25, 5.0, HORIZON_YEARS, 0.25, key="credit_horizon")
     export(ctx, locals())

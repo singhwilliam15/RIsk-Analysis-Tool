@@ -67,7 +67,8 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
                               benchmark_name: str, beta: float, portfolio: dict = None,
                               recommendation: dict = None, data_note: str = None, risk_free_rate: float = None,
                               vol_shock_table: pd.DataFrame = None, beta_down: float = float("nan"),
-                              data_layer: dict = None, trust: dict = None, liquidity: dict = None) -> bytes:
+                              data_layer: dict = None, trust: dict = None, liquidity: dict = None,
+                              credit: dict = None) -> bytes:
     """
     Generate the Risk Analysis Tool's Excel report and return it as .xlsx bytes.
     `var_by_level` maps model name -> {confidence level -> VaR result dict}.
@@ -80,6 +81,8 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
     "block_length" and "headline_model"; it adds 90% ranges and grades to the Dashboard and a Trust sheet.
     `liquidity` (optional) holds "metrics" (TrustedMetric per headline), "holdings", "amfi", "waterfall",
     "participation", "bangia_k" and "impact_y"; it adds a Liquidity sheet.
+    `credit` (optional) holds "metrics", "view" (credit_layer.portfolio_view), "results" and "vol_choice"; it adds a
+    Credit sheet.
     """
     money = f'"{currency}" #,##0'
     wb = openpyxl.Workbook()
@@ -377,6 +380,44 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
         ws_liq.cell(row=next_row, column=2, value="LIQUIDITY-ADJUSTED VAR").font = BOLD_FONT
         _write_table(ws_liq, next_row + 1, [("Step", "@"), ("Amount", money), ("Cumulative", money)],
                      liquidity["waterfall"][["Step", "Amount", "Cumulative"]].itertuples(index=False))
+
+    # -------------------------------------------------------------
+    # CREDIT (when the app supplies it)
+    # -------------------------------------------------------------
+    if credit is not None:
+        ws_cr = wb.create_sheet(title="Credit")
+        ws_cr["B2"] = "🏦 CREDIT RISK"
+        ws_cr["B2"].font = TITLE_FONT
+        ws_cr["B3"] = ("PD is a model-implied, risk-neutral Merton probability, not an agency PD. Expected loss assumes "
+                       f"loss given default of 100% for equity holders. Equity volatility: {credit['vol_choice']}. "
+                       "Methods in docs/methodology.md section 10.")
+        ws_cr["B3"].font = SUBTITLE_FONT
+        metrics = credit["metrics"]
+        next_row = _write_table(
+            ws_cr, 5, [("Headline", "@"), ("Value", "0.0000"), ("Range Low", "0.0000"), ("Range High", "0.0000"),
+                       ("Range", "@"), ("Grade", "@"), ("Reasons", "@")],
+            [(m.name, _finite(m.value), _finite(m.low), _finite(m.high), m.range_label, m.grade,
+              "; ".join(m.reasons) or "no deductions") for m in metrics.values()],
+        )
+        formats = {"weighted_pd": "0.000%", "expected_loss": money, "weakest_dd": "0.00", "weakest_altman": "0.00"}
+        for r, key in enumerate(metrics, start=6):
+            for c in (3, 4, 5):
+                ws_cr.cell(row=r, column=c).number_format = formats.get(key, "0.00")
+        t = credit["view"]["table"]
+        ws_cr.cell(row=next_row, column=2, value="BY HOLDING").font = BOLD_FONT
+        next_row = _write_table(
+            ws_cr, next_row + 1,
+            [("Ticker", "@"), ("Value", money), ("DD", "0.00"), ("PD", "0.000%"), ("Altman Model", "@"), ("Altman Score", "0.00"),
+             ("Altman Zone", "@"), ("Red Flags", "0"), ("Rating", "@"), ("Rating Direction", "@"), ("Balance Sheet (FY end)", "@")],
+            [(r["Ticker"], r["Value"], _finite(r["DD"]), _finite(r["PD"]), r["Altman Model"], _finite(r["Altman Score"]),
+              r["Altman Zone"], r["Red Flags"], r["Rating"], r["Rating Direction"],
+              f"{r['Balance Sheet']:%Y-%m-%d}" if pd.notna(r["Balance Sheet"]) else "not available")
+             for r in t.to_dict("records")],
+        )
+        flag_rows = [(tk, f) for tk, res in credit["results"].items() for f in res["flags"] + res["notes"]]
+        if flag_rows:
+            ws_cr.cell(row=next_row, column=2, value="RED FLAGS AND NOTES").font = BOLD_FONT
+            _write_table(ws_cr, next_row + 1, [("Ticker", "@"), ("Flag or note", "@")], flag_rows)
 
     # -------------------------------------------------------------
     # SHEET 4: RAW DATA

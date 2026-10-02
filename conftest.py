@@ -55,15 +55,29 @@ def fake_fetch_stock_data(ticker: str, period: str = "2y") -> dict:
 
 
 def fake_fetch_fundamentals(ticker: str) -> dict:
-    """Fundamentals stub for app tests: two years of a few fields, profile from 'Yahoo'."""
+    """
+    Fundamentals stub for app tests: three fiscal years with every field the credit pillar uses, in units that
+    fit the synthetic prices (about 100 a share, 1 billion shares). HDFCBANK is labelled a bank, to exercise the
+    financial-company path. The figures are made up and only ever used in tests.
+    """
     from fundamentals import build_fundamentals
-    years = pd.to_datetime(["2025-03-31", "2026-03-31"])
-    income = pd.DataFrame({years[0]: [1000.0, 150.0], years[1]: [1100.0, 160.0]}, index=["Total Revenue", "EBIT"])
-    balance = pd.DataFrame({years[0]: [5000.0, 3000.0], years[1]: [5200.0, 3100.0]},
-                           index=["Total Assets", "Total Liabilities Net Minority Interest"])
-    info = {"sharesOutstanding": 1e9, "marketCap": 2e12, "sector": "Test Sector", "industry": "Test Industry",
-            "financialCurrency": "INR"}
-    return build_fundamentals(ticker.upper(), {"income": income, "balance": balance}, info)
+    years = pd.to_datetime(["2024-03-31", "2025-03-31", "2026-03-31"])
+    s = 1e9
+
+    def frame(rows):
+        return pd.DataFrame({y: [v * (1 + 0.05 * i) for v in rows.values()] for i, y in enumerate(years)}, index=list(rows))
+
+    income = frame({"Total Revenue": 80 * s, "EBITDA": 16 * s, "EBIT": 12 * s, "Interest Expense": 2 * s,
+                    "Pretax Income": 10 * s, "Net Income": 7.5 * s})
+    balance = frame({"Total Assets": 120 * s, "Total Liabilities Net Minority Interest": 60 * s, "Current Assets": 40 * s,
+                     "Current Liabilities": 30 * s, "Inventory": 10 * s, "Cash And Cash Equivalents": 8 * s,
+                     "Current Debt": 10 * s, "Long Term Debt": 25 * s, "Total Debt": 35 * s,
+                     "Retained Earnings": 45 * s, "Stockholders Equity": 60 * s, "Ordinary Shares Number": s})
+    cashflow = frame({"Operating Cash Flow": 13 * s, "Capital Expenditure": -5 * s, "Free Cash Flow": 8 * s})
+    bank = ticker.upper().startswith("HDFCBANK")
+    info = {"sharesOutstanding": s, "marketCap": 100 * s, "financialCurrency": "INR" if ticker.upper().endswith((".NS", ".BO")) else "USD",
+            "sector": "Financial Services" if bank else "Test Sector", "industry": "Banks—Regional" if bank else "Test Industry"}
+    return build_fundamentals(ticker.upper(), {"income": income, "balance": balance, "cashflow": cashflow}, info)
 
 
 LOOPBACK = {"127.0.0.1", "::1", "localhost"}

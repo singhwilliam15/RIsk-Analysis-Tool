@@ -118,9 +118,11 @@ def test_integrated_stress_page(fake_market, mode):
     at = run_app(mode if mode == "Portfolio" else None, page="Integrated Stress")
     assert_clean(at)
     labels = [m.label for m in at.metric]
-    assert labels[1:] == ["Siloed sum of the separate pillars", "Interaction effect"]
+    assert labels[1:] == ["Interaction (cross effect)", "Feedback rounds"]
     table = at.dataframe[0].value
-    assert {"Market Loss", "+ Liquidity", "+ Credit", "+ Events", "Linked Total", "Siloed Sum", "Interaction"} <= set(table.columns)
+    assert {"Market Loss", "Market", "Liquidity", "Credit", "Events", "Linked Total", "Interaction", "Rounds"} <= set(table.columns)
+    assert "Siloed Sum" not in table.columns
+    assert any(m.value == "#### Jump to default" for m in at.markdown)
     assert "Market -20%" in table["Scenario"].tolist()
     assert any("Reverse stress test" in m.value for m in at.markdown)
     at.radio(key="reverse_loss").set_value(0.30)

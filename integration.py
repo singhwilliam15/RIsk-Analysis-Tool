@@ -2,24 +2,27 @@
 Integration (Phase 6): one stress scenario hits every pillar together, and the most plausible scenario that
 produces a given loss.
 
-Linked stress engine, per holding and scenario:
-    market loss (historical replay, or downside beta × the market's fall)
-    → liquidity: volume falls to its level in that crisis (never above normal), so the exit takes longer and
-      costs more (spread + square-root impact at stressed volatility); a banded stock that fell by at least its
-      band is assumed locked for its exit-freeze scenario (in a replay, only the lock days beyond those already
-      in the replayed path)
-    → credit: the lower equity value and higher volatility go back into Merton; the rise in PD on the remaining
-      value is the credit deterioration (loss given default 100% for equity holders)
-    → events: if the fall reaches the pledge margin-call trigger, lenders' selling adds price impact
+Linked stress engine, per holding and scenario, a price fixed point (holding_loss):
+    market shock (historical replay, or downside beta × the market's fall)
+    → events: below the pledge margin-call trigger, lenders sell enough shares to restore the cover
+    → liquidity: that selling and our own exit move the PRICE by the permanent part of square-root impact, at the
+      crisis's volume (never above normal) and volatility; a banded stock whose fall reaches its band is locked for
+      its exit-freeze scenario (in a replay, only the lock days beyond those already in the replayed path)
+    → the lower price can breach the trigger or the band again: repeat until the price settles.
+    → credit: Merton re-solved at the final equity value, reported as a signal with a jump-to-default scenario,
+      never added to an equity holder's loss (the equity price already carries the default risk).
     → crisis correlation: reported alongside (it shapes the next day's tail, not the scenario loss itself).
-The "siloed" figure adds the separate pillars' standalone headlines as an analyst reading each page would;
-the difference is the interaction effect.
+Interaction = full loss − (market alone + each link alone with the market), and an exact Shapley split of the
+full loss across market, liquidity, credit and events.
 
 Reverse stress test: the most plausible shock (minimum Mahalanobis distance) that loses L, in asset space and in
 macro-factor space, with the probability of the loss, how extreme the scenario is, and the nearest historical analogue.
 
 Methods: docs/methodology.md section 13.
 """
+
+from itertools import combinations
+from math import factorial
 
 import numpy as np
 import pandas as pd
@@ -30,7 +33,13 @@ import events as E
 import liquidity as L
 from stress import downside_beta, market_drawdown, replay_return
 
-ALL_ON = {"liquidity": True, "credit": True, "events": True}
+PLAYERS = ("market", "liquidity", "credit", "events")
+ALL_ON = {p: True for p in PLAYERS}
+PERMANENT_SHARE = 2 / 3  # assumption: impact decays to about 2/3 of its peak (Farmer et al., 2013; Bershova and Rakhlin, 2013)
+MAX_ROUNDS = 20
+TOLERANCE = 0.001        # stop when the price moves less than 0.1% in a round
+JTD_DD = 1.5             # assumption: jump-to-default is shown when the stressed distance to default is below this
+JTD_RECOVERY = (0.10, 0.0)  # assumption: equity recovery in default, shown as a range
 CUSTOM_SHOCKS = (-0.10, -0.20, -0.30)
 REVERSE_HORIZON = 21  # trading days: reverse-stress losses are over one month
 
@@ -89,73 +98,138 @@ def scenario_inputs(holding_returns: dict, market_prices: pd.Series, scenarios: 
 # Linked engine
 # ---------------------------------------------------------------
 
+def impact_fraction(sigma: float, shares: float, daily_volume: float, y: float) -> float:
+    """Square-root law as a fraction of price: min(1, Y·σ·√(shares / volume)); 0 without volume or volatility."""
+    if not (shares > 0) or not (daily_volume > 0) or not np.isfinite(sigma):
+        return 0.0
+    return float(min(1.0, y * sigma * np.sqrt(shares / daily_volume)))
+
+
+def holding_loss(h: dict, sc: dict, params: dict, on: dict) -> dict:
+    """
+    One holding through the price fixed point with the players in `on` switched on:
+        x_m = 1 + r (1 if market is off);  each round, at the current price ratio x:
+        forced  = shares lenders sell to restore the pledge cover at price P₀·x       (events)
+        sold    = forced + our own exit quantity                                       (liquidity)
+        x_perm  = x_m·(1 − θ·I(sold))             θ = permanent share of square-root impact
+        x_next  = x_perm·(1 − band)^extra if the fall 1 − x_perm reaches the band      (liquidity)
+    until |x_next/x − 1| < TOLERANCE or MAX_ROUNDS. x only falls round to round and forced selling is capped at
+    the pledged shares, so it converges. Our loss = V₀ − proceeds, proceeds = V₀·x*·(1 − (1−θ)·I(sold*)) − spread
+    cost when we exit (liquidity on), else V₀·x*: the permanent part of impact is in x*, the temporary part is the
+    cost of our own execution.
+    """
+    v0, p0 = h["Value"], h["Price"]
+    ret = sc["return"] if on.get("market", True) else 0.0
+    sigma, y = sc["sigma"], params["impact_y"]
+    theta = params.get("permanent_share", PERMANENT_SHARE)
+    ratio = h["Volume Ratio"]
+    adv_s = h["ADV"] * (min(ratio, 1.0) if np.isfinite(ratio) else 1.0)
+    band = h["Band"]
+    # Lower-circuit days inside a replayed path are already in the market loss (from the return alone: no high/low)
+    already = 0
+    if on.get("market", True) and np.isfinite(band) and sc.get("path") is not None:
+        already = int(L.lower_circuit_days(pd.DataFrame({"Returns": sc["path"]}), band).sum())
+    extra = max(0, int(h["Freeze Days"]) - already) if np.isfinite(band) and np.isfinite(h["Freeze Days"]) else 0
+    own = h["Quantity"] if on["liquidity"] else 0.0
+    pledged = h["Pledged Shares"] if on["events"] and np.isfinite(h["Pledged Shares"]) else 0.0
+    x_m = 1.0 + ret
+    x, forced, locked, converged = x_m, 0.0, False, False
+    for rounds in range(1, MAX_ROUNDS + 1):
+        forced = E.forced_sale(pledged, p0, p0 * x, params["initial_cover"], params["trigger_cover"]) if pledged > 0 else 0.0
+        x_perm = x_m * (1 - theta * impact_fraction(sigma, forced + own, adv_s, y))
+        locked = bool(on["liquidity"] and extra > 0 and 1 - x_perm >= band - 1e-12)
+        x_next = x_perm * ((1 - band) ** extra if locked else 1.0)
+        done = x <= 0 or abs(x_next / x - 1) < TOLERANCE
+        x = x_next
+        if done:
+            converged = True
+            break
+    sold_impact = impact_fraction(sigma, forced + own, adv_s, y)
+    value_after = v0 * x
+    if on["liquidity"]:
+        spread = L.bangia_cost(value_after, h["Spread Mean"], h["Spread Std"], params["bangia_k"]) \
+            if np.isfinite(h["Spread Mean"]) else 0.0
+        proceeds = value_after * (1 - (1 - theta) * sold_impact) - spread
+    else:
+        proceeds = value_after
+    return {"loss": v0 - proceeds, "x": x, "x_market": x_m, "forced": forced, "locked": locked, "rounds": rounds,
+            "converged": converged, "already": already}
+
+
+def _subsets(players):
+    return [frozenset(c) for n in range(len(players) + 1) for c in combinations(players, n)]
+
+
+def shapley(values: dict, players) -> dict:
+    """Exact Shapley values from v(S) for every subset S of `players` (v(∅) included)."""
+    n = len(players)
+    out = {}
+    for p in players:
+        others = [q for q in players if q != p]
+        out[p] = sum(factorial(len(s)) * factorial(n - len(s) - 1) / factorial(n) * (values[s | {p}] - values[s])
+                     for s in _subsets(others))
+    return out
+
+
 def linked_stress(holdings: pd.DataFrame, scenario: dict, params: dict, switches: dict = None) -> dict:
     """
-    One scenario through every pillar. `holdings` has one row per ticker with: Value, Quantity, ADV, Volume Ratio
-    (that crisis's volume ÷ normal, NaN if unknown), Spread Mean, Spread Std, Band, Freeze Days, Equity (market cap),
-    Default Point, PD (today), Financial, Pledged Shares. `params`: bangia_k, impact_y, r, T, initial_cover,
-    trigger_cover. `switches` turns the liquidity / credit / event links off (all off = plain market stress).
+    One scenario through every pillar. `holdings` has one row per ticker with: Value, Quantity, Price, ADV,
+    Volume Ratio (that crisis's volume ÷ normal, NaN if unknown), Spread Mean, Spread Std, Band, Freeze Days,
+    Equity (market cap), Default Point, PD (today), Financial, Pledged Shares. `params`: bangia_k, impact_y, r, T,
+    initial_cover, trigger_cover, and optionally permanent_share and jtd_dd. `switches` turns players off (all
+    links off = plain market stress).
+
+    Per holding: the loss with every active player on (holding_loss), its exact Shapley split across the players,
+    and the interaction = full loss − [market alone + Σ each link alone with the market]: the cross effect only.
+    Credit is a signal for equity holders (C2): Merton is re-solved at the final equity value, and below the
+    jump-to-default threshold the loss if the equity goes to a 10% or 0% recovery is reported, never added.
     """
     on = {**ALL_ON, **(switches or {})}
+    players = [p for p in PLAYERS if on[p]]
+    links = [p for p in players if p != "market"]
+    base = frozenset({"market"}) if on["market"] else frozenset()
     rows = []
     for h in holdings.to_dict("records"):
         t = h["Ticker"]
         sc = scenario["holdings"][t]
-        ret, sigma = sc["return"], sc["sigma"]
-        after = h["Value"] * (1 + ret)
-        market = -ret * h["Value"]
-        liq = cred = event = 0.0
-        ratio = h["Volume Ratio"]
-        adv_s = h["ADV"] * (min(ratio, 1.0) if np.isfinite(ratio) else 1.0)
-        # Lower-circuit days inside a replayed path are already in the market loss (from the return alone: no high/low)
-        already = 0
-        if np.isfinite(h["Band"]) and sc.get("path") is not None:
-            already = int(L.lower_circuit_days(pd.DataFrame({"Returns": sc["path"]}), h["Band"]).sum())
-        if on["liquidity"]:
-            spread = L.bangia_cost(after, h["Spread Mean"], h["Spread Std"], params["bangia_k"]) if np.isfinite(h["Spread Mean"]) else 0.0
-            impact = L.sqrt_impact(after, sigma, h["Quantity"], adv_s, params["impact_y"])
-            impact = impact if np.isfinite(impact) else 0.0
-            locked = 0.0
-            if np.isfinite(h["Band"]) and ret <= -h["Band"]:
-                extra = max(0, int(h["Freeze Days"]) - already)
-                locked = after * (1 - (1 - h["Band"]) ** extra)
-            liq = spread + impact + locked
+        runs = {s: holding_loss(h, sc, params, {p: p in s for p in PLAYERS}) for s in _subsets(players)}
+        values = {s: r["loss"] for s, r in runs.items()}
+        parts = shapley(values, players)
+        full = runs[frozenset(players)]
+        interaction = values[frozenset(players)] - values[base] - sum(values[base | {p}] - values[base] for p in links)
+        dd = pd_ = np.nan
         if on["credit"] and not h["Financial"] and np.isfinite(h["Equity"]) and np.isfinite(h["Default Point"]):
-            stressed = C.solve_merton(h["Equity"] * (1 + ret), sigma * np.sqrt(C.TRADING_DAYS), h["Default Point"],
+            stressed = C.solve_merton(h["Equity"] * full["x"], sc["sigma"] * np.sqrt(C.TRADING_DAYS), h["Default Point"],
                                       params["r"], params["T"])
-            if np.isfinite(stressed["PD"]):
-                cred = max(0.0, stressed["PD"] - (h["PD"] if np.isfinite(h["PD"]) else 0.0)) * after
-        if on["events"] and np.isfinite(h["Pledged Shares"]) and h["Pledged Shares"] > 0:
-            fall = 1 - params["trigger_cover"] / params["initial_cover"]
-            if ret <= -fall:
-                mc = E.margin_call(h["Pledged Shares"], h["Price"] * (1 + ret), adv_s, params["initial_cover"],
-                                   params["trigger_cover"])
-                forced = L.sqrt_impact(after, sigma, mc["shares_to_restore"], adv_s, params["impact_y"])
-                event = forced if np.isfinite(forced) else 0.0
-        rows.append({"Ticker": t, "Return": ret, "Method": sc["method"], "Market Loss": market, "Liquidity": liq,
-                     "Credit": cred, "Events": event, "Total": market + liq + cred + event, "Locked Days in Replay": already})
+            dd, pd_ = stressed["DD"], stressed["PD"]
+        jtd = np.isfinite(dd) and dd < params.get("jtd_dd", JTD_DD)
+        rows.append({"Ticker": t, "Return": sc["return"], "Method": sc["method"],
+                     "Market Loss": values[base], **{p.capitalize(): parts.get(p, 0.0) for p in PLAYERS},
+                     "Total": values[frozenset(players)], "Interaction": interaction,
+                     "Final Price": h["Price"] * full["x"], "Feedback Fall": full["x"] / full["x_market"] - 1,
+                     "Forced Shares": full["forced"], "Locked": full["locked"], "Locked Days in Replay": full["already"],
+                     "Rounds": full["rounds"], "Converged": full["converged"], "Stressed DD": dd, "Stressed PD": pd_,
+                     "JTD Loss (10% recovery)": h["Value"] * (1 - JTD_RECOVERY[0]) if jtd else np.nan,
+                     "JTD Loss (0% recovery)": h["Value"] * (1 - JTD_RECOVERY[1]) if jtd else np.nan})
     table = pd.DataFrame(rows)
-    totals = table[["Market Loss", "Liquidity", "Credit", "Events", "Total"]].sum()
+    totals = table[["Market Loss", "Market", "Liquidity", "Credit", "Events", "Total", "Interaction"]].sum()
+    totals["Rounds"] = int(table["Rounds"].max())
+    totals["Converged"] = bool(table["Converged"].all())
     return {"name": scenario["name"], "kind": scenario["kind"], "market": scenario["market"], "table": table,
             "totals": totals}
 
 
-def siloed_sum(market_loss: float, standalone: dict) -> float:
-    """What adding the separate pages' headlines gives: scenario market loss + each pillar's standalone figure."""
-    return float(market_loss + sum(v for v in standalone.values() if np.isfinite(v)))
-
-
-def run_linked(holdings: pd.DataFrame, scenarios: list, params: dict, standalone: dict, switches: dict = None) -> pd.DataFrame:
-    """Linked totals for every scenario, next to the siloed sum and the interaction effect."""
+def run_linked(holdings: pd.DataFrame, scenarios: list, params: dict, switches: dict = None) -> pd.DataFrame:
+    """Linked totals for every scenario: plain market loss, Shapley parts, interaction and feedback rounds."""
     rows = []
     for sc in scenarios:
         res = linked_stress(holdings, sc, params, switches)
         tot = res["totals"]
-        siloed = siloed_sum(tot["Market Loss"], standalone)
         rows.append({"Scenario": sc["name"], "Kind": sc["kind"], "Market Move": sc["market"],
-                     "Market Loss": tot["Market Loss"], "+ Liquidity": tot["Liquidity"], "+ Credit": tot["Credit"],
-                     "+ Events": tot["Events"], "Linked Total": tot["Total"], "Siloed Sum": siloed,
-                     "Interaction": tot["Total"] - siloed, "detail": res["table"]})
+                     "Market Loss": tot["Market Loss"], "Market": tot["Market"], "Liquidity": tot["Liquidity"],
+                     "Credit": tot["Credit"], "Events": tot["Events"], "Linked Total": tot["Total"],
+                     "Interaction": tot["Interaction"], "Rounds": tot["Rounds"], "Converged": tot["Converged"],
+                     "detail": res["table"]})
     return pd.DataFrame(rows)
 
 

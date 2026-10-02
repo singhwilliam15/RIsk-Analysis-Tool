@@ -63,7 +63,7 @@ The **trust layer** shows how far each number can be relied on:
 - a jump overlay showing how much event risk adds to ES.
 
 **Integration and decisions** tie the pillars together:
-- a **linked stress engine** runs each past crisis, and market falls of −10/−20/−30%, through market, liquidity, credit and event effects at once, and compares the result with the siloed sum of the separate pages;
+- a **linked stress engine** runs each past crisis, and market falls of −10/−20/−30%, through market, liquidity, credit and event effects at once, with price feedback (forced selling and circuits move the price, which can trigger more), a Shapley split of the loss and the cross-pillar interaction;
 - a **reverse stress test** finds the most plausible one-month shock that loses 10–30%, in stock space and in macro space (Nifty, Bank Nifty, Nifty IT, USD/INR, Brent), with the nearest historical analogue;
 - a **Shapley explanation** of what changed in ES;
 - the **best risk-reducing trades**, with their side-effects on the other pillars, and an index hedge;
@@ -75,7 +75,7 @@ Results export to a formatted Excel report. Built in Python with Streamlit, and 
 | Page | Status |
 | --- | --- |
 | Overview | Built: the CRO dashboard (pillar rows with range, grade and limit status; top risks and actions; memo), then summary cards, positions, data quality, fundamentals and their sources, and disclosure files. |
-| Integrated Stress | Built: linked stress vs siloed sum for every scenario, and reverse stress (asset and macro space, nearest analogue). |
+| Integrated Stress | Built: linked stress with price feedback, Shapley split, interaction and jump to default for every scenario, and reverse stress (asset and macro space, nearest analogue). |
 | Decisions | Built: limits, Shapley risk-change waterfall with snapshots, ES by holding, best trades, index hedge, CRO memo. |
 | Market | Built: every model (with 90% range and grade), backtest, portfolio, stress and export tab. |
 | Liquidity | Built: capacity, AMFI-style stress test, crisis volume, spread and impact cost, LVaR waterfall, Amihud, circuit-lock. |
@@ -124,7 +124,7 @@ Default 5-stock NSE portfolio, ₹10 lakh, live data to 1 Oct 2026.
 **CRO dashboard (Overview):** one row per pillar with its range, trust grade and limit status, plus top risks and actions.
 ![CRO dashboard](docs/images/cro-dashboard.png)
 
-**Integrated stress:** each crisis through every pillar at once, against the siloed sum of the separate pages.
+**Integrated stress:** each crisis through every pillar at once, with price feedback, split by Shapley values into market, liquidity, credit and events.
 ![Integrated stress](docs/images/integrated-stress.png)
 
 **Liquidity-adjusted VaR:** VaR + spread cost + market impact + circuit-lock add-on.
@@ -156,15 +156,20 @@ The tool was run as of 12, 6, 3 and 1 month(s) before real Indian collapses, usi
 
 ### Integrated stress (live data to 1 Oct 2026)
 
-| Position | Worst linked scenario | Linked loss | Siloed sum | Interaction |
-| --- | --- | --- | --- | --- |
-| 5-stock portfolio, ₹10 lakh | Global Financial Crisis | ₹4,72,342 (47.2%) | ₹4,73,548 | −₹1,206 |
-| 5-stock portfolio, ₹50 crore | Global Financial Crisis | ₹23.72 crore | ₹23.76 crore | −₹3.4 lakh |
-| Jaiprakash Power, ₹10 lakh | Market −10% | ₹2,38,629 | ₹1,11,621 | **+₹1,27,008** |
+The engine is a price fixed point: lenders' forced pledge sales and your own exit move the price through square-root impact, a fall through the band locks the stock, and the lower price can trigger more margin calls, round after round. The linked loss is split across market, liquidity, credit and events by exact Shapley values, and the **interaction** is what appears only when the links act together: the linked loss − (market alone + each link alone with the market).
 
-- **For liquid large-caps the pillars barely interact:** at most 0.12% of value in any scenario. Their crisis liquidity, credit and event costs are small next to the market loss.
-- **For a small-cap with a price band they interact strongly.** Jaiprakash Power's 10.9% fall breaches its 5% band (inferred from history). The resulting freeze costs more than the market move itself, a loss no single pillar shows. It rests on the inferred band and the 3-day freeze floor.
-- **Replayed crashes no longer count circuit locks twice** (October 2026 fix). The freeze used to be added on top of historical replays that already contained the locked days. For Jaiprakash Power the replays hold 1–29 lower-circuit days, so the linked losses fall: the Global Financial Crisis from ₹8.51 lakh to ₹8.25 lakh, the IL&FS crisis from ₹4.83 lakh to ₹3.96 lakh, and the US credit downgrade from ₹4.00 lakh to ₹3.00 lakh. Custom market shocks, such as the −10% row above, have no daily path and are unchanged.
+| Position | Worst linked scenario | Linked loss | Market move alone | Shapley: market / liquidity / credit / events | Interaction |
+| --- | --- | --- | --- | --- | --- |
+| 5-stock portfolio, ₹10 lakh | Global Financial Crisis | ₹4,71,941 (47.2%) | ₹4,69,636 | ₹4,68,780 / ₹3,161 / ₹0 / ₹0 | ₹0 |
+| 5-stock portfolio, ₹50 crore | Global Financial Crisis | ₹23.70 crore | ₹23.48 crore | ₹23.40 crore / ₹30.5 lakh / ₹0 / ₹0 | ₹0 |
+| Jaiprakash Power, ₹10 lakh | Market −10% | ₹2,38,205 | ₹1,08,520 | ₹1,71,702 / ₹66,503 / ₹0 / ₹0 | ₹0 |
+| Jaiprakash Power, ₹10 lakh, **hypothetical** 5% of shares pledged | Market −20% | ₹3,59,452 | ₹2,17,040 | ₹2,81,834 / ₹68,114 / ₹0 / ₹9,504 | **+₹28,513** |
+
+- **With today's data the interaction is exactly zero, and that is the honest result.** No pledge files are loaded yet, so lenders' selling cannot act, and credit adds no loss to an equity holder. Only the liquidity link is left, and one link cannot interact with itself. *Correction (October 2026): the old table showed interactions of −₹1,206 (portfolio) and +₹1,27,008 (Jaiprakash Power). They compared scenario losses with today's standalone page headlines, which is not an interaction, and Jaiprakash Power's figure was simply its circuit freeze.* That freeze is still there, in the liquidity share: the 3-day lock after its 10.9% fall. Shapley gives about half of it to the market move that triggered it.
+- **The spiral appears once a pledge exists.** The last row uses Jaiprakash Power's live inputs with a hypothetical 5% of shares pledged (not data). After a −20% market move, the lock takes the price through the margin-call trigger. The lenders' sale then pushes it lower, and the price settles after 4 rounds, 16.8% below the market move. At a hypothetical 20% pledge the interaction is +₹59,668.
+- **Large caps barely feed back.** Even at ₹50 crore, your own exit moves the portfolio's prices by only 0.2–0.4%.
+- **Credit is no longer double-counted** (October 2026 fix). The Merton PD comes from the equity price, which the scenario already marks down, so adding the rise in PD counted the same risk twice: up to ₹30,522 for Jaiprakash Power (taper tantrum). Credit is now a signal. A **jump-to-default** scenario appears when the stressed distance to default falls below 1.5: for Jaiprakash Power in the taper tantrum (DD 1.46) and the COVID crash (1.45), it shows a loss of ₹9–10 lakh at a 10–0% recovery, which is never added to the linked loss.
+- **Replayed crashes no longer count circuit locks twice** (October 2026 fix). Jaiprakash Power's replays already hold 1–29 lower-circuit days, so only extra freeze days are added. The Global Financial Crisis loss fell from ₹8.51 lakh to ₹8.25 lakh, and the US credit downgrade from ₹4.00 lakh to ₹3.00 lakh.
 - **Reverse stress:** the most plausible way for the portfolio to lose 15% in a month is Nifty −15.6%, Bank Nifty −15.3%, Nifty IT −17.7%, USD/INR +1.5% and Brent +8.8%. The nearest historical analogue is 6 Jun – 8 Jul 2008 (portfolio −12.5%). The chance of losing at least 15% in a month is **0.011% under a normal (about once in 730 years) and 0.13% under a Student-t (about once in 65 years)**; with crisis correlations, 0.049% and 0.25%. The Student-t figure is an upper-end estimate, because its ν = 8.5 is fitted to daily returns. *Correction (October 2026): this line used to say "9.6% under a Student-t, against 1.8% under a normal". Those were the shares of 5-dimensional outcomes at least this extreme in any direction, gains included, not the chance of the loss, and the Student-t share was also mis-scaled (correctly 5.1%).*
 - **Trades trade off across pillars:** switching 5% from HDFC Bank into Asian Paints trims ES by 0.2% but nearly doubles the days needed to sell 50% (₹50 crore portfolio).
 
@@ -210,7 +215,7 @@ From live Yahoo Finance data, 5-year lookback, run on 1 Oct 2026:
 | **Credit** | Merton distance to default and risk-neutral PD (historical, EWMA and GARCH-t equity volatility; KMV default point; iterative KMV cross-check; month-end history using only balance sheets public at each date). Altman Z and Z'' with zones. Six credit ratios over 4–5 years with red flags (thresholds in `config/credit_thresholds.json`), rating actions, a bank/NBFC panel, weighted PD and credit-implied expected loss. |
 | **Concentration & factors** | Daily Fama-French 3 + momentum regressions (IIM Ahmedabad for India, Kenneth French for the US, refreshed by `scripts/refresh_factor_data.py`). Newey-West t-statistics, rolling one-year betas, and a single-index fallback when factor data do not overlap. Euler split of variance and VaR into factors and specific risk. HHI, sector risk shares, PCA and Meucci's effective number of bets. Crisis-window and worst-day correlations, with the diversification benefit kept. |
 | **Event & governance** | Point-in-time signals from your NSE/BSE/agency files. Tier rules in `config/event_rules.json`. Pledge margin-call trigger and the selling that would follow. Exact mixture ES with tier-based jumps (closed-form Student-t tail), with each holding's share of the gap. |
-| **Integration & decisions** | Linked stress (replay or downside-beta returns, crisis volume and volatility, Merton re-solved, pledge forced selling, circuit freeze) vs the siloed sum. Closed-form reverse stress with the probability of the loss under a normal and a Student-t (and the scenario's Mahalanobis distance), macro reverse stress with the nearest 21-day analogue. Exact Shapley risk-change attribution with downloadable snapshots, Euler ES by holding, trades, ES-minimising hedge, limits (`config/limits.json`), CRO dashboard and one-page memo. |
+| **Integration & decisions** | Linked stress as a price fixed point (replay or downside-beta returns, crisis volume and volatility, pledge forced selling and own exit moving the price, circuit freeze), exact Shapley split and cross-pillar interaction; Merton re-solved as a signal with a jump-to-default scenario. Closed-form reverse stress with the probability of the loss under a normal and a Student-t (and the scenario's Mahalanobis distance), macro reverse stress with the nearest 21-day analogue. Exact Shapley risk-change attribution with downloadable snapshots, Euler ES by holding, trades, ES-minimising hedge, limits (`config/limits.json`), CRO dashboard and one-page memo. |
 | **Excel report** | Dashboard (with 90% ranges and grades), Portfolio Risk, Backtesting, Stress Testing, Positions & Data, Trust, Liquidity, Credit, Concentration, Events, Integrated & Decisions, and Raw Data sheets. |
 
 Every formula, test and design choice is in **[docs/methodology.md](docs/methodology.md)**, with references.

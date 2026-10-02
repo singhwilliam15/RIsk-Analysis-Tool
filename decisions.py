@@ -242,7 +242,7 @@ def top_risks(limits_table: pd.DataFrame, worst_scenario: dict, contributors: pd
             risks.append((50 + 50 * r["Utilisation"], f"Close to limit: {r['Limit']} at {r['Utilisation']:.0%} of the limit"))
     if worst_scenario:
         risks.append((60 + 100 * worst_scenario["loss_pct"], f"Worst linked stress, {worst_scenario['name']}: loss of "
-                      f"{worst_scenario['loss_pct']:.1%} ({worst_scenario['interaction_pct']:+.1%} beyond the siloed sum)"))
+                      f"{worst_scenario['loss_pct']:.1%} (cross-pillar interaction {worst_scenario['interaction_pct']:+.2%})"))
     total = contributors.sum()
     for t, c in contributors.items():
         share = c / total if total else 0

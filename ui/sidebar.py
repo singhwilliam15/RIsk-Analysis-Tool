@@ -4,6 +4,7 @@ import pandas as pd
 import streamlit as st
 from credit import DEFAULT_POINT_LTD_WEIGHT, HORIZON_YEARS
 from events import DEFAULT_JUMPS, ELEVATED, HIGH, INITIAL_COVER, LOW, TRIGGER_COVER
+from integration import JTD_DD, PERMANENT_SHARE
 from liquidity import AMFI_EXCLUDE, AMFI_PARTICIPATION, BANGIA_K, DEFAULT_PARTICIPATION, IMPACT_Y
 from ui.credit_layer import EQUITY_VOL_CHOICES
 from portfolio import BUY_AND_HOLD, ENTRY_MODES, ENTRY_SHARES, ENTRY_VALUE, ENTRY_WEIGHT, REBALANCE_DAILY
@@ -103,6 +104,11 @@ def render_sidebar(ctx):
                                           key="liq_user_spread")
         freeze_override = int(st.number_input("Exit freeze, lower circuits (0 = longest past run, at least 3)", 0, 30, 0, 1,
                                               key="liq_freeze"))
+        permanent_share = st.number_input("Permanent share of price impact (linked stress)", 0.0, 1.0, PERMANENT_SHARE, 0.05,
+                                          key="liq_permanent_share",
+                                          help="The part of selling's square-root impact that stays in the price and can "
+                                               "trigger margin calls and circuits. About 2/3 in Farmer et al. (2013) and "
+                                               "Bershova and Rakhlin (2013).")
 
     with st.sidebar.expander("🏦 Credit assumptions"):
         equity_vol_choice = st.selectbox("Equity volatility for Merton", EQUITY_VOL_CHOICES, key="credit_vol",
@@ -110,6 +116,9 @@ def render_sidebar(ctx):
         ltd_weight = st.number_input("Default point: share of long-term debt", 0.0, 1.0, DEFAULT_POINT_LTD_WEIGHT, 0.1,
                                      key="credit_ltd_weight", help="KMV convention: short-term debt + 0.5 × long-term debt.")
         merton_horizon = st.number_input("Merton horizon T, years", 0.25, 5.0, HORIZON_YEARS, 0.25, key="credit_horizon")
+        jtd_dd = st.number_input("Jump-to-default when stressed DD is below", 0.0, 10.0, JTD_DD, 0.25, key="credit_jtd_dd",
+                                 help="Linked stress: below this distance to default, the loss if the equity goes to a "
+                                      "0–10% recovery is shown next to the scenario (never added to it).")
 
     with st.sidebar.expander("⚠️ Event assumptions"):
         st.caption("One-day jump per event-risk tier, added to the return distribution (assumptions, to be checked "

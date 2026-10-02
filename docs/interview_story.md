@@ -14,7 +14,7 @@ It's a risk analysis tool for Indian and US stocks and portfolios, built in Pyth
 
 - **Five pillars:** market, liquidity, credit, concentration and factors, and event and governance risk.
 - **A trust layer:** every headline number carries a 90% range and an A-to-D grade from written rules, so a fragile number looks fragile.
-- **A linked stress engine:** it runs one crisis through every pillar at once and compares the result with simply adding up the separate pages.
+- **A linked stress engine:** it runs one crisis through every pillar at once, lets forced selling and circuits move the price round after round, and measures what appears only when the pillars act together.
 - **A decision layer:** a reverse stress test, limits, risk-reducing trades, and a one-page memo for a chief risk officer, written by rules, not a language model.
 
 **3. A result from a real collapse (40 seconds)**
@@ -28,7 +28,7 @@ Across the cases it warned on 15 of 20 dates, with false alarms on about one in 
 **4. What it still cannot do (20 seconds)**
 
 - **Zee and Future Retail were missed at 12 months,** because their risk sat in promoter pledges and group debt, which need disclosure files I have not loaded yet.
-- **For liquid large-caps, the pillars barely interact.** The tool says so rather than inventing an effect.
+- **With today's data the cross-pillar interaction is zero.** Without pledge data, only the liquidity link can act. The tool says so rather than inventing an effect; with a hypothetical pledge, the circuit-then-margin-call spiral appears.
 - **The jump sizes are assumptions** until those files can test them.
 
 ---

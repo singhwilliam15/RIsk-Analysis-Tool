@@ -507,13 +507,17 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
         ws_in = wb.create_sheet(title="Integrated & Decisions")
         ws_in["B2"] = "🔗 INTEGRATED STRESS, LIMITS AND ACTIONS"
         ws_in["B2"].font = TITLE_FONT
-        ws_in["B3"] = "Linked stress: one scenario through every pillar vs the siloed sum. Methods: docs/methodology.md sections 13-14."
+        ws_in["B3"] = ("Linked stress: one scenario through every pillar with price feedback. Market..Events are Shapley parts "
+                       "of the linked total; Interaction = linked − (market alone + each link alone). "
+                       "Methods: docs/methodology.md sections 13-14.")
         ws_in["B3"].font = SUBTITLE_FONT
         next_row = 5
         linked = integrated["linked"]
         if len(linked):
-            cols = ["Scenario", "Market Move", "Market Loss", "+ Liquidity", "+ Credit", "+ Events", "Linked Total", "Siloed Sum", "Interaction"]
-            next_row = _write_table(ws_in, next_row, [(c, "0.0%" if c == "Market Move" else "@" if c == "Scenario" else money) for c in cols],
+            cols = ["Scenario", "Market Move", "Market Loss", "Market", "Liquidity", "Credit", "Events", "Linked Total",
+                    "Interaction", "Rounds"]
+            formats = {"Scenario": "@", "Market Move": "0.0%", "Rounds": "0"}
+            next_row = _write_table(ws_in, next_row, [(c, formats.get(c, money)) for c in cols],
                                     linked[cols].itertuples(index=False))
         ws_in.cell(row=next_row, column=2, value="LIMITS").font = BOLD_FONT
         lt = integrated["limits"]

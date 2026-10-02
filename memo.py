@@ -41,8 +41,9 @@ def bottom_line(content: dict) -> str:
     else:
         lead = "All limits are green"
     if stress:
-        lead += (f". In the worst linked scenario ({stress['name']}) the portfolio would lose {stress['linked_pct']:.1%}, "
-                 f"{stress['interaction_pct']:+.1%} of value beyond what the separate pillars add up to")
+        lead += f". In the worst linked scenario ({stress['name']}) the portfolio would lose {stress['linked_pct']:.1%}"
+        lead += (", with no cross-pillar interaction" if abs(stress["interaction_pct"]) < 5e-5 else
+                 f", of which the cross-pillar interaction is {stress['interaction_pct']:+.2%} of value")
     return lead + "."
 
 
@@ -55,9 +56,9 @@ def markdown(content: dict) -> str:
     lines += ["", "## Integrated stress", ""]
     s = content["stress"]
     if s:
-        lines += [f"Worst scenario **{s['name']}**: market loss {s['market']}, liquidity {s['liquidity']}, credit {s['credit']}, "
-                  f"events {s['events']}; linked total **{s['linked']}** against a siloed sum of {s['siloed']} "
-                  f"(interaction {s['interaction']})."]
+        lines += [f"Worst scenario **{s['name']}**: linked total **{s['linked']}** against {s['plain']} for the market move "
+                  f"alone. Shapley split: market {s['market']}, liquidity {s['liquidity']}, credit {s['credit']}, events "
+                  f"{s['events']}; cross-pillar interaction {s['interaction']}."]
     if content.get("reverse"):
         lines += ["", content["reverse"]]
     lines += ["", "## What the numbers miss", ""] + [f"- {m}" for m in MISSES]
@@ -78,9 +79,9 @@ def _chart(content: dict) -> bytes:
              ("Credit", s["credit_value"], "#805AD5"), ("Events", s["events_value"], "#E53E3E")]
     left = 0.0
     for label, value, color in parts:
-        ax.barh("Linked", value, left=left, color=color, label=label)
+        ax.barh("Linked (Shapley split)", value, left=left, color=color, label=label)
         left += value
-    ax.barh("Siloed sum", s["siloed_value"], color="#A0AEC0")
+    ax.barh("Market move alone", s["plain_value"], color="#A0AEC0")
     ax.set_xlabel(f"Loss ({content['currency']})")
     ax.legend(ncol=4, fontsize=7, loc="lower right", frameon=False)
     ax.tick_params(labelsize=7)
@@ -124,7 +125,8 @@ def pdf(content: dict) -> bytes:
     story.append(Paragraph("Integrated stress", head))
     if content["stress"]:
         s = content["stress"]
-        story.append(Paragraph(f"Linked total {s['linked']} vs siloed sum {s['siloed']} (interaction {s['interaction']}).", body))
+        story.append(Paragraph(f"Linked total {s['linked']} vs {s['plain']} for the market move alone "
+                               f"(cross-pillar interaction {s['interaction']}).", body))
         story.append(Image(io.BytesIO(_chart(content)), width=165 * mm, height=50 * mm))
     if content.get("reverse"):
         story.append(Paragraph(content["reverse"], body))

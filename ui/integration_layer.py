@@ -56,7 +56,8 @@ def compute_integration(ctx):
                           "Pledged Shares": ctx.event_margin[t]["pledged_shares"]})
     base = pd.DataFrame(base_rows)
     params = {"bangia_k": ctx.bangia_k, "impact_y": ctx.impact_y, "r": ctx.risk_free_pct / 100, "T": ctx.merton_horizon,
-              "initial_cover": ctx.initial_cover, "trigger_cover": ctx.trigger_cover}
+              "initial_cover": ctx.initial_cover, "trigger_cover": ctx.trigger_cover,
+              "permanent_share": ctx.permanent_share, "jtd_dd": ctx.jtd_dd}
 
     def with_ratios(scenario):
         frame = base.copy()
@@ -69,13 +70,9 @@ def compute_integration(ctx):
                 ratios.append(ctx.liquidity_stressed[t]["factor"])
         return frame.assign(**{"Volume Ratio": ratios})
 
-    inv = ctx.investment_amount
-    standalone = {"liquidity": float(ctx.liquidity_holdings["Spread Cost"].sum(min_count=1) + ctx.liquidity_holdings["Impact Cost"].sum(min_count=1)),
-                  "credit": ctx.credit_view["expected_loss"] if np.isfinite(ctx.credit_view["expected_loss"]) else 0.0,
-                  "events": ctx.event_overlay["gap"] * inv}
     rows = []
     for sc in scenarios:
-        table = I.run_linked(with_ratios(sc), [sc], params, standalone)
+        table = I.run_linked(with_ratios(sc), [sc], params)
         rows.append(table.iloc[0])
     linked = pd.DataFrame(rows).reset_index(drop=True) if rows else pd.DataFrame()
 
@@ -101,7 +98,7 @@ def compute_integration(ctx):
     reverse_scenario = {"name": f"Reverse stress: lose {loss:.0%} in a month", "kind": "reverse", "market": np.nan,
                         "holdings": {t: {"return": float(x), "method": "reverse", "sigma": today_sigma[t] * scale}
                                      for t, x in zip(weights.index, reverse["full"]["shock"])}}
-    reverse["linked"] = I.run_linked(with_ratios(reverse_scenario), [reverse_scenario], params, standalone).iloc[0]
+    reverse["linked"] = I.run_linked(with_ratios(reverse_scenario), [reverse_scenario], params).iloc[0]
 
     region = region_for(tickers)
     macro_names = MACRO.get(region or "", {})
@@ -115,7 +112,9 @@ def compute_integration(ctx):
     portfolio_long = ctx.position_history
     reverse["macro"] = I.macro_reverse(portfolio_long, pd.DataFrame(macro_series).dropna(), loss) if len(macro_series) >= 2 else None
     reverse["missing_macro"] = missing_macro
-    export(ctx, {"linked": linked, "linked_standalone": standalone, "reverse": reverse, "scenario_count": len(scenarios)})
+    # Links that can act at all: pledge selling needs pledge data, and credit adds no loss to equity holders
+    active = ["liquidity"] + (["events"] if base["Pledged Shares"].fillna(0).gt(0).any() else [])
+    export(ctx, {"linked": linked, "linked_active": active, "reverse": reverse, "scenario_count": len(scenarios)})
 
 
 def compute_decisions(ctx):
@@ -241,7 +240,7 @@ def dashboard_rows(ctx) -> list:
     if ctx.worst_scenario:
         w = ctx.worst_scenario
         rows.append({"Pillar": "Integrated stress", "Headline": f"{w['name']}: {w['loss_pct']:.1%} linked loss",
-                     "Range": f"interaction {w['interaction_pct']:+.1%} vs siloed", "Grade": "-", "Status": "-"})
+                     "Range": f"cross-pillar interaction {w['interaction_pct']:+.1%}", "Grade": "-", "Status": "-"})
     return rows
 
 
@@ -251,12 +250,12 @@ def memo_content(ctx) -> dict:
     if len(ctx.linked):
         row = ctx.linked.loc[ctx.linked["Linked Total"].idxmax()]
         inv = ctx.investment_amount
-        stress = {"name": row["Scenario"], "market": money(row["Market Loss"]), "liquidity": money(row["+ Liquidity"]),
-                  "credit": money(row["+ Credit"]), "events": money(row["+ Events"]), "linked": money(row["Linked Total"]),
-                  "siloed": money(row["Siloed Sum"]), "interaction": money(row["Interaction"]),
+        stress = {"name": row["Scenario"], "market": money(row["Market"]), "liquidity": money(row["Liquidity"]),
+                  "credit": money(row["Credit"]), "events": money(row["Events"]), "linked": money(row["Linked Total"]),
+                  "plain": money(row["Market Loss"]), "interaction": money(row["Interaction"]),
                   "linked_pct": row["Linked Total"] / inv, "interaction_pct": row["Interaction"] / inv,
-                  "market_value": row["Market Loss"], "liquidity_value": row["+ Liquidity"], "credit_value": row["+ Credit"],
-                  "events_value": row["+ Events"], "siloed_value": row["Siloed Sum"]}
+                  "market_value": row["Market"], "liquidity_value": row["Liquidity"], "credit_value": row["Credit"],
+                  "events_value": row["Events"], "plain_value": row["Market Loss"]}
     reverse = None
     rv = ctx.reverse
     if rv.get("macro"):

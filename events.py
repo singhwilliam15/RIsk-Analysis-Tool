@@ -239,6 +239,23 @@ def margin_call(pledged_shares: float, price: float, adv: float, initial_cover: 
             "days_restore": restore / adv_ok}
 
 
+def forced_sale(pledged_shares: float, price_today: float, price: float, initial_cover: float = INITIAL_COVER,
+                trigger_cover: float = TRIGGER_COVER) -> float:
+    """
+    Shares lenders sell at `price` when the loan was sized at today's price at `initial_cover`
+    (L = S·P₀/C₀): nothing while the cover S·P/L is above `trigger_cover`; otherwise enough to restore C₀,
+    x = (C₀·L − S·P) / (P·(C₀ − 1)), capped at all S pledged shares. At the trigger price this equals
+    margin_call's shares_to_restore; at a deeper fall it is larger.
+    """
+    if not (np.isfinite(pledged_shares) and pledged_shares > 0 and price > 0):
+        return 0.0
+    loan = pledged_shares * price_today / initial_cover
+    if pledged_shares * price / loan > trigger_cover:
+        return 0.0
+    x = (initial_cover * loan - pledged_shares * price) / (price * (initial_cover - 1))
+    return float(min(max(x, 0.0), pledged_shares))
+
+
 # ---------------------------------------------------------------
 # Jump overlay on ES
 # ---------------------------------------------------------------

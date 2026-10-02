@@ -32,32 +32,123 @@ SCENARIO = {"name": "Crash", "kind": "historical", "market": -0.35,
 PARAMS = {"bangia_k": 3.0, "impact_y": 1.0, "r": 0.065, "T": 1.0, "initial_cover": 2.0, "trigger_cover": 1.5}
 
 
+LINKS_OFF = {"liquidity": False, "credit": False, "events": False}
+THETA = I.PERMANENT_SHARE
+
+
 def test_linked_engine_with_links_off_is_plain_market_stress():
-    res = I.linked_stress(holdings_frame(), SCENARIO, PARAMS, {"liquidity": False, "credit": False, "events": False})
+    res = I.linked_stress(holdings_frame(), SCENARIO, PARAMS, LINKS_OFF)
     assert res["totals"]["Total"] == pytest.approx(600 * 0.30 + 400 * 0.45)
-    assert res["totals"][["Liquidity", "Credit", "Events"]].sum() == 0
+    assert res["totals"]["Market"] == pytest.approx(res["totals"]["Total"])
+    assert res["totals"][["Liquidity", "Credit", "Events", "Interaction"]].abs().sum() == pytest.approx(0)
 
 
-def test_each_link_adds_a_non_negative_cost():
+@pytest.mark.parametrize("link", ["liquidity", "credit", "events"])
+def test_a_single_link_alone_has_zero_interaction(link):
+    res = I.linked_stress(holdings_frame(), SCENARIO, PARAMS, {**LINKS_OFF, link: True})
+    assert res["totals"]["Interaction"] == pytest.approx(0, abs=1e-9)
+
+
+def test_shapley_parts_sum_to_the_total_and_credit_adds_no_loss_for_equity():
     res = I.linked_stress(holdings_frame(), SCENARIO, PARAMS)
     t = res["table"].set_index("Ticker")
-    assert (t[["Liquidity", "Credit", "Events"]] >= 0).all().all()
-    after_b = 400 * 0.55
-    # B fell 45%, more than its 5% band: frozen for 3 lower circuits on the remaining value, plus spread and impact
-    frozen = after_b * (1 - 0.95 ** 3)
-    assert t.loc["B", "Liquidity"] > frozen
-    # B's equity falls and its volatility rises, so its Merton PD rises: credit deterioration on the remaining value
-    assert t.loc["B", "Credit"] > 0
-    # B's fall is beyond the 25% pledge trigger, so forced selling adds impact; A has no pledge
-    assert t.loc["B", "Events"] > 0 and t.loc["A", "Events"] == 0
-    assert res["totals"]["Total"] == pytest.approx(t[["Market Loss", "Liquidity", "Credit", "Events"]].to_numpy().sum())
+    assert t[["Market", "Liquidity", "Credit", "Events"]].sum(axis=1).tolist() == pytest.approx(t["Total"].tolist())
+    # C2: the equity price already carries the default risk, so credit is a null player for equity holders...
+    assert (t["Credit"] == 0).all()
+    # ...but the stressed distance to default is still reported as a signal, and it falls with the price
+    assert np.isfinite(t.loc["B", "Stressed DD"]) and t.loc["B", "Stressed PD"] > 0.01
+    # B fell 45%, through its 5% band and its 25% pledge trigger: lenders sell and the price falls further
+    assert t.loc["B", "Forced Shares"] > 0 and t.loc["B", "Locked"] and t.loc["B", "Feedback Fall"] < 0
+    assert t.loc["A", "Forced Shares"] == 0 and t.loc["A", "Events"] == 0
 
 
 def test_no_pledge_selling_above_the_trigger():
     mild = {**SCENARIO, "holdings": {"A": {"return": -0.1, "method": "replay", "sigma": 0.02},
                                      "B": {"return": -0.2, "method": "replay", "sigma": 0.03}}}
-    t = I.linked_stress(holdings_frame(), mild, PARAMS)["table"].set_index("Ticker")
-    assert t.loc["B", "Events"] == 0  # a 20% fall is short of the 25% margin-call trigger
+    no_band = holdings_frame(**{"Band": [np.nan, np.nan]})
+    t = I.linked_stress(no_band, mild, PARAMS)["table"].set_index("Ticker")
+    # a 20% fall (plus about 1% from our own exit's impact) is short of the 25% margin-call trigger
+    assert t.loc["B", "Forced Shares"] == 0 and t.loc["B", "Events"] == pytest.approx(0)
+    # With B's 5% band, the same fall locks it for 3 lower circuits (0.8 × 0.95³ ≈ 0.69), which takes the price
+    # through the trigger: the circuit sets off the margin call, a cross effect no single link shows
+    spiral = I.linked_stress(holdings_frame(), mild, PARAMS)["table"].set_index("Ticker")
+    assert spiral.loc["B", "Locked"] and spiral.loc["B", "Forced Shares"] > 0 and spiral.loc["B", "Interaction"] > 0
+
+
+# A pledged, thinly traded holding whose fall sells every pledged share at once, so the fixed point is reached
+# in the second round and every coalition can be worked out by hand.
+PLEDGED = pd.DataFrame({"Ticker": ["P"], "Value": [1000.0], "Quantity": [100.0], "Price": [10.0], "ADV": [1000.0],
+                        "Spread Mean": [np.nan], "Spread Std": [np.nan], "Band": [np.nan], "Freeze Days": [0],
+                        "Equity": [np.nan], "Default Point": [np.nan], "PD": [np.nan], "Financial": [False],
+                        "Pledged Shares": [4000.0], "Volume Ratio": [1.0]})
+HALF = {"name": "Halved", "kind": "custom", "market": -0.5, "holdings": {"P": {"return": -0.5, "method": "β-proxy", "sigma": 0.05}}}
+
+
+def test_pledge_and_thin_volume_interaction_matches_a_hand_calculation():
+    # Loan = 4,000 × 10 / 2 = 20,000. At a price of 5 the cover is 4,000 × 5 / 20,000 = 1.0 < 1.5, and restoring
+    # a cover of 2 needs (2 × 20,000 − 4,000 × 5) / (5 × 1) = 4,000 shares: all of them, at any lower price too.
+    impact = lambda q: 0.05 * np.sqrt(q / 1000)  # noqa: E731  (Y = 1, σ = 5%, ADV 1,000)
+    v = {}
+    v["M"] = 500.0
+    x = 0.5 * (1 - THETA * impact(100))                       # market + our exit
+    v["ML"] = 1000 - 1000 * x * (1 - (1 - THETA) * impact(100))
+    x = 0.5 * (1 - THETA * impact(4000))                      # market + lenders' sale, we do not sell
+    v["ME"] = 1000 - 1000 * x
+    x = 0.5 * (1 - THETA * impact(4100))                      # both, on the combined flow
+    v["MLE"] = 1000 - 1000 * x * (1 - (1 - THETA) * impact(4100))
+    x = 1 - THETA * impact(100)                               # no market fall: our exit only, no margin call
+    v["L"] = v["LE"] = 1000 - 1000 * x * (1 - (1 - THETA) * impact(100))
+    v[""] = v["E"] = 0.0
+    res = I.linked_stress(PLEDGED, HALF, PARAMS)
+    row = res["table"].iloc[0]
+    assert row["Total"] == pytest.approx(v["MLE"]) and row["Rounds"] == 2 and row["Converged"]
+    assert row["Forced Shares"] == pytest.approx(4000)
+    interaction = v["MLE"] - (v["M"] + (v["ML"] - v["M"]) + (v["ME"] - v["M"]))
+    assert row["Interaction"] == pytest.approx(interaction) and interaction > 0
+    # Exact Shapley over market, liquidity and events (credit is a null player here)
+    third, sixth = 1 / 3, 1 / 6
+    phi_m = third * v["M"] + sixth * (v["ML"] - v["L"]) + sixth * (v["ME"] - v["E"]) + third * (v["MLE"] - v["LE"])
+    phi_l = third * v["L"] + sixth * (v["ML"] - v["M"]) + sixth * (v["LE"] - v["E"]) + third * (v["MLE"] - v["ME"])
+    phi_e = third * v["E"] + sixth * (v["ME"] - v["M"]) + sixth * (v["LE"] - v["L"]) + third * (v["MLE"] - v["ML"])
+    assert [row["Market"], row["Liquidity"], row["Events"], row["Credit"]] == pytest.approx([phi_m, phi_l, phi_e, 0.0])
+
+
+def strong_feedback_frame():
+    # Cover just above the trigger before our own exit; thin volume and a 5% band
+    return PLEDGED.assign(**{"Quantity": [300.0], "Value": [3000.0], "ADV": [400.0], "Band": [0.05], "Freeze Days": [2],
+                             "Pledged Shares": [2000.0]})
+
+
+NEAR_TRIGGER = {"name": "Near trigger", "kind": "custom", "market": -0.24,
+                "holdings": {"P": {"return": -0.24, "method": "β-proxy", "sigma": 0.03}}}
+
+
+def test_strong_feedback_converges_through_the_trigger_and_the_band():
+    row = I.linked_stress(strong_feedback_frame(), NEAR_TRIGGER, PARAMS)["table"].iloc[0]
+    # 24% is above the 25% trigger, but our exit's permanent impact pushes the price through it, the lenders'
+    # sale pushes it further, and the stock locks at its band
+    assert row["Converged"] and 3 <= row["Rounds"] <= I.MAX_ROUNDS
+    assert row["Forced Shares"] > 0 and row["Locked"] and row["Feedback Fall"] < -0.05
+    assert row["Interaction"] > 0
+    alone = I.linked_stress(strong_feedback_frame(), NEAR_TRIGGER, PARAMS, {**LINKS_OFF, "events": True})["table"].iloc[0]
+    assert alone["Forced Shares"] == 0  # without our exit, a 24% fall never reaches the trigger
+
+
+def test_feedback_that_has_not_settled_is_reported(monkeypatch):
+    monkeypatch.setattr(I, "MAX_ROUNDS", 2)
+    row = I.linked_stress(strong_feedback_frame(), NEAR_TRIGGER, PARAMS)["table"].iloc[0]
+    assert row["Rounds"] == 2 and not row["Converged"]
+
+
+def test_jump_to_default_only_below_the_threshold():
+    res = I.linked_stress(holdings_frame(), SCENARIO, {**PARAMS, "jtd_dd": 100.0})
+    t = res["table"].set_index("Ticker")
+    # Every holding is below a DD of 100: the loss if the equity goes to 10% or 0% recovery, never added to Total
+    assert t.loc["B", "JTD Loss (10% recovery)"] == pytest.approx(400 * 0.9)
+    assert t.loc["B", "JTD Loss (0% recovery)"] == pytest.approx(400.0)
+    none = I.linked_stress(holdings_frame(), SCENARIO, {**PARAMS, "jtd_dd": 0.0})["table"]
+    assert none["JTD Loss (0% recovery)"].isna().all()
+    assert none["Total"].tolist() == pytest.approx(t["Total"].tolist())
 
 
 def test_crisis_volume_never_raises_liquidity():
@@ -73,35 +164,66 @@ def _with_path(path):
     return {**SCENARIO, "holdings": {"A": SCENARIO["holdings"]["A"], "B": b}}
 
 
+LIQUIDITY_ONLY = {**LINKS_OFF, "liquidity": True}
+
+
 @pytest.mark.parametrize("freeze, locked_in_path, extra", [(3, 3, 0), (5, 3, 2), (3, 0, 3)])
 def test_circuit_freeze_counts_only_days_beyond_the_replayed_locks(freeze, locked_in_path, extra):
     # B's band is 5%; the path has `locked_in_path` lower-circuit days among ordinary falls
     path = [-0.05] * locked_in_path + [-0.03] * 6 + [0.01] * 2
     scenario = _with_path(path)
-    on = {"liquidity": True, "credit": False, "events": False}
     frame = holdings_frame(**{"Freeze Days": [0, freeze]})
-    t = I.linked_stress(frame, scenario, PARAMS, on)["table"].set_index("Ticker")
-    no_band = I.linked_stress(holdings_frame(**{"Band": [np.nan, np.nan]}), scenario, PARAMS, on)["table"].set_index("Ticker")
-    after = 400 * (1 + scenario["holdings"]["B"]["return"])
-    ret = scenario["holdings"]["B"]["return"]
-    expected = after * (1 - 0.95 ** extra) if ret <= -0.05 else 0.0
-    assert t.loc["B", "Liquidity"] - no_band.loc["B", "Liquidity"] == pytest.approx(expected)
+    t = I.linked_stress(frame, scenario, PARAMS, LIQUIDITY_ONLY)["table"].set_index("Ticker")
+    no_band = I.linked_stress(holdings_frame(**{"Band": [np.nan, np.nan]}), scenario, PARAMS, LIQUIDITY_ONLY)["table"].set_index("Ticker")
+    # The freeze multiplies the final price by (1 − band) for each extra lower circuit only
+    assert t.loc["B", "Final Price"] / no_band.loc["B", "Final Price"] == pytest.approx(0.95 ** extra)
     assert t.loc["B", "Locked Days in Replay"] == locked_in_path
 
 
 def test_circuit_freeze_without_a_path_is_unchanged():
-    # β-proxy and custom scenarios have no daily path: the whole freeze is added, as before
-    on = {"liquidity": True, "credit": False, "events": False}
-    t = I.linked_stress(holdings_frame(), SCENARIO, PARAMS, on)["table"].set_index("Ticker")
-    no_band = I.linked_stress(holdings_frame(**{"Band": [np.nan, np.nan]}), SCENARIO, PARAMS, on)["table"].set_index("Ticker")
-    assert t.loc["B", "Liquidity"] - no_band.loc["B", "Liquidity"] == pytest.approx(400 * 0.55 * (1 - 0.95 ** 3))
+    # β-proxy and custom scenarios have no daily path: the whole freeze applies
+    t = I.linked_stress(holdings_frame(), SCENARIO, PARAMS, LIQUIDITY_ONLY)["table"].set_index("Ticker")
+    no_band = I.linked_stress(holdings_frame(**{"Band": [np.nan, np.nan]}), SCENARIO, PARAMS, LIQUIDITY_ONLY)["table"].set_index("Ticker")
+    assert t.loc["B", "Final Price"] / no_band.loc["B", "Final Price"] == pytest.approx(0.95 ** 3)
 
 
-def test_run_linked_reports_the_interaction():
-    table = I.run_linked(holdings_frame(), [SCENARIO], PARAMS, {"liquidity": 10.0, "credit": 1.0, "events": 0.0})
-    row = table.iloc[0]
-    assert row["Siloed Sum"] == pytest.approx(row["Market Loss"] + 11.0)
-    assert row["Interaction"] == pytest.approx(row["Linked Total"] - row["Siloed Sum"])
+def test_liquidity_alone_by_hand_and_close_to_the_old_additive_costs():
+    # Without a feedback partner: x* = x_m·(1 − θI); proceeds = V₀·x*·(1 − (1−θ)I − spread rate). The old engine
+    # charged market loss + spread + impact additively; the two differ only at second order.
+    frame = holdings_frame(**{"Band": [np.nan, np.nan]})
+    t = I.linked_stress(frame, SCENARIO, PARAMS, LIQUIDITY_ONLY)["table"].set_index("Ticker")
+    for tk, v, q, adv, ret, s, m, sd in (("A", 600, 6, 1000 * 0.6, -0.30, 0.04, 0.002, 0.001),
+                                         ("B", 400, 8, 50 * 0.5, -0.45, 0.06, 0.01, 0.004)):
+        i = 1.0 * s * np.sqrt(q / adv)
+        spread_rate = 0.5 * (m + 3.0 * sd)
+        x = (1 + ret) * (1 - THETA * i)
+        assert t.loc[tk, "Total"] == pytest.approx(v - v * x * (1 - (1 - THETA) * i - spread_rate))
+        old = -ret * v + v * (1 + ret) * (spread_rate + i)
+        assert t.loc[tk, "Total"] == pytest.approx(old, rel=0.01)
+
+
+def test_run_linked_reports_the_parts_and_the_interaction():
+    row = I.run_linked(holdings_frame(), [SCENARIO], PARAMS).iloc[0]
+    assert row["Market Loss"] == pytest.approx(600 * 0.30 + 400 * 0.45)
+    assert row[["Market", "Liquidity", "Credit", "Events"]].sum() == pytest.approx(row["Linked Total"])
+    assert row["Linked Total"] > row["Market Loss"] and row["Converged"]
+    assert "Siloed Sum" not in row.index
+
+
+def test_forced_sale_restores_the_cover():
+    import events as E
+    s, p0, c0, ct = 1000.0, 10.0, 2.0, 1.5
+    # At the trigger price it equals margin_call's shares to restore
+    trigger = E.margin_call(s, p0, 100.0, c0, ct)
+    assert E.forced_sale(s, p0, trigger["trigger_price"] * (1 - 1e-12), c0, ct) == pytest.approx(trigger["shares_to_restore"])
+    # Above the trigger nothing is sold
+    assert E.forced_sale(s, p0, 8.0, c0, ct) == 0.0
+    # At 6: loan 5,000; selling x restores (1,000 − x)·6 / (5,000 − 6x) = 2 → x = 666.67 (more than at the trigger)
+    x = E.forced_sale(s, p0, 6.0, c0, ct)
+    assert x == pytest.approx(4000 / 6) and (s - x) * 6 / (5000 - 6 * x) == pytest.approx(2.0)
+    assert x > trigger["shares_to_restore"]
+    # At 3 restoring would need more than every pledged share: capped
+    assert E.forced_sale(s, p0, 3.0, c0, ct) == s
 
 
 def test_scenario_inputs_replay_and_proxy():
@@ -309,9 +431,9 @@ def memo_content():
             "currency": "INR", "pillars": [{"Pillar": "Market", "Headline": "ES ₹16,125", "Range": "90% range ₹15,165–₹17,114",
                                             "Grade": "B", "Status": "red"}],
             "stress": {"name": "GFC", "market": "₹250,000", "liquidity": "₹5,000", "credit": "₹100", "events": "₹0",
-                       "linked": "₹255,100", "siloed": "₹254,000", "interaction": "₹1,100", "linked_pct": 0.2551,
+                       "linked": "₹255,100", "plain": "₹250,000", "interaction": "₹1,100", "linked_pct": 0.2551,
                        "interaction_pct": 0.0011, "market_value": 250000, "liquidity_value": 5000, "credit_value": 100,
-                       "events_value": 0, "siloed_value": 254000},
+                       "events_value": 0, "plain_value": 250000},
             "reverse": "Most plausible way to lose 15% in a month: Nifty 50 −12%.", "limits": rows,
             "risks": ["Limit breached: ES"], "actions": ["Sell 5% of A into cash"], "sources": ["Yahoo Finance"]}
 
@@ -341,7 +463,7 @@ def test_excel_integrated_sheet():
     df = pd.DataFrame({"Date": R.index, "Close": 100 * np.cumprod(1 + r), "Returns": r.to_numpy(), "Log_Returns": np.log1p(r).to_numpy(),
                        "Rolling_30d_Vol": r.rolling(30).std().to_numpy()})
     points = calculate_all_var(r, 1e6, 0.95, 1, num_simulations=1000)
-    linked = I.run_linked(holdings_frame(), [SCENARIO], PARAMS, {"liquidity": 10.0}).drop(columns=["detail"])
+    linked = I.run_linked(holdings_frame(), [SCENARIO], PARAMS).drop(columns=["detail"])
     limits = Dz.evaluate_limits(Dz.load_limits(), {"es_pct": 0.05})
     xlsx = generate_excel_var_report(
         "A", "Test", "INR", 1e6, 0.95, 1, df, var_by_level={m: {0.95: v} for m, v in points.items()},

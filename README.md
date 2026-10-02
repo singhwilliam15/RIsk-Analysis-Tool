@@ -81,7 +81,7 @@ Results export to a formatted Excel report. Built in Python with Streamlit, and 
 | Liquidity | Built: capacity, AMFI-style stress test, crisis volume, spread and impact cost, LVaR waterfall, Amihud, circuit-lock. |
 | Credit | Built: Merton DD/PD (three volatility inputs, KMV cross-check, month-end history), Altman Z/Z'', ratios and red flags, ratings, a bank panel, weighted PD and expected loss. |
 | Concentration & Factors | Built: factor exposures, the factor/specific risk split, HHI, sector risk, PCA and effective bets, crisis correlation, rolling betas. |
-| Event & Governance | Built: early-warning panel, event-risk tier, pledge margin calls, jump overlay on ES. It needs your disclosure files for most signals. |
+| Event & Governance | Built: early-warning panel, event-risk tier, pledge margin calls, jump overlay on ES, on a bundled NSE snapshot (pledges, surveillance, price bands, F&O bans, ratings) with a "data as of" stamp. |
 | Trust | Built: ranges, grades, model risk, lookback sensitivity, ghost effect. |
 | Integrated Stress · Decisions | Coming next (Phase 6) |
 
@@ -106,7 +106,8 @@ Results export to a formatted Excel report. Built in Python with Streamlit, and 
 | Jaiprakash Power | 4.23 (4.23–6.69; GARCH fit failed) | 0.001% | Z'' 3.75, safe, **but Z 1.77, distress** | none |
 | HDFC Bank | not modelled (bank) | – | not applicable | – |
 
-- **Large caps are far from default on Merton.** Their default points are small relative to market value, so PDs are around 10⁻³⁰ and mean nothing on their own. The tool shows "below 0.001%" and grades their uncertainty on the distance-to-default scale instead.
+- **The page now leads with the distance to default and its percentile**, among 10 NSE stocks (the presets, Jaiprakash Power and the five most-pledged mid/small caps): Britannia 24.3 is the safest (100th percentile), Jaiprakash Power 4.2 the riskiest (5th). Merton's PDs for large caps are around 10⁻³⁰ and mean nothing on their own, so they move to the detail, labelled risk-neutral and model-implied.
+- **Agency default rates sit next to Merton.** A holding's latest long-term rating is mapped to its agency's published average 1-year default rate (CRISIL FY2025 study, Table 1; ICRA FY2025 study): Reliance CARE AAA → 0.00% (CARE's own study is not on file, so CRISIL's is used and flagged), Afcons CRISIL AA− → 0.05%.
 - **Accounts and market can disagree.** Reliance's market-based distance to default is 11.4, but its accounts put it in Altman's grey zone. Its working capital is only 2.4% of total assets, and EBIT is 6.8% of a very large asset base. Jaiprakash Power is safe on Z'' but in distress on the 1968 manufacturers' Z. The page shows both.
 - **Banks are not forced into these models.** HDFC Bank (25% of the default portfolio) gets a manual panel instead, so the portfolio PD covers 75% of the value and says so.
 
@@ -135,7 +136,7 @@ Default 5-stock NSE portfolio, ₹10 lakh, live data to 1 Oct 2026.
 
 ## Did it see it coming?
 
-The tool was run as of 12, 6, 3 and 1 month(s) before real Indian collapses, using only data public on each date. The results were compared with what happened, and with 10 large stable stocks at the same dates. Full method, results and the download checklist are in **[docs/case_studies.md](docs/case_studies.md)**. Only price-based pillars could be assessed so far: credit needs pre-2023 statements, and events need disclosure files, neither of which is loaded yet.
+The tool was run as of 12, 6, 3 and 1 month(s) before real Indian collapses, using only data public on each date. The results were compared with what happened, and with 10 large stable stocks at the same dates. Full method, results and the download checklist are in **[docs/case_studies.md](docs/case_studies.md)**. Market, liquidity, stress and now **credit** are assessed: the credit pillar runs on consolidated statements transcribed from the companies' annual reports (FY2017–FY2022, each balance sheet checked to tie). Events cannot be scored yet: NSE serves pledge history only back to September 2021, and the cases are earlier.
 
 | Case | 12 months before | 6 months | 3 months | 1 month | Realised loss after 12m date |
 | --- | --- | --- | --- | --- | --- |
@@ -149,40 +150,52 @@ The tool was run as of 12, 6, 3 and 1 month(s) before real Indian collapses, usi
 - **Hit rate 15 of 20 case dates; false-positive rate 19 of 200 control dates (9.5%).** Most false positives come from 2-year windows that contain the March 2020 crash.
 - **\*Adani warned only because it was always volatile.** Its ES was above 5% at every date; that is not a specific early signal.
 - **Stocks already falling show up in prices** (Yes Bank, Jet Airways).
-- **Pledge- and debt-driven collapses do not show up in prices until late** (Zee, and Future Retail for six months). That is the case for the event and credit pillars, which cannot be credited until their files are loaded.
+- **Pledge- and debt-driven collapses do not show up in prices until late** (Zee, and Future Retail for six months). Credit, now scored on 16 case dates, warned on 9: Jet Airways at every date (negative equity), Adani from 6 months out (Altman Z'' only; its DD stayed 6–8), Future Retail only 3 and 1 months out (after the COVID crash). It missed Zee entirely (DD 15–18) and added **no warning the price pillars had not already given**. Without statements for the control group there is no credit false-positive rate. Events would be the pillar for Zee, but its 2018 pledge history is not served by NSE.
 - **Future Retail is where the liquidity pillar paid off.** From May 2020 it was locked at its lower circuit on 26–37 days (18 in a row), which a VaR model alone does not show.
 
 ![Realised loss after each as-of date: red where the tool warned](docs/images/case_studies.png)
 
-### Integrated stress (live data to 1 Oct 2026)
+### Integrated stress (live data to 1 Oct 2026; NSE pledges, bands and ratings as of 2 Oct 2026)
 
 The engine is a price fixed point: lenders' forced pledge sales and your own exit move the price through square-root impact, a fall through the band locks the stock, and the lower price can trigger more margin calls, round after round. The linked loss is split across market, liquidity, credit and events by exact Shapley values, and the **interaction** is what appears only when the links act together: the linked loss − (market alone + each link alone with the market).
 
-| Position | Worst linked scenario | Linked loss | Market move alone | Shapley: market / liquidity / credit / events | Interaction |
+| Position (₹10 lakh) | Scenario | Linked loss | Market move alone | Shapley: market / liquidity / credit / events | Interaction |
 | --- | --- | --- | --- | --- | --- |
-| 5-stock portfolio, ₹10 lakh | Global Financial Crisis | ₹4,71,941 (47.2%) | ₹4,69,636 | ₹4,68,780 / ₹3,161 / ₹0 / ₹0 | ₹0 |
-| 5-stock portfolio, ₹50 crore | Global Financial Crisis | ₹23.70 crore | ₹23.48 crore | ₹23.40 crore / ₹30.5 lakh / ₹0 / ₹0 | ₹0 |
-| Jaiprakash Power, ₹10 lakh | Market −10% | ₹2,38,205 | ₹1,08,520 | ₹1,71,702 / ₹66,503 / ₹0 / ₹0 | ₹0 |
-| Jaiprakash Power, ₹10 lakh, **hypothetical** 5% of shares pledged | Market −20% | ₹3,59,452 | ₹2,17,040 | ₹2,81,834 / ₹68,114 / ₹0 / ₹9,504 | **+₹28,513** |
+| 5-stock portfolio | Global Financial Crisis (worst) | ₹4,88,731 (48.9%) | ₹4,69,636 | ₹4,76,318 / ₹4,875 / ₹0 / ₹7,538 | **+₹5,145** |
+| Jaiprakash Power (73% of promoter shares pledged, 20% band) | Market −20% | ₹6,43,887 | ₹2,17,040 | ₹4,21,565 / ₹2,07,845 / ₹0 / ₹14,477 | **+₹43,432** |
+| Jaiprakash Power | Global Financial Crisis (worst) | ₹9,05,677 | ₹8,14,770 | ₹8,56,819 / ₹23,011 / ₹0 / ₹25,847 | +₹4,080 |
+| Afcons (100% of promoter shares pledged) | COVID-19 crash (worst) | ₹8,47,076 | ₹3,55,668 | ₹6,13,256 / ₹1,31,210 / ₹0 / ₹1,02,610 | −₹91,353 |
 
-- **With today's data the interaction is exactly zero, and that is the honest result.** No pledge files are loaded yet, so lenders' selling cannot act, and credit adds no loss to an equity holder. Only the liquidity link is left, and one link cannot interact with itself. *Correction (October 2026): the old table showed interactions of −₹1,206 (portfolio) and +₹1,27,008 (Jaiprakash Power). They compared scenario losses with today's standalone page headlines, which is not an interaction, and Jaiprakash Power's figure was simply its circuit freeze.* That freeze is still there, in the liquidity share: the 3-day lock after its 10.9% fall. Shapley gives about half of it to the market move that triggered it.
-- **The spiral appears once a pledge exists.** The last row uses Jaiprakash Power's live inputs with a hypothetical 5% of shares pledged (not data). After a −20% market move, the lock takes the price through the margin-call trigger. The lenders' sale then pushes it lower, and the price settles after 4 rounds, 16.8% below the market move. At a hypothetical 20% pledge the interaction is +₹59,668.
-- **Large caps barely feed back.** Even at ₹50 crore, your own exit moves the portfolio's prices by only 0.2–0.4%.
+- **With real pledge data the links now interact.** Asian Paints' promoters have pledged 9.5% of their holding (5.0% of the company). In the Global Financial Crisis replay its fall passes the margin-call trigger, and the lenders' sale lowers the price further over 4 rounds, which is the portfolio's +₹5,145. Jaiprakash Power's −20% row is the full spiral: the fall breaches its 20% band, the lock and the lenders' sale of 1,200 million pledged shares feed each other, and the price settles 53% below the market move.
+- **A negative interaction means the links overlap, not that risk is lower.** For Afcons and Cohance each link alone already drives the price through the same band and towards the 100% impact cap, so together they add less than the sum.
+- **Treat the heavily pledged rows as severe scenarios, not forecasts.** Lenders selling 17–54% of a company at once is far outside where the square-root law was measured, and Jaiprakash Power's loss rests on the 3-day freeze floor (three 20% lower circuits) — both assumptions.
+- *Correction (October 2026): earlier versions showed interactions of −₹1,206 (portfolio) and +₹1,27,008 (Jaiprakash Power). They compared scenario losses with today's standalone page headlines, which is not an interaction; Jaiprakash Power's figure was its circuit freeze under a 5% band inferred from prices. NSE's official file gives it a 20% band.*
+- **Large caps barely feed back from your own exit.** Even at ₹50 crore, it moves the portfolio's prices by only 0.2–0.4%.
 - **Credit is no longer double-counted** (October 2026 fix). The Merton PD comes from the equity price, which the scenario already marks down, so adding the rise in PD counted the same risk twice: up to ₹30,522 for Jaiprakash Power (taper tantrum). Credit is now a signal. A **jump-to-default** scenario appears when the stressed distance to default falls below 1.5: for Jaiprakash Power in the taper tantrum (DD 1.46) and the COVID crash (1.45), it shows a loss of ₹9–10 lakh at a 10–0% recovery, which is never added to the linked loss.
 - **Replayed crashes no longer count circuit locks twice** (October 2026 fix). Jaiprakash Power's replays already hold 1–29 lower-circuit days, so only extra freeze days are added. The Global Financial Crisis loss fell from ₹8.51 lakh to ₹8.25 lakh, and the US credit downgrade from ₹4.00 lakh to ₹3.00 lakh.
 - **Reverse stress:** the most plausible way for the portfolio to lose 15% in a month is Nifty −15.6%, Bank Nifty −15.3%, Nifty IT −17.7%, USD/INR +1.5% and Brent +8.8%. The nearest historical analogue is 6 Jun – 8 Jul 2008 (portfolio −12.5%). The chance of losing at least 15% in a month is **0.011% under a normal (about once in 730 years) and 0.13% under a Student-t (about once in 65 years)**; with crisis correlations, 0.049% and 0.25%. The Student-t figure is an upper-end estimate, because its ν = 8.5 is fitted to daily returns. *Correction (October 2026): this line used to say "9.6% under a Student-t, against 1.8% under a normal". Those were the shares of 5-dimensional outcomes at least this extreme in any direction, gains included, not the chance of the loss, and the Student-t share was also mis-scaled (correctly 5.1%).*
 - **Trades trade off across pillars:** switching 5% from HDFC Bank into Asian Paints trims ES by 0.2% but nearly doubles the days needed to sell 50% (₹50 crore portfolio).
 
-### Event risk (as of 1 Oct 2026, no disclosure files loaded yet)
+### Event risk (official NSE data as of 2 Oct 2026)
 
-- **Every default holding is Low, but on only 1–2 of 8 signals.** These are the Merton trend and the circuit history; HDFC Bank, as a bank, has only the circuit history. The page says so, and each grade loses 2 points for the missing data. The tool never reads missing data as "no risk".
+The repo ships a dated NSE snapshot (`scripts/fetch_disclosures.py`): price bands, F&O bans, ASM/GSM lists, promoter pledges from each quarter's shareholding XBRL, and credit-rating disclosures.
+
+| Stock | Tier | What fired |
+| --- | --- | --- |
+| Reliance, TCS, Asian Paints, Britannia, HDFC Bank | Low (on 4–5 of 8 signals) | nothing |
+| Jaiprakash Power | **High** | 73.0% of promoter shares pledged |
+| Afcons Infrastructure | **High** | 100% pledged, up 46.5 pp in four quarters; 2 rating downgrades in 12 months (CRISIL, to AA−) |
+| Cohance Lifesciences | **High** | 94.6% pledged, up 94.6 pp in four quarters |
+
+- **The five most-pledged mid/small caps were picked by the script**, from the latest filing of every Nifty Midcap 150 and Smallcap 250 stock (non-financials): Cohance (54% of all shares pledged), Afcons (50%), Mphasis (31%), Swan Corp (21%) and Ashok Leyland (20%).
+- **Gaps, stated:** auditor events are not fetched (PDF announcements). NSE's structured rating feed covers only issuers that file in its format (Reliance, Afcons, Ashok Leyland here), so Jaiprakash Power's ratings are not loaded. Pledge history uses the current XBRL form, from mid-2025, because older filings combine pledges with other encumbrances.
 - **The jump assumptions matter a lot.** On Reliance's actual one-day distribution, a High tier (0.5% a day chance of −20%) would raise 99% ES from ₹42,872 to ₹1,24,904. That is why Phase 7 tests these defaults against real collapses before they are trusted.
 - **Margin-call trigger:** at 2.0× initial and 1.5× trigger cover, lenders could invoke pledged shares after a 25% fall (Reliance at ₹876).
 
 ### Liquidity (live data to 1 Oct 2026, 20% participation)
 
 - **₹10 lakh is liquid everywhere.** Every position is under 0.11% of a day's volume, so spread cost dominates impact. For Reliance, VaR ₹20,858 + spread ₹1,601 + impact ₹104 gives a liquidity-adjusted VaR of ₹22,563.
-- **Circuit-lock risk dominates for a small-cap.** Jaiprakash Power (₹15 a share) has an inferred 5% band. Three lower circuits in a row (the 3-day floor; its longest past run was 1) would cost ₹1,42,625. That lifts its liquidity-adjusted VaR to ₹1,45,714 from a VaR of ₹33,548. The grade flags that both inputs are assumptions.
+- **Circuit-lock risk dominates for a small-cap.** Jaiprakash Power (₹15 a share) is in NSE's official 20% band (sec_list, 2 Oct 2026). Earlier versions inferred a 5% band from its price history; the official file replaces that. Three lower circuits in a row (the 3-day floor, an assumption) would now cost 48.8% of the position, about ₹4.9 lakh on ₹10 lakh, against ₹1.43 lakh under the inferred band. The grade flags that the freeze length is an assumption.
 - **₹50 crore makes the pillar bite.** The 5-stock portfolio would need 0.09 days to sell 50% pro rata under the AMFI convention, and 0.21 days without the exclusion (Asian Paints binds, at 4.2% of a day's volume). Spread and impact add ₹27 lakh to VaR, giving a liquidity-adjusted VaR of ₹89.8 lakh (90% range ₹71.6–₹103.6 lakh).
 - **Crises raise large-cap volume.** Median crisis-window volume was 1.08–1.32× the preceding four months for Reliance, HDFC Bank, TCS and Asian Paints, and 0.84× for Britannia. The tool never assumes a crisis makes selling easier, so it caps the factor at 1.
 
@@ -208,7 +221,8 @@ From live Yahoo Finance data, 5-year lookback, run on 1 Oct 2026:
 | **Portfolio** | Daily rebalancing or buy-and-hold. Risk split on a Historical ES, Historical VaR or Parametric VaR basis, with components that add up exactly to the total. Standalone and incremental risk, diversification benefit, correlation heatmap, and a what-if panel to change a weight or add a ticker. |
 | **Stress testing** | 7 Indian and 7 US crises from an editable CSV, with drawdowns and recovery times measured from index data. Historical replay of the position, or a downside-beta proxy when it has no prices; a custom market move; a volatility shock. |
 | **Positions** | Holdings entered as weights, share counts or money values, each stored as quantity, price, value, weight and sector. |
-| **Data layer** | Open, high, low, close and volume, with NSE and BSE volume summed where Yahoo has both. Annual fundamentals mapped to one set of field names, which a CSV upload can override field by field; each figure shows its source. Loaders and validators for Indian disclosure files, which you download from NSE, BSE and the rating agencies, listed in a manifest with source and date. |
+| **Data layer** | Open, high, low, close and volume, with NSE and BSE volume summed where Yahoo has both. Annual fundamentals mapped to one set of field names, which a CSV upload can override field by field; each figure shows its source. Loaders and validators for Indian disclosure files, listed in a manifest with source and date; a dated NSE snapshot ships with the repo (scripts/fetch_disclosures.py, parsers in 
+se_sources.py). |
 | **Data quality** | Adjusted prices, exchange-timezone dates, a visible data source, and warnings for suspicious moves. Each holding gets a 0–100 data-quality score, from checks for reversing spikes, stale prices, zero-volume days, gaps, short history and missing fundamentals. Data are never altered silently. |
 | **Trust** | 90% ranges for every model's VaR and ES: a stationary block bootstrap (Politis-White block length) for the unconditional models, a residual bootstrap with today's volatility fixed for EWMA and FHS, and asymptotic parameter draws for GARCH-t and Monte Carlo. A–D grades come from written rules: range width, model dispersion, backtest, data quality, sample length, and the share of inputs that are assumptions. Also the model-risk add-on, lookback sensitivity, and the ghost effect in Historical VaR. |
 | **Liquidity** | ADV, days to liquidate and share sellable in 1/5/10 days; the SEBI/AMFI-style stress test (with a fund-validation upload); crisis-window volume; Corwin-Schultz spread, Bangia spread cost, square-root impact and the liquidity-adjusted VaR waterfall; Amihud illiquidity; price bands (official or inferred), lower-circuit history and the exit-freeze loss. Every assumption (participation rate, k, Y, freeze length) is editable in the sidebar. |
@@ -433,7 +447,8 @@ integration.py         Linked multi-pillar stress engine, reverse stress (asset 
 decisions.py           Shapley risk change, Euler ES, trades, hedge, limits, top risks and actions
 memo.py                One-page CRO memo (Markdown and PDF via reportlab + matplotlib)
 case_studies/          Phase 7 evidence: cases.json, engine.py, run.py, results/, data/ (your downloaded files)
-data/disclosures/      Your downloaded disclosure files, manifest.json, templates and download steps
+data/disclosures/      Bundled NSE snapshot (raw JSON in raw/), manifest.json, templates and sources
+data/credit/           Agency default-rate tables (CRISIL, ICRA FY2025 studies) and the DD reference universe
 excel_exporter.py      Formatted Excel report
 docs/methodology.md    Formulas, tests, design choices and references
 RISK_TOOL_PLAN_V3.md   The roadmap, phase by phase
@@ -486,7 +501,7 @@ test_data/             Saved yfinance statements used as test fixtures
   - specific risks are assumed uncorrelated;
   - group-company links and crowding are not captured.
 - **Events:**
-  - most signals need disclosure files you download, and none ship with the repo;
+  - the bundled disclosures are a dated snapshot (refresh with scripts/fetch_disclosures.py); auditor events and ratings filed only as PDFs are not loaded;
   - tier thresholds, jump sizes and cover ratios are assumptions until the Phase 7 case studies;
   - fraud and regulatory surprises are invisible until they are disclosed.
 - **Integration:**

@@ -1,0 +1,76 @@
+{
+ "longterm": {
+  "data": [
+   {
+    "asmSurvIndicator": "Stage I",
+    "asmTime": "02-Oct-2026",
+    "companyName": "A2Z Infra Engineering Limited",
+    "isin": "INE619I01012",
+    "series": null,
+    "survCode": "LTASM - I (13)",
+    "survDesc": "Long Term Additional Surveillance Measure (LTASM) - Stage I",
+    "symbol": "A2ZINFRA",
+    "srno": 1
+   },
+   {
+    "asmSurvIndicator": "Stage I",
+    "asmTime": "02-Oct-2026",
+    "companyName": "Aarey Drugs & Pharmaceuticals Limited",
+    "isin": "INE198H01019",
+    "series": null,
+    "survCode": "LTASM - I (13)",
+    "survDesc": "Long Term Additional Surveillance Measure (LTASM) - Stage I",
+    "symbol": "AAREYDRUGS",
+    "srno": 2
+   },
+   {
+    "asmSurvIndicator": "Stage I",
+    "asmTime": "02-Oct-2026",
+    "companyName": "Artemis Electricals and Projects Limited",
+    "isin": "INE757T01025",
+    "series": null,
+    "survCode": "LTASM - I (13)",
+    "survDesc": "Long Term Additional Surveillance Measure (LTASM) - Stage I",
+    "symbol": "AEPL",
+    "srno": 3
+   }
+  ]
+ },
+ "shortterm": {
+  "data": [
+   {
+    "asmSurvIndicator": "Stage I",
+    "asmTime": "02-Oct-2026",
+    "companyName": "ABH Healthcare Limited",
+    "isin": "INE1R2M01019",
+    "series": null,
+    "survCode": "STASM - I (11)",
+    "survDesc": "Short Term Additional Surveillance Measure (STASM) - Stage I",
+    "symbol": "ABH",
+    "srno": 1
+   },
+   {
+    "asmSurvIndicator": "Stage I",
+    "asmTime": "02-Oct-2026",
+    "companyName": "Adisoft Technologies Limited",
+    "isin": "INE20PL01012",
+    "series": null,
+    "survCode": "STASM - I (11)",
+    "survDesc": "Short Term Additional Surveillance Measure (STASM) - Stage I",
+    "symbol": "ADISOFT",
+    "srno": 2
+   },
+   {
+    "asmSurvIndicator": "Stage I",
+    "asmTime": "02-Oct-2026",
+    "companyName": "Ameya Precision Engineers Limited",
+    "isin": "INE0KT901015",
+    "series": null,
+    "survCode": "STASM - I (11)",
+    "survDesc": "Short Term Additional Surveillance Measure (STASM) - Stage I",
+    "symbol": "AMEYA",
+    "srno": 3
+   }
+  ]
+ }
+}

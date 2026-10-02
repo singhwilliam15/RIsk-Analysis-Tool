@@ -42,18 +42,34 @@ def render(ctx):
     m, view = ctx.credit_metrics, ctx.credit_view
     st.subheader(f"🏦 Credit: {ctx.company_name}")
     st.caption(f"As of {ctx.prices_as_of:%d %b %Y}, using only statements public by then. Merton equity volatility: "
-               f"**{ctx.equity_vol_choice}** (change it under Credit assumptions). PD here is a **model-implied, "
-               "risk-neutral probability, not an agency PD**; it is usually higher than real-world default rates.")
+               f"**{ctx.equity_vol_choice}** (change it under Credit assumptions). The page leads with the **distance to "
+               "default** and where it sits among a reference universe, and with the **agencies' published default "
+               "rates**. Merton's PD is a model-implied, risk-neutral probability: for strong firms it is astronomically "
+               "small and its exact value means little.")
 
+    universe = view["dd_universe"]
+    weakest = m["weakest_dd"]
+    t = view["table"]
+    pct = t.loc[t["DD"] == weakest.value, "DD Percentile"]
+    pct = pct.iloc[0] if len(pct) else np.nan
     cols = st.columns(4)
-    cards = [(m["weighted_pd"], _pd, "Weighted PD"), (m["expected_loss"], money, "Credit-implied expected loss"),
-             (m["weakest_dd"], lambda v: _num(v), m["weakest_dd"].name), (m["weakest_altman"], lambda v: _num(v), m["weakest_altman"].name)]
-    for col, (metric, fmt, label) in zip(cols, cards):
+    cols[0].metric(weakest.name, _num(weakest.value),
+                   f"percentile {pct:.0%} of {universe['size']} reference stocks" if np.isfinite(pct) else None, delta_color="off")
+    cols[0].caption(f"{weakest.range_text(lambda v: _num(v))} · grade **{weakest.grade}**")
+    cols[0].caption("; ".join(weakest.reasons) or "no deductions")
+    cols[1].metric("Agency 1-year default rate (value-weighted)", _pct(view["agency_weighted_pd"], 2))
+    cols[1].caption(f"Real-world, historical: each holding's latest long-term rating mapped to its agency's published "
+                    f"average default rate. Covers {view['agency_coverage']:.0%} of the value (rated holdings).")
+    for col, (metric, fmt, label) in zip(cols[2:], [(m["weighted_pd"], _pd, "Merton PD (risk-neutral, model-implied)"),
+                                                     (m["weakest_altman"], lambda v: _num(v), m["weakest_altman"].name)]):
         col.metric(label, fmt(metric.value))
         col.caption(f"{metric.range_text(fmt)} · grade **{metric.grade}**")
         col.caption("; ".join(metric.reasons) or "no deductions")
-    st.caption(f"{view['coverage']:.0%} of the portfolio value is modelled. Expected loss = Σ PD × position value with loss "
-               "given default of 100%, because equity holders are last in line and usually recover nothing in a default.")
+    st.caption(f"{view['coverage']:.0%} of the portfolio value is modelled by Merton. Credit-implied expected loss (Σ Merton "
+               f"PD × value, LGD 100%): {money(m['expected_loss'].value)}. Reference universe for the DD percentile: "
+               + (f"{universe['size']} NSE stocks (the presets, Jaiprakash Power and the five most-pledged mid/small caps; "
+                  f"data/credit/dd_universe.csv, built {universe['built_on']})." if universe["size"] else
+                  "not built yet (scripts/build_dd_universe.py)."))
 
     _portfolio_table(ctx, money)
     for ticker, res in ctx.credit_results.items():
@@ -83,7 +99,9 @@ def _portfolio_table(ctx, money):
     t = ctx.credit_view["table"]
     st.dataframe(pd.DataFrame({
         "Ticker": t["Ticker"], "Value": t["Value"].map(money),
-        "DD": t["DD"].map(_num), "PD": t["PD"].map(_pd),
+        "DD": t["DD"].map(_num), "DD percentile": t["DD Percentile"].map(lambda v: f"{v:.0%}" if np.isfinite(v) else "-"),
+        "Agency 1-yr default rate": t["Agency PD"].map(lambda v: _pct(v, 2)),
+        "Merton PD (risk-neutral)": t["PD"].map(_pd),
         "Altman": [f"{m}: {_num(s)} ({z})" if m != "not applicable" else "not applicable"
                    for m, s, z in zip(t["Altman Model"], t["Altman Score"], t["Altman Zone"])],
         "Red flags": t["Red Flags"], "Rating": t["Rating"], "Direction": t["Rating Direction"],
@@ -165,6 +183,13 @@ def _rating(res):
     if r["rating"]:
         st.markdown(f"**Rating:** {r['rating']} ({r['agency']}), last action **{r['action']}** on {r['date']:%d %b %Y} "
                     f"(direction: {r['direction']}).")
+        a = res.get("agency_pd")
+        if a:
+            st.caption(f"Historical 1-year default rate for the {a['category']} category: **{a['pd']:.2%}** "
+                       + (f"({a['study']}, page {a['page']})" if a.get("page") else "(in default)")
+                       + (f". {r['agency']}'s own study is not on file, so {a['agency_used']}'s is used; the agencies' "
+                          "scales are comparable but not identical." if a["fallback"] else ".")
+                       + " A real-world frequency, unlike Merton's risk-neutral PD.")
     else:
         st.caption(f"Rating: {r['direction']}. Load rating actions from the agencies' rationales "
                    "(Overview → Disclosure data → Credit rating actions).")

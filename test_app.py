@@ -181,10 +181,14 @@ def test_liquidity_page(fake_market, mode):
 def test_credit_page(fake_market, mode):
     at = run_app(mode if mode == "Portfolio" else None, page="Credit")
     assert_clean(at)
-    assert at.metric[0].label == "Weighted PD" and at.metric[1].label == "Credit-implied expected loss"
-    assert any("not an agency PD" in c.value for c in at.caption)
+    # The page leads with the distance to default and the agencies' default rates; Merton's PD comes third
+    labels = [m.label for m in at.metric]
+    assert labels[0].startswith("Lowest distance to default")
+    assert labels[1] == "Agency 1-year default rate (value-weighted)" and labels[2] == "Merton PD (risk-neutral, model-implied)"
+    assert any("risk-neutral probability" in c.value for c in at.caption)
     by_holding = at.dataframe[0].value
     assert by_holding["DD"].iloc[0] != "not available"
+    assert {"DD percentile", "Agency 1-yr default rate", "Merton PD (risk-neutral)"} <= set(by_holding.columns)
     if mode == "Portfolio":
         bank = by_holding.set_index("Ticker").loc["HDFCBANK.NS"]
         assert bank["DD"] == "not available" and bank["Altman"] == "not applicable"
@@ -212,7 +216,11 @@ def test_concentration_page(fake_market, mode):
 
 
 @pytest.mark.parametrize("mode", ["Single Stock", "Portfolio"])
-def test_events_page_without_disclosures(fake_market, mode):
+def test_events_page_without_disclosures(fake_market, mode, monkeypatch, tmp_path):
+    import disclosures
+    import ui.foundations
+    # An empty disclosure folder (the repo ships a dated NSE snapshot, see the next tests)
+    monkeypatch.setattr(ui.foundations, "load_disclosures", lambda: disclosures.load_disclosures(tmp_path))
     at = run_app(mode if mode == "Portfolio" else None, page="Event & Governance")
     assert_clean(at)
     assert any("Disclosure data not loaded" in w.value for w in at.warning)

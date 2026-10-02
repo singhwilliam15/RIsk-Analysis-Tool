@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xbrli:xbrl xmlns:xbrli="http://www.xbrl.org/2003/instance" xmlns:in-bse-shp="http://www.bseindia.com/xbrl/shp/2025-10-31/in-bse-shp" xmlns:in-bse-shp-types="http://www.bseindia.com/xbrl/shp/2025-10-31/in-bse-shp-types" xmlns:iso4217="http://www.xbrl.org/2003/iso4217" xmlns:link="http://www.xbrl.org/2003/linkbase" xmlns:negated="http://www.xbrl.org/2009/role/negated" xmlns:net="http://www.xbrl.org/2009/role/net" xmlns:nonnum="http://www.xbrl.org/dtr/type/non-numeric" xmlns:num="http://www.xbrl.org/dtr/type/numeric" xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrldt="http://xbrl.org/2005/xbrldt" xmlns:xl="http://www.xbrl.org/2003/XLink" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+<in-bse-shp:DateOfReport contextRef="MainI">2026-06-30</in-bse-shp:DateOfReport>
+<in-bse-shp:WhetherAnySharesHeldByPromotersAreEncumberedUnderPledged contextRef="MainI">false</in-bse-shp:WhetherAnySharesHeldByPromotersAreEncumberedUnderPledged>
+<in-bse-shp:NumberOfShares contextRef="ShareholdingOfPromoterAndPromoterGroup_ContextI" decimals="INF" unitRef="shares">2596558628</in-bse-shp:NumberOfShares>
+<in-bse-shp:ShareholdingAsAPercentageOfTotalNumberOfShares contextRef="ShareholdingOfPromoterAndPromoterGroup_ContextI" decimals="INF" unitRef="pure">0.7177</in-bse-shp:ShareholdingAsAPercentageOfTotalNumberOfShares>
+<in-bse-shp:NumberOfShares contextRef="ShareholdingByCompaniesOrBodiesCorporateWhereCentralOrStateGovernmentIsPromoter_ContextI" decimals="INF" unitRef="shares">0</in-bse-shp:NumberOfShares>
+<in-bse-shp:ShareholdingAsAPercentageOfTotalNumberOfShares contextRef="ShareholdingByCompaniesOrBodiesCorporateWhereCentralOrStateGovernmentIsPromoter_ContextI" decimals="INF" unitRef="pure">0</in-bse-shp:ShareholdingAsAPercentageOfTotalNumberOfShares>
+<in-bse-shp:NumberOfShares contextRef="RelativesOfPromotersOtherThanPromoterGroup_ContextI" decimals="INF" unitRef="shares">0</in-bse-shp:NumberOfShares>
+<in-bse-shp:ShareholdingAsAPercentageOfTotalNumberOfShares contextRef="RelativesOfPromotersOtherThanPromoterGroup_ContextI" decimals="INF" unitRef="pure">0</in-bse-shp:ShareholdingAsAPercentageOfTotalNumberOfShares>
+<in-bse-shp:NumberOfShares contextRef="TrustsWhereAnyPersonBelongingToPromoterAndPromoterGroupIsTrusteeOrBeneficiaryOrAuthorOfTrust_ContextI" decimals="INF" unitRef="shares">0</in-bse-shp:NumberOfShares>
+<in-bse-shp:ShareholdingAsAPercentageOfTotalNumberOfShares contextRef="TrustsWhereAnyPersonBelongingToPromoterAndPromoterGroupIsTrusteeOrBeneficiaryOrAuthorOfTrust_ContextI" decimals="INF" unitRef="pure">0</in-bse-shp:ShareholdingAsAPercentageOfTotalNumberOfShares>
+<in-bse-shp:NumberOfShares contextRef="SharesHeldByNonPromoterNonPublicShareholders_ContextI" decimals="INF" unitRef="shares">0</in-bse-shp:NumberOfShares>
+<in-bse-shp:NumberOfShares contextRef="ShareholdingPattern_ContextI" decimals="INF" unitRef="shares">3618087518</in-bse-shp:NumberOfShares>
+<in-bse-shp:ShareholdingAsAPercentageOfTotalNumberOfShares contextRef="ShareholdingPattern_ContextI" decimals="INF" unitRef="pure">1</in-bse-shp:ShareholdingAsAPercentageOfTotalNumberOfShares>
+</xbrli:xbrl>

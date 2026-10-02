@@ -10,7 +10,7 @@ import pandas as pd
 import streamlit as st
 
 import memo
-from disclosures import DATASETS, template
+from disclosures import DATASETS, as_of_stamp, template
 from fundamentals import FIELDS_BY_NAME, PROFILE_FIELDS, STATEMENTS, fundamentals_template, statement_table
 from ui.foundations import OVERRIDES_KEY
 from ui.overview import render_overview
@@ -143,6 +143,7 @@ def _disclosures(ctx):
                 "the tool never fills them in. Save each file in data/disclosures/ and list it in manifest.json "
                 "(see data/disclosures/README.md).")
     else:
+        st.markdown(f"**{as_of_stamp(disclosures['files'])}**")
         st.dataframe(disclosures["files"], hide_index=True, width="stretch")
     if disclosures["issues"]:
         st.warning("Disclosure files with problems:\n\n" + "\n".join(f"- {i}" for i in disclosures["issues"][:20]))

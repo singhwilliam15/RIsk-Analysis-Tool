@@ -328,9 +328,12 @@ def rating_status(actions: pd.DataFrame, symbol: str, as_of=None) -> dict:
     """Latest rating action public by `as_of` for `symbol`: current rating, last action, its date and direction."""
     if actions is None or actions.empty:
         return {"rating": None, "action": None, "date": None, "direction": "not available", "agency": None}
+    from events import rating_rank  # short-term (A1+ … A4) ratings read as -1
     rows = actions[actions["symbol"] == symbol]
     if as_of is not None:
         rows = rows[pd.to_datetime(rows["action_date"]) <= pd.Timestamp(as_of)]
+    long_term = rows[rows["rating"].map(rating_rank) >= 0] if len(rows) else rows
+    rows = long_term if len(long_term) else rows  # prefer the long-term scale, which carries the default rates
     if rows.empty:
         return {"rating": None, "action": None, "date": None, "direction": "no actions on file", "agency": None}
     last = rows.sort_values("action_date").iloc[-1]
@@ -338,6 +341,47 @@ def rating_status(actions: pd.DataFrame, symbol: str, as_of=None) -> dict:
                  "withdrawn": "withdrawn", "suspended": "suspended"}.get(last["action"], "stable")
     return {"rating": last["rating"], "action": last["action"], "date": pd.Timestamp(last["action_date"]),
             "direction": direction, "agency": last["agency"]}
+
+
+DEFAULT_RATES_PATH = Path(__file__).parent / "data" / "credit" / "rating_default_rates.csv"
+FALLBACK_AGENCY = "CRISIL"  # the longest published record; used for agencies whose study is not on file
+
+
+def load_default_rates(path: Path = DEFAULT_RATES_PATH) -> pd.DataFrame:
+    return pd.read_csv(path) if Path(path).exists() else pd.DataFrame()
+
+
+def rating_implied_pd(rating, agency, table: pd.DataFrame) -> dict:
+    """
+    The agency's published average 1-year default rate for the rating's category (AA+, AA and AA- → AA). A
+    real-world, historical frequency, unlike Merton's risk-neutral PD. 'D' (in default) is 100%. When the
+    agency's study is not on file, CRISIL's is used and flagged. None when the rating cannot be read.
+    """
+    from events import RATING_SCALE, rating_rank
+    rank = rating_rank(rating)
+    if rank < 0 or table is None or table.empty:
+        return None
+    grade = RATING_SCALE[rank]
+    if grade == "D":
+        return {"category": "D", "pd": 1.0, "agency_used": None, "study": "in default", "fallback": False,
+                "source_url": None, "page": None}
+    category = grade.rstrip("+-")
+    own = table[(table["agency"].str.upper() == str(agency or "").upper()) & (table["rating_category"] == category)]
+    rows = own if len(own) else table[(table["agency"] == FALLBACK_AGENCY) & (table["rating_category"] == category)]
+    if rows.empty:
+        return None
+    r = rows.iloc[0]
+    return {"category": category, "pd": float(r["one_year_default_rate_pct"]) / 100, "agency_used": r["agency"],
+            "study": f"{r['study']} ({r['period']}, {r['pool']})", "fallback": not len(own),
+            "source_url": r["source_url"], "page": int(r["page"])}
+
+
+def dd_percentile(dd: float, universe: pd.Series) -> float:
+    """Share of the reference universe with a lower DD (0 = riskiest, 1 = safest); NaN without a DD."""
+    universe = pd.Series(universe, dtype=float).dropna()
+    if not np.isfinite(dd) or universe.empty:
+        return np.nan
+    return float((universe < dd).mean() + 0.5 * (universe == dd).mean())
 
 
 def is_financial(sector, industry, config: dict) -> bool:

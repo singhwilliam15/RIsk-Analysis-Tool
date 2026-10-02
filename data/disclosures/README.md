@@ -1,8 +1,24 @@
 # Disclosure data (India)
 
-The event, credit and liquidity pillars use Indian disclosure data that **you download from official sources**. The tool never downloads, estimates or fills in these figures. NSE blocks automated downloads, so there is no refresh script.
+The event, credit and liquidity pillars use Indian disclosure data from **official sources only**. The tool never estimates or fills in these figures.
 
-## Adding a file
+## Bundled snapshot and refresh
+
+The files in this folder are a dated snapshot from NSE, written by `python scripts/fetch_disclosures.py`. Its as-of dates are on the Overview and Events pages. The script reads NSE's public endpoints at about one request a second and stops if NSE refuses:
+
+| Dataset | NSE source | Written as |
+| --- | --- | --- |
+| `price_bands` | `nsearchives.nseindia.com/content/equities/sec_list.csv` | `sec_list_DDMMYYYY.csv`, unchanged |
+| `fo_ban` | `nsearchives.nseindia.com/archives/fo/sec_ban/fo_secban_DDMMYYYY.csv` | the last five trade dates, unchanged |
+| `surveillance` | `nseindia.com/api/reportASM` and `/api/reportGSM` | `surveillance_DDMMYYYY.csv` (template); raw JSON in `raw/` |
+| `pledges` | `nseindia.com/api/corporate-share-holdings-master`, then each quarter's shareholding-pattern XBRL | `pledges_DDMMYYYY.csv` (template), last 8 quarters; `disclosure_date` = NSE broadcast date; the XBRL URL is in `source` |
+| `ratings` | `nseindia.com/api/corporate-credit-rating`, swept month by month for 24 months | `ratings_DDMMYYYY.csv` (template); filtered raw JSON in `raw/` |
+
+- **Covered stocks:** the app's presets (Reliance, HDFC Bank, TCS, Asian Paints, Britannia), Jaiprakash Power, and the five non-financial Nifty Midcap 150 / Smallcap 250 stocks with the highest share of total shares pledged in their latest filing. The script picks these itself; the full scan is in `raw/pledge_scan_*.csv`. Price bands, F&O bans and surveillance cover every listed stock.
+- **What NSE does not serve automatically:** its pledge-data API (`corporate-pledgedata`) returns empty, so pledges come from the shareholding XBRL. Shareholding history reaches back only about 20 quarters (to September 2021). Surveillance lists show today's stage only.
+- **Auditor events** are not fetched (they are PDF announcements); add them by hand as below.
+
+## Adding a file by hand
 
 1. Download the file from the official source below.
 2. Save it in this folder **unchanged**, or copy its rows into the matching template from `templates/`.
@@ -40,7 +56,7 @@ The app's Overview page lists every loaded file, the rows rejected and why, and 
 
 Allowed values:
 - `surveillance.measure`: ASM-LT, ASM-ST, GSM, ESM
-- `price_bands.band`: 2, 5, 10, 20, or No Band
+- `price_bands.band`: 2, 5, 10, 20, 40 (it appears in NSE's own file), or No Band
 - `ratings.action`: assigned, reaffirmed, upgraded, downgraded, placed on watch, withdrawn, suspended
 - `auditor_events.event_type`: resignation, qualified opinion, adverse opinion, disclaimer of opinion, emphasis of matter
 

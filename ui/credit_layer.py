@@ -1,5 +1,7 @@
 """Credit calculations shared by every page (Pillar 3), with ranges and grades on the headline numbers."""
 
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 
@@ -15,6 +17,14 @@ HISTORICAL, EWMA, GARCH = "Historical (1 year)", "EWMA", "GARCH(1,1)-t"
 EQUITY_VOL_CHOICES = (HISTORICAL, EWMA, GARCH)
 INDIAN = (".NS", ".BO")
 VOL_RANGE_LABEL = "range across equity-volatility inputs"
+
+
+DD_UNIVERSE_PATH = Path(__file__).resolve().parent.parent / "data" / "credit" / "dd_universe.csv"
+
+
+def load_dd_universe(path: Path = DD_UNIVERSE_PATH) -> pd.DataFrame:
+    """Merton DDs of the reference universe (scripts/build_dd_universe.py); empty if not built."""
+    return pd.read_csv(path) if Path(path).exists() else pd.DataFrame()
 
 
 def equity_vols(returns: pd.Series, garch_fit: dict) -> dict:
@@ -195,6 +205,22 @@ def compute_credit(ctx):
                                            ctx.risk_free_pct / 100, ctx.ltd_weight, ctx.merton_horizon, config,
                                            ctx.prices_as_of)
     view = portfolio_view(results, ctx.positions, ctx.equity_vol_choice)
+    # Where each DD sits in the reference universe, and the agency's historical default rate for its rating
+    universe = load_dd_universe()
+    dd_col = f"DD {ctx.equity_vol_choice}"
+    reference = universe[dd_col] if dd_col in universe else pd.Series(dtype=float)
+    rates = C.load_default_rates()
+    agency = {t: C.rating_implied_pd(r["rating"]["rating"], r["rating"]["agency"], rates) for t, r in results.items()}
+    view["table"]["DD Percentile"] = [C.dd_percentile(d, reference) for d in view["table"]["DD"]]
+    view["table"]["Agency PD"] = [a["pd"] if a else np.nan for a in (agency[t] for t in view["table"]["Ticker"])]
+    for t, res in results.items():
+        res["agency_pd"] = agency[t]
+    rated = view["table"]["Agency PD"].notna()
+    value = view["table"]["Value"]
+    view["agency_weighted_pd"] = float((view["table"].loc[rated, "Agency PD"] * value[rated]).sum() / value[rated].sum()) \
+        if rated.any() else np.nan
+    view["agency_coverage"] = float(value[rated].sum() / value.sum()) if value.sum() else 0.0
+    view["dd_universe"] = {"size": int(reference.notna().sum()), "built_on": universe["built_on"].iloc[0] if len(universe) else None}
     data_q = float(min(q["score"] for q in ctx.quality.values())) if ctx.quality else np.nan
     sources = ["Yahoo Finance statements or your CSV overrides (Overview)", ctx.data_note]
     metrics = credit_metrics(results, view, ctx.equity_vol_choice, data_q, sources, config, ctx.ltd_weight)

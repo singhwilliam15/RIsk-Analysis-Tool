@@ -59,7 +59,7 @@ class Dataset:
 SURVEILLANCE_MEASURES = ("ASM-LT", "ASM-ST", "GSM", "ESM")
 RATING_ACTIONS = ("assigned", "reaffirmed", "upgraded", "downgraded", "placed on watch", "withdrawn", "suspended")
 AUDITOR_EVENT_TYPES = ("resignation", "qualified opinion", "adverse opinion", "disclaimer of opinion", "emphasis of matter")
-PRICE_BANDS = (2.0, 5.0, 10.0, 20.0)
+PRICE_BANDS = (2.0, 5.0, 10.0, 20.0, 40.0)  # 40% appears in NSE's own sec_list file
 NO_BAND = "no band"
 
 DATASETS = {
@@ -280,7 +280,7 @@ def validate(frame: pd.DataFrame, dataset: str) -> tuple:
             else:
                 number = pd.to_numeric(band, errors="coerce")
                 if number not in PRICE_BANDS:
-                    errors.append(f"{spec.title}, row {line}: band '{row['band']}' must be 2, 5, 10, 20 or 'No Band'.")
+                    errors.append(f"{spec.title}, row {line}: band '{row['band']}' must be 2, 5, 10, 20, 40 or 'No Band'.")
                     bad = True
                 out["band"], out["band_pct"] = (f"{number:g}%" if np.isfinite(number) else None), float(number)
         if dataset == "pledges" and not bad and np.isfinite(out.get("pledged_pct_of_total", np.nan)):
@@ -378,6 +378,14 @@ def read_manifest(directory: Path = DISCLOSURE_DIR) -> tuple:
     return entries, problems
 
 
+def as_of_stamp(files: pd.DataFrame) -> str:
+    """'Data as of: Price bands 02 Oct 2026 · …' (the latest as-of date per dataset), or '' with no files."""
+    if files is None or files.empty:
+        return ""
+    latest = files.assign(d=pd.to_datetime(files["As of"])).groupby("Dataset")["d"].max()
+    return "Data as of: " + " · ".join(f"{name} {d:%d %b %Y}" for name, d in latest.items())
+
+
 def load_disclosures(directory: Path = DISCLOSURE_DIR) -> dict:
     """
     Load every file listed in the manifest. Returns {"data": {dataset: frame}, "files": summary frame,
@@ -399,7 +407,8 @@ def load_disclosures(directory: Path = DISCLOSURE_DIR) -> dict:
         clean = clean.assign(file=entry["file"], source_url=entry["source_url"],
                              downloaded_on=pd.Timestamp(entry["downloaded_on"]))
         frames[entry["dataset"]].append(clean)
-        summary.append({"File": entry["file"], "Dataset": DATASETS[entry["dataset"]].title, "Rows": len(clean),
+        summary.append({"File": entry["file"], "Dataset": DATASETS[entry["dataset"]].title,
+                        "As of": entry.get("as_of") or entry["coverage_end"], "Rows": len(clean),
                         "Rejected rows": len(errors), "Coverage": f"{entry['coverage_start']} to {entry['coverage_end']}",
                         "Downloaded": entry["downloaded_on"], "Source": entry["source_url"], "Notes": " ".join(notes)})
     listed = {e["file"] for e in entries}

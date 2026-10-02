@@ -207,7 +207,14 @@ Holdings can be entered as weights, share counts or money values. Each holding i
 
 ### 7.4 Disclosures (India)
 
-- **Datasets.** Promoter pledges, ASM/GSM surveillance, price bands, the F&O ban list, rating actions and auditor events. All of them come only from files you download from NSE, BSE and the rating agencies; `data/disclosures/README.md` gives the source and steps for each.
+- **Datasets.** Promoter pledges, ASM/GSM surveillance, price bands, the F&O ban list, rating actions and auditor events, from official sources only; `data/disclosures/README.md` gives the source of each.
+- **Bundled snapshot (since October 2026).** `scripts/fetch_disclosures.py` reads NSE's public endpoints and writes a dated snapshot:
+  - **Price bands** (`sec_list.csv`) and **F&O ban** files are saved unchanged.
+  - **ASM/GSM** lists (JSON) go to the surveillance template. The lists show today's stage only, so `date_in` is the list date. The GSM stage is read from NSE's description ("GSM Stage 0", "Graded Surveillance Measure - Stage VI").
+  - **Pledges** come from each quarter's shareholding-pattern XBRL (SEBI LODR Reg. 31): promoter holding, shares pledged as % of the promoter holding and of total shares, and the number pledged. Shares under non-disposal undertakings are not pledges and are left out. The public date is NSE's broadcast date. NSE's own pledge-data API returns nothing, and the shareholding history reaches back only about 20 quarters.
+  - **Ratings** come from NSE's credit-rating disclosures (SEBI LODR Reg. 30), swept month by month for 24 months and kept for covered issuers, matched by the issuer code inside the rated ISIN. The action maps as: New → assigned; Reaffirm → reaffirmed; an explicit upgrade, downgrade, withdrawal or watch as stated; otherwise the change against the earlier rating in the same filing. A record whose action cannot be read is skipped, not guessed.
+  - **Covered stocks:** the presets, Jaiprakash Power, and the five non-financial Nifty Midcap 150 / Smallcap 250 stocks with the highest share of total shares pledged, picked by a scan of every constituent's latest filing.
+  - **Data as of:** each dataset's as-of date is shown on the Overview and Events pages.
 - **Manifest.** Every file must be listed in `manifest.json` with its source URL, download date and coverage. Unlisted files are not loaded.
 - **Validation.** Each row is checked for:
   - required columns and readable dates;
@@ -217,7 +224,7 @@ Holdings can be entered as weights, share counts or money values. Each holding i
 
   Rejected rows are reported with their row number, and the valid rows are kept.
 - **Point in time.** Each dataset has a public date: the disclosure, entry, effective, trade, action or event date. A pledge row without a disclosure date becomes public at **quarter end + 21 days**, the filing deadline for the quarterly shareholding pattern (SEBI LODR Reg. 31(1)(b)).
-- **Layouts not yet verified.** Only NSE's `fo_secban.csv` layout is parsed structurally (its trade date comes from the first line). For the other official files, headers are matched through an alias table written without a real download to check against.
+- **Layouts.** NSE's `fo_secban.csv` is parsed structurally (its trade date comes from the first line), and `sec_list.csv` loads through the alias table (checked on a real download; it carries a 40% band, which is allowed). The JSON and XBRL sources are converted by `nse_sources.py`, which is tested on trimmed real downloads in `test_data/nse/`.
 
 ### 7.5 Data-quality score
 
@@ -427,7 +434,13 @@ The thresholds are common credit-analysis rules of thumb, not regulatory limits.
 
 ### 10.4 Ratings and financial companies
 
-- **Ratings:** the latest rating action public by the analysis date in your rating-action file (§7.4) gives the current rating, last action and direction.
+- **Ratings:** the latest long-term rating action public by the analysis date (§7.4) gives the current rating, last action and direction. Short-term ratings (A1+ … A4) are on a different scale and are no longer misread as an "A" grade.
+- **Agency default rates.** The latest long-term rating's category (AA+, AA and AA− → AA) is mapped to the agency's published average 1-year default rate, in `data/credit/rating_default_rates.csv`:
+  - **CRISIL:** Annual Default and Ratings Transition Study FY2025, Table 1 (page 10): corporate issuers, long-term ratings, monthly static pools, FY2015–FY2025. AAA 0.00%, AA 0.05%, A 0.07%, BBB 0.46%, BB 2.86%, B 8.40%, C 24.98%.
+  - **ICRA:** FY2025 Rating Transition and Default Study, page 36: all ratings excluding structured finance, 10-year average CDR-1. AAA 0.1%, AA 0.1%, A 0.2%, BBB 1.0%, BB 3.6%, B 6.0%, C 24.9% (printed to one decimal place).
+  - For other agencies (CARE, India Ratings, Acuité and others), CRISIL's table is used and flagged. The scales are comparable but not identical. 'D' (in default) is 100%.
+  - These are **real-world, historical** frequencies. Merton's PD is **risk-neutral and model-implied**. The Credit page shows both, side by side.
+- **DD percentile (since October 2026).** For strong firms Merton's PD is around 10⁻³⁰, which means nothing on its own. So the Credit page leads with the distance to default and its percentile in a reference universe: `data/credit/dd_universe.csv`, built by `scripts/build_dd_universe.py` with the app's own code path and default inputs, from the covered stocks of §7.4. Percentile = share of the universe with a lower DD (ties count half).
 - **Financial companies:** banks, NBFCs and insurers are identified by Yahoo sector "Financial Services" or industry keywords. Merton, Altman and leverage ratios are skipped for them: deposits and policyholder liabilities are their business, not debt in the Merton sense.
 - **Manual panel for financials:** GNPA, NNPA, capital adequacy (CAR), CASA and net interest margin, typed in from the annual report. CAR is compared with the RBI minimum of 11.5% (9% CRAR plus the 2.5% capital conservation buffer; RBI Master Circular on Basel III capital regulations).
 
@@ -596,10 +609,12 @@ Each scenario hits every pillar together, holding by holding.
   - The old comparison with a "siloed sum" (the market loss plus each page's standalone headline today) mixed scenario and unconditional figures, so its difference was not an interaction. It is removed.
 
 **What the live data show (2 Oct 2026).**
-- **The interaction is zero for every preset.** No pledge files are loaded and credit adds no loss to equity, so only the liquidity link can act, and a single link has no cross effect. The old engine's −₹1,206 (portfolio) and +₹1,27,008 (Jaiprakash Power) were not interactions (§13.1).
+- **With the NSE snapshot loaded (3 Oct 2026), the links interact.** The 5-stock portfolio's worst scenario (Global Financial Crisis) shows +₹5,145: Asian Paints' pledge (5.0% of the company) is sold once its fall passes the trigger, over 4 rounds. Jaiprakash Power (17.5% of its shares pledged, official 20% band) in a −20% market loses ₹6.44 lakh against ₹2.17 lakh for the move alone, with an interaction of +₹43,432. For Afcons and Cohance the interaction is negative (−₹91,353 and −₹204,059 in the COVID replay): each link alone already drives the price through the band and towards the impact cap, so the links overlap.
+- **Before the snapshot (Phase B results),** the interaction was zero for every preset, because only the liquidity link could act. The old engine's −₹1,206 (portfolio) and +₹1,27,008 (Jaiprakash Power) were not interactions (§13.1).
+- **Heavy pledges push the square-root law far outside its measured range.** Lenders selling 17–54% of a company is hundreds of days' volume, and the impact cap of 100% binds. Read those rows as severe scenarios.
 - **Feedback from your own exit is small for large caps:** it lowers prices by 0.01–0.02% at ₹10 lakh and 0.2–0.4% at ₹50 crore (1–2 rounds).
-- **Jaiprakash Power's freeze is in the liquidity share.** In a −10% market it loses ₹2.38 lakh against ₹1.09 lakh for the market move alone, because its 10.9% fall breaches the inferred 5% band. Shapley gives about half of the freeze to the market move that triggered it.
-- **With a hypothetical pledge the spiral appears** (Jaiprakash Power's live inputs, 5% of its shares pledged, which is not data). In a −20% market, the lock takes the price through the 25% margin-call trigger, the lenders' sale pushes it 16.8% below the market move after 4 rounds, and the interaction is +₹28,513 (+₹59,668 at a 20% pledge).
+- **Under the inferred 5% band (Phase B),** Jaiprakash Power's −10% market loss was ₹2.38 lakh against ₹1.09 lakh for the move alone, the freeze being in the liquidity share. NSE's official file gives a 20% band, so a −10% move no longer breaches it (₹1.11 lakh now).
+- **Phase B check with a hypothetical pledge** (before real pledges were loaded; 5% of shares, not data, under the inferred 5% band). In a −20% market, the lock takes the price through the 25% margin-call trigger, the lenders' sale pushes it 16.8% below the market move after 4 rounds, and the interaction is +₹28,513 (+₹59,668 at a 20% pledge).
 - **The results are only as reliable as their inputs.** For Jaiprakash Power these are the inferred band, the 3-day floor and θ.
 - **Replays (fix of October 2026).** Jaiprakash Power's historical replays already contain 1–29 lower-circuit days. Counting only the extra freeze days lowered its linked losses by 3% (Global Financial Crisis, 29 locked days, no extra) to 25% (US credit downgrade). Custom shocks were unchanged.
 - **Credit (fix of October 2026).** Removing the double-counted credit add-on lowers Jaiprakash Power's linked losses by up to ₹30,522 (taper tantrum). Its stressed DD falls to 1.46 (taper tantrum) and 1.45 (COVID crash), below the 1.5 threshold, so a jump-to-default scenario is shown for those two.

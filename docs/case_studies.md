@@ -2,7 +2,9 @@
 
 The tool was run **as of 12, 6, 3 and 1 month(s) before** each collapse. Each run used only data public on that date: prices up to the date, statements public by then, and disclosures by their public dates. The results are compared with what happened next, and with a control group of 10 large, stable NSE stocks at the same dates. Run it with `python case_studies/run.py`; results go to `case_studies/results/`.
 
-**Coverage today (2 Oct 2026).** Only price-based pillars could be assessed: market, liquidity and integrated stress. Credit needs statements for the years before each event, and Yahoo only has FY2023 onwards. Events need disclosure files (pledges, ratings, surveillance, F&O ban, auditor events). None of these is loaded yet, so those pillars show **not available**, never "no risk". The checklist at the end lists every file needed.
+**Coverage (3 Oct 2026).** Market, liquidity, integrated stress and **credit** are assessed.
+- **Credit** runs on consolidated statements transcribed from each company's annual report on NSE: Zee FY2017–18, Jet Airways FY2017–18, Future Retail FY2019 and Adani Enterprises FY2021–22, in `case_studies/data/fundamentals/`. Each figure gives its report URL and PDF page. Every year ties exactly (total assets = equity + liabilities), and the filing date is the annual report's NSE filing date (point in time). Yes Bank and DHFL are financials, which Merton does not model.
+- **Events still show not available**, never "no risk". NSE's shareholding API returns only about the last 20 quarters (back to September 2021), its rating feed starts later still, and surveillance lists show today's stage only. The 2017–2020 disclosures these cases need remain on the checklist below.
 
 ## Cases
 
@@ -67,7 +69,7 @@ ES is 1-day at 95% for the recommended model, with the Trust grade. Since the Oc
 | --- | --- | --- | --- | --- | --- |
 | Market | 20 | 15 | 5 | 200 | 15 (7.5%) |
 | Liquidity (circuits) | 20 | 2 | 18 | 200 | 0 |
-| Credit | 0 | – | – | 0 | – (not available) |
+| Credit | 16 | 9 (56%) | 7 | 0 | – (no control-group statements) |
 | Events | 0 | – | – | 0 | – (not available) |
 | Integrated stress | 20 | 6 | 14 | 200 | 4 (2.0%) |
 | **Any warning** | **20** | **15 (75%)** | **5** | **200** | **19 (9.5%)** |
@@ -76,8 +78,9 @@ ES is 1-day at 95% for the recommended model, with the Trust grade. Since the Oc
 
 - **Yes Bank and Jet Airways were visible in prices a year ahead.** Both had already fallen hard, so their ES was 6–19% a day and every date warned. A price-based tool flags a stock that is already falling; that is not a forecast of the moratorium or the grounding.
 - **Zee was missed for a year, and Future Retail for six months.** Their volatility looked ordinary until shortly before the end, while a holder at the 12-month date went on to lose 46% (Zee) and 84% (Future Retail).
-  - Zee's risk was in promoter pledges, and Future Retail's in group debt and pledges. Only the event and credit pillars see those, and their files are not loaded.
-  - These are exactly the cases those pillars exist for. They cannot be credited until the data are in.
+  - Zee's risk was in promoter pledges, and Future Retail's in group debt and pledges.
+  - **Credit did not catch them** (October 2026, statements loaded): Zee's DD was 15–18 with Z'' safe at every date, and Future Retail's DD was 7–9 at 12 and 6 months. Credit warned on 9 of 16 dates (Jet Airways at every date on negative equity, Adani from 6 months on Z'' only, Future Retail at 3 and 1 months after the COVID crash), but **added no warning the price pillars had not already given**.
+  - Events are the pillar for Zee, but NSE serves pledge history only back to September 2021, so they still cannot be scored here.
 - **Future Retail is where the liquidity pillar earned its place.** By May 2020 the stock had hit its 5% lower circuit on 26 days, including a run of 18 in a row. The circuit flag fired at 3 and 1 months, and the integrated stress showed a 70% loss on a −20% market move. A VaR model alone sees a volatile stock; the circuit history shows a holder who could not sell.
 - **Adani Enterprises "warned" because it was always volatile, not because of an early signal.** Its ES was above 5% at every date, and the 12-month window includes the March 2020 crash.
 - **False positives were 9.5% overall (19 of 200).** Most share one artefact: after March 2020, every 2-year window contains the COVID crash, so large caps' ES passes the 5% threshold. Examples are Reliance, Infosys and Kotak at the Future Retail dates, and Reliance and Kotak in January 2022. The others were volatility jumps in large caps not followed by large losses, plus 4 integrated-stress flags on Reliance, whose high downside beta makes a −20% market move cost about 30%.
@@ -105,8 +108,8 @@ Observed one-day falls over the 63 trading days after each as-of date:
 
 Put each file where the last column says, add disclosure files to `case_studies/data/disclosures/manifest.json` (source URL and download date), and rerun. Each link is the official landing page: search the company and period there. The deep links for specific filings were not verified, so none is given.
 
-| Case | File | Period | Official source | Save as |
-| --- | --- | --- | --- | --- |
+| Case | File | Period | Official source | Save as | Status |
+| --- | --- | --- | --- | --- | --- |
 | DHFL | Daily prices and volume (security-wise price-volume archive) | Jan 2016 – Sep 2019 | [NSE historical data](https://www.nseindia.com/report-detail/eq_security) | `case_studies/data/prices/DHFL.csv` |
 | DHFL | Promoter pledged data | Mar 2017 – Jun 2019 quarters | [NSE pledged data](https://www.nseindia.com/companies-listing/corporate-filings-pledged-data) | `case_studies/data/disclosures/` (pledges) |
 | DHFL | Credit rating rationales (all actions) | 2018 – 2019 | [CARE Ratings](https://www.careratings.com) | `case_studies/data/disclosures/` (ratings) |
@@ -121,19 +124,19 @@ Put each file where the last column says, add disclosure files to `case_studies/
 | Yes Bank | Annual reports (GNPA, NNPA, CAR for the bank panel) | FY2018 – FY2019 | [NSE annual reports](https://www.nseindia.com/companies-listing/corporate-filings-annual-reports) | values for the Credit page's bank panel |
 | Zee Entertainment | Promoter pledged data | Dec 2016 – Dec 2018 quarters | [NSE pledged data](https://www.nseindia.com/companies-listing/corporate-filings-pledged-data) | `case_studies/data/disclosures/` (pledges) |
 | Zee Entertainment | F&O ban files (daily) | Jan 2018 – Jan 2019 | [NSE derivatives reports](https://www.nseindia.com/all-reports-derivatives) | `case_studies/data/disclosures/` (fo_ban) |
-| Zee Entertainment | Annual statements (consolidated) | FY2016 – FY2018 | [NSE annual reports](https://www.nseindia.com/companies-listing/corporate-filings-annual-reports) | `case_studies/data/fundamentals/ZEEL.NS.csv` |
+| Zee Entertainment | Annual statements (consolidated) | FY2016 – FY2018 | [NSE annual reports](https://www.nseindia.com/companies-listing/corporate-filings-annual-reports) | `case_studies/data/fundamentals/ZEEL.NS.csv` | **done** (October 2026; years needed by the case dates) |
 | Zee Entertainment | Credit rating rationales | 2018 – 2019 | [CARE Ratings](https://www.careratings.com) | `case_studies/data/disclosures/` (ratings) |
 | Adani Enterprises | Promoter pledged data | Dec 2020 – Dec 2022 quarters | [NSE pledged data](https://www.nseindia.com/companies-listing/corporate-filings-pledged-data) | `case_studies/data/disclosures/` (pledges) |
 | Adani Enterprises | ASM / GSM lists in force | Jan 2022 – Jan 2023 | [NSE surveillance](https://www.nseindia.com/reports/asm) | `case_studies/data/disclosures/` (surveillance) |
-| Adani Enterprises | Annual statements (consolidated) | FY2020 – FY2022 | [NSE annual reports](https://www.nseindia.com/companies-listing/corporate-filings-annual-reports) | `case_studies/data/fundamentals/ADANIENT.NS.csv` |
+| Adani Enterprises | Annual statements (consolidated) | FY2020 – FY2022 | [NSE annual reports](https://www.nseindia.com/companies-listing/corporate-filings-annual-reports) | `case_studies/data/fundamentals/ADANIENT.NS.csv` | **done** (October 2026; years needed by the case dates) |
 | Adani Enterprises | Credit rating rationales | 2021 – 2023 | [CARE Ratings](https://www.careratings.com) | `case_studies/data/disclosures/` (ratings) |
 | Adani Enterprises | Auditor announcements | 2021 – 2023 | [NSE corporate announcements](https://www.nseindia.com/companies-listing/corporate-filings-announcements) | `case_studies/data/disclosures/` (auditor events) |
 | Jet Airways | Promoter pledged data | Mar 2017 – Mar 2019 quarters | [NSE pledged data](https://www.nseindia.com/companies-listing/corporate-filings-pledged-data) | `case_studies/data/disclosures/` (pledges) |
-| Jet Airways | Annual statements (consolidated) | FY2016 – FY2018 | [NSE annual reports](https://www.nseindia.com/companies-listing/corporate-filings-annual-reports) | `case_studies/data/fundamentals/JETAIRWAYS.NS.csv` |
+| Jet Airways | Annual statements (consolidated) | FY2016 – FY2018 | [NSE annual reports](https://www.nseindia.com/companies-listing/corporate-filings-annual-reports) | `case_studies/data/fundamentals/JETAIRWAYS.NS.csv` | **done** (October 2026; years needed by the case dates) |
 | Jet Airways | Credit rating rationales | 2018 – 2019 | [ICRA](https://www.icra.in) | `case_studies/data/disclosures/` (ratings) |
 | Jet Airways | Credit rating rationales | 2018 – 2019 | [CARE Ratings](https://www.careratings.com) | `case_studies/data/disclosures/` (ratings) |
 | Future Retail | Promoter pledged data | Sep 2018 – Jun 2020 quarters | [NSE pledged data](https://www.nseindia.com/companies-listing/corporate-filings-pledged-data) | `case_studies/data/disclosures/` (pledges) |
-| Future Retail | Annual statements (consolidated) | FY2017 – FY2020 | [NSE annual reports](https://www.nseindia.com/companies-listing/corporate-filings-annual-reports) | `case_studies/data/fundamentals/FRETAIL.NS.csv` |
+| Future Retail | Annual statements (consolidated) | FY2017 – FY2020 | [NSE annual reports](https://www.nseindia.com/companies-listing/corporate-filings-annual-reports) | `case_studies/data/fundamentals/FRETAIL.NS.csv` | **done** (October 2026; years needed by the case dates) |
 | Future Retail | Credit rating rationales | 2019 – 2020 | [CARE Ratings](https://www.careratings.com) | `case_studies/data/disclosures/` (ratings) |
 | Future Retail | Price-band changes (lower-circuit band) | Aug 2019 – Aug 2020 | [NSE all reports (equities)](https://www.nseindia.com/all-reports) | `case_studies/data/disclosures/` (price bands) |
 | Control group | Annual statements (consolidated) | three years before each case's dates | [NSE annual reports](https://www.nseindia.com/companies-listing/corporate-filings-annual-reports) | `case_studies/data/fundamentals/<TICKER>.csv` |

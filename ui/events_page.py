@@ -9,6 +9,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 import events as E
+from disclosures import as_of_stamp
 
 METHODOLOGY = "docs/methodology.md, section 12"
 TIER_ICONS = {E.LOW: "🟢 Low", E.ELEVATED: "🟠 Elevated", E.HIGH: "🔴 High"}
@@ -49,6 +50,9 @@ def render(ctx):
 
     m = ctx.event_metrics
     st.subheader(f"⚠️ Event & governance: {ctx.company_name}")
+    stamp = as_of_stamp(ctx.disclosures["files"])
+    if stamp:
+        st.caption(stamp + ". Official NSE files (see Overview → Disclosure data for each file and its source).")
     if ctx.event_missing:
         st.warning(f"Disclosure data not loaded: {', '.join(ctx.event_missing)}. Those signals show 'not available' and "
                    "never count as 'no risk'; each tier says how many signals it rests on. Load the official files "

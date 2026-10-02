@@ -1,0 +1,32 @@
+[
+ {
+  "companyName": "AGS Transact Technologies Limited",
+  "gsmStage": "LVIII",
+  "gsmTime": "01-Oct-2026 08:07:01",
+  "isin": "INE583L01014",
+  "survCode": "IBC I & GSM 0 (58)",
+  "survDesc": "ASM IBC Stage I and GSM Stage 0",
+  "symbol": "AGSTRA",
+  "srno": 1
+ },
+ {
+  "companyName": "Amit Spinning Industries Limited",
+  "gsmStage": "VI",
+  "gsmTime": "01-Oct-2026 08:07:01",
+  "isin": "INE988A01026",
+  "survCode": "GSM - VI (6)",
+  "survDesc": "Graded Surveillance Measure - Stage VI",
+  "symbol": "ASIL",
+  "srno": 5
+ },
+ {
+  "companyName": "Asian Tea & Exports Limited",
+  "gsmStage": "0",
+  "gsmTime": "01-Oct-2026 08:07:01",
+  "isin": "INE822B01017",
+  "survCode": "GSM - 0 (99)",
+  "survDesc": "Shortlisted under Graded Surveillance Measure",
+  "symbol": "ASIANTNE",
+  "srno": 4
+ }
+]

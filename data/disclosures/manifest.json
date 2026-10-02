@@ -1,4 +1,87 @@
 {
   "_about": "One entry per file in this folder. Required keys: file, dataset (pledges, surveillance, price_bands, fo_ban, ratings, auditor_events), source_url, downloaded_on, coverage_start, coverage_end (YYYY-MM-DD). Optional: as_of (the list date, for files without a date column; defaults to coverage_end), constants (columns the file implies but lacks, e.g. {\"measure\": \"ASM-LT\"}) and notes. Files not listed here are not loaded. See README.md.",
-  "files": []
+  "files": [
+    {
+      "file": "sec_list_02102026.csv",
+      "dataset": "price_bands",
+      "source_url": "https://nsearchives.nseindia.com/content/equities/sec_list.csv",
+      "downloaded_on": "2026-10-02",
+      "coverage_start": "2026-10-02",
+      "coverage_end": "2026-10-02",
+      "notes": "NSE price-band file as downloaded; the list date is the download date.",
+      "as_of": "2026-10-02"
+    },
+    {
+      "file": "fo_secban_01102026.csv",
+      "dataset": "fo_ban",
+      "source_url": "https://nsearchives.nseindia.com/archives/fo/sec_ban/fo_secban_01102026.csv",
+      "downloaded_on": "2026-10-02",
+      "coverage_start": "2026-10-01",
+      "coverage_end": "2026-10-01",
+      "notes": "NSE securities in ban period, unchanged."
+    },
+    {
+      "file": "fo_secban_30092026.csv",
+      "dataset": "fo_ban",
+      "source_url": "https://nsearchives.nseindia.com/archives/fo/sec_ban/fo_secban_30092026.csv",
+      "downloaded_on": "2026-10-02",
+      "coverage_start": "2026-09-30",
+      "coverage_end": "2026-09-30",
+      "notes": "NSE securities in ban period, unchanged."
+    },
+    {
+      "file": "fo_secban_29092026.csv",
+      "dataset": "fo_ban",
+      "source_url": "https://nsearchives.nseindia.com/archives/fo/sec_ban/fo_secban_29092026.csv",
+      "downloaded_on": "2026-10-02",
+      "coverage_start": "2026-09-29",
+      "coverage_end": "2026-09-29",
+      "notes": "NSE securities in ban period, unchanged."
+    },
+    {
+      "file": "fo_secban_28092026.csv",
+      "dataset": "fo_ban",
+      "source_url": "https://nsearchives.nseindia.com/archives/fo/sec_ban/fo_secban_28092026.csv",
+      "downloaded_on": "2026-10-02",
+      "coverage_start": "2026-09-28",
+      "coverage_end": "2026-09-28",
+      "notes": "NSE securities in ban period, unchanged."
+    },
+    {
+      "file": "fo_secban_25092026.csv",
+      "dataset": "fo_ban",
+      "source_url": "https://nsearchives.nseindia.com/archives/fo/sec_ban/fo_secban_25092026.csv",
+      "downloaded_on": "2026-10-02",
+      "coverage_start": "2026-09-25",
+      "coverage_end": "2026-09-25",
+      "notes": "NSE securities in ban period, unchanged."
+    },
+    {
+      "file": "surveillance_02102026.csv",
+      "dataset": "surveillance",
+      "source_url": "https://www.nseindia.com/api/reportASM ; https://www.nseindia.com/api/reportGSM",
+      "downloaded_on": "2026-10-02",
+      "coverage_start": "2026-10-02",
+      "coverage_end": "2026-10-02",
+      "notes": "Long- and short-term ASM and GSM lists of 2026-10-02 (raw JSON in raw/). The lists show the current stage only, so date_in is the list date."
+    },
+    {
+      "file": "pledges_02102026.csv",
+      "dataset": "pledges",
+      "source_url": "https://www.nseindia.com/api/corporate-share-holdings-master (XBRL per row in 'source')",
+      "downloaded_on": "2026-10-02",
+      "coverage_start": "2025-06-30",
+      "coverage_end": "2026-06-30",
+      "notes": "Shareholding-pattern XBRL, up to 8 quarters in the current taxonomy (from about mid-2025; older filings report pledges combined with other encumbrances, so they are not used). Covered: RELIANCE, HDFCBANK, TCS, ASIANPAINT, BRITANNIA, JPPOWER; plus the 5 non-financial Nifty Midcap 150 / Smallcap 250 stocks with the highest share of total shares pledged in their latest filing (scan of 2026-10-02): COHANCE, AFCONS, MPHASIS, SWANCORP, ASHOKLEY. disclosure_date = NSE broadcast date."
+    },
+    {
+      "file": "ratings_02102026.csv",
+      "dataset": "ratings",
+      "source_url": "https://www.nseindia.com/api/corporate-credit-rating (XBRL per row in 'source')",
+      "downloaded_on": "2026-10-02",
+      "coverage_start": "2024-10-01",
+      "coverage_end": "2026-10-02",
+      "notes": "NSE credit-rating disclosures for the covered issuers (29455 records swept, 1177 for covered issuers, 0 skipped because the action could not be read). instrument = the rated ISIN."
+    }
+  ]
 }

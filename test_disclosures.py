@@ -161,9 +161,17 @@ def test_bad_manifest_json(tmp_path):
 
 
 def test_shipped_folder_loads_cleanly():
+    """The bundled NSE snapshot (scripts/fetch_disclosures.py): every file listed, every row valid."""
     result = D.load_disclosures()
-    assert result["issues"] == [] and result["files"].empty
-    assert all(frame.empty for frame in result["data"].values())
+    assert result["issues"] == []
+    assert (result["files"]["Rejected rows"] == 0).all() and (result["files"]["Rows"] > 0).all()
+    assert {"price_bands", "fo_ban", "surveillance", "pledges", "ratings"} <= {
+        d for d, frame in result["data"].items() if not frame.empty}
+    # Jaiprakash Power's 30 Jun 2026 filing: 72.99% of the promoter holding pledged, public on 13 Jul 2026
+    pledges = result["data"]["pledges"]
+    jp = pledges[(pledges["symbol"] == "JPPOWER") & (pd.to_datetime(pledges["quarter_end"]) == "2026-06-30")].iloc[0]
+    assert jp["pledged_pct_of_promoter"] == pytest.approx(72.99) and jp["disclosure_date"] == pd.Timestamp("2026-07-13")
+    assert D.as_of_stamp(result["files"]).startswith("Data as of: ")
 
 
 def test_templates_match_the_schemas(tmp_path):

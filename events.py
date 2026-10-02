@@ -93,9 +93,17 @@ def fo_ban_signal(bans: pd.DataFrame, symbol: str, as_of, days: int = 30) -> dic
     return {"last_ban": pd.Timestamp(recent["trade_date"].max()) if len(recent) else None, "bans_in_window": int(len(recent))}
 
 
+SHORT_TERM_RATING = re.compile(r"(?<![A-Z])A[1-4]\+?(?![0-9])")
+
+
 def rating_rank(rating) -> int:
-    """Position on the AAA…D scale (0 = AAA); -1 if no grade can be read. Agency prefixes and suffixes are ignored."""
+    """
+    Position on the long-term AAA…D scale (0 = AAA); -1 if no grade can be read. Agency prefixes and suffixes are
+    ignored. Short-term ratings (A1+ … A4) are on a different scale and return -1, not "A".
+    """
     text = str(rating).upper()
+    if SHORT_TERM_RATING.search(text):
+        return -1
     for grade in sorted(RATING_SCALE, key=len, reverse=True):
         if re.search(rf"(?<![A-Z]){re.escape(grade)}(?![A-Z+\-])", text):
             return RATING_SCALE.index(grade)

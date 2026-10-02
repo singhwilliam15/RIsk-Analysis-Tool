@@ -1,0 +1,61 @@
+symbol,agency,instrument,rating,outlook,action,action_date,source
+RELIANCE,CRISIL,ISIN INE002A07809,CRISIL AAA,Stable,reaffirmed,2024-10-30,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_9212_1294637_30102024061853_WEB.xml
+RELIANCE,CRISIL,ISIN INE002A08567,CRISIL AAA,Stable,reaffirmed,2024-10-30,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_9212_1294637_30102024061853_WEB.xml
+RELIANCE,CRISIL,ISIN INE002A08690,CRISIL AAA,Stable,reaffirmed,2024-10-30,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_9212_1294637_30102024061853_WEB.xml
+RELIANCE,CRISIL,ISIN INE002A08617,CRISIL AAA,Stable,reaffirmed,2024-10-30,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_9212_1294637_30102024061853_WEB.xml
+RELIANCE,CRISIL,ISIN INE002A08534,CRISIL AAA,Stable,reaffirmed,2024-10-30,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_9212_1294637_30102024061853_WEB.xml
+RELIANCE,CRISIL,ISIN INE002A08542,CRISIL AAA,Stable,reaffirmed,2024-10-30,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_9212_1294637_30102024061853_WEB.xml
+RELIANCE,ICRA,ISIN INE002A08690,[ICRA] AAA,Stable,reaffirmed,2025-01-30,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_10092_1366361_30012025063151_WEB.xml
+RELIANCE,ICRA,ISIN INE002A08534,[ICRA] AAA,Stable,reaffirmed,2025-01-30,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_10092_1366361_30012025063151_WEB.xml
+RELIANCE,ICRA,ISIN INE002A08542,[ICRA] AAA,Stable,reaffirmed,2025-01-30,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_10092_1366361_30012025063151_WEB.xml
+RELIANCE,ICRA,ISIN INE002A08567,[ICRA] AAA,Stable,reaffirmed,2025-01-30,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_10092_1366361_30012025063151_WEB.xml
+RELIANCE,CARE,ISIN INE002A08617,CARE AAA,Stable,withdrawn,2025-07-04,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_11435_1477591_04072025083302_WEB.xml
+RELIANCE,CARE,ISIN INE002A08567,CARE AAA,Stable,reaffirmed,2025-07-04,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_11435_1477591_04072025083302_WEB.xml
+RELIANCE,CARE,ISIN INE002A07809,CARE AAA,Stable,reaffirmed,2025-07-04,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_11435_1477591_04072025083302_WEB.xml
+RELIANCE,CARE,ISIN INE002A08690,CARE AAA,Stable,reaffirmed,2025-07-04,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_11435_1477591_04072025083302_WEB.xml
+RELIANCE,CARE,ISIN INE002A08534,CARE AAA,Stable,reaffirmed,2025-07-04,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_11435_1477591_04072025083302_WEB.xml
+RELIANCE,CARE,ISIN INE002A08542,CARE AAA,Stable,reaffirmed,2025-07-04,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_11435_1477591_04072025083302_WEB.xml
+ASHOKLEY,ICRA,ISIN INE208A07406,[ICRA]AA+,STABLE,reaffirmed,2025-09-12,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_11933_1527596_15092025115646_WEB.xml
+RELIANCE,CRISIL,ISIN INE002A08542,CRISIL AAA,Stable,reaffirmed,2025-10-30,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_12220_1562281_30102025114131_WEB.xml
+RELIANCE,CRISIL,ISIN INE002A07809,CRISIL AAA,Stable,reaffirmed,2025-10-30,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_12220_1562281_30102025114131_WEB.xml
+RELIANCE,CRISIL,ISIN INE002A08567,CRISIL AAA,Stable,reaffirmed,2025-10-30,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_12220_1562281_30102025114131_WEB.xml
+RELIANCE,CRISIL,ISIN INE002A08690,CRISIL AAA,Stable,reaffirmed,2025-10-30,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_12220_1562281_30102025114131_WEB.xml
+RELIANCE,CRISIL,ISIN INE002A08617,CRISIL AAA,Stable,withdrawn,2025-10-30,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_12220_1562281_30102025114131_WEB.xml
+RELIANCE,CRISIL,ISIN INE002A08534,CRISIL AAA,Stable,reaffirmed,2025-10-30,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_12220_1562281_30102025114131_WEB.xml
+RELIANCE,ICRA,ISIN INE002A08567,[ICRA]AAA,Stable,reaffirmed,2026-01-29,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_12794_1613708_29012026074751_WEB.xml
+RELIANCE,ICRA,ISIN INE002A08690,[ICRA]AAA,Stable,reaffirmed,2026-01-29,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_12794_1613708_29012026074751_WEB.xml
+RELIANCE,ICRA,ISIN INE002A08542,[ICRA]AAA,Stable,reaffirmed,2026-01-29,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_12794_1613708_29012026074751_WEB.xml
+RELIANCE,ICRA,ISIN INE002A08534,[ICRA]AAA,Stable,reaffirmed,2026-01-29,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_12794_1613708_29012026074751_WEB.xml
+RELIANCE,CARE,ISIN INE002A07809,CARE AAA,Stable,reaffirmed,2026-07-03,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_14036_1687997_03072026075546_WEB.xml
+RELIANCE,CARE,ISIN INE002A08534,CARE AAA,Stable,reaffirmed,2026-07-03,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_14036_1687997_03072026075546_WEB.xml
+RELIANCE,CARE,ISIN INE002A08542,CARE AAA,Stable,reaffirmed,2026-07-03,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_14036_1687997_03072026075546_WEB.xml
+RELIANCE,CARE,ISIN INE002A08690,CARE AAA,Stable,reaffirmed,2026-07-03,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_14036_1687997_03072026075546_WEB.xml
+RELIANCE,CARE,ISIN INE002A08567,CARE AAA,Stable,reaffirmed,2026-07-03,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_14036_1687997_03072026075546_WEB.xml
+AFCONS,CRISIL,ISIN INE101I08081,CRISIL AA-,Negative,downgraded,2026-08-19,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_14554_1716295_20082026014100_WEB.xml
+AFCONS,CRISIL,ISIN INE101I14EU4,CRISIL A1+,Stable,reaffirmed,2026-08-19,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_14554_1716295_20082026014100_WEB.xml
+AFCONS,CRISIL,ISIN INE101I14EQ2,CRISIL A1+,Stable,reaffirmed,2026-08-19,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_14554_1716295_20082026014100_WEB.xml
+AFCONS,CRISIL,ISIN INE101I01011,CRISIL AA-,Negative,downgraded,2026-08-19,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_14554_1716295_20082026014100_WEB.xml
+RELIANCE,CRISIL,ISIN INE002A08567,CRISIL AAA,Stable,reaffirmed,2026-09-25,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_14775_1728714_25092026101502_WEB.xml
+RELIANCE,CARE,ISIN INE002A08567,CARE AAA,Stable,reaffirmed,2026-09-25,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_14775_1728714_25092026101502_WEB.xml
+RELIANCE,CARE,ISIN INE002A08708,CARE AAA,Stable,reaffirmed,2026-09-25,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_14775_1728714_25092026101502_WEB.xml
+RELIANCE,CRISIL,ISIN INE002A08708,CRISIL AAA,Stable,reaffirmed,2026-09-25,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_14775_1728714_25092026101502_WEB.xml
+RELIANCE,CARE,ISIN INE002A07809,CARE AAA,Stable,reaffirmed,2026-09-25,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_14775_1728714_25092026101502_WEB.xml
+RELIANCE,CRISIL,ISIN INE002A07809,CRISIL AAA,Stable,reaffirmed,2026-09-25,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_14775_1728714_25092026101502_WEB.xml
+RELIANCE,CARE,ISIN INE002A08690,CARE AAA,Stable,reaffirmed,2026-09-25,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_14775_1728714_25092026101502_WEB.xml
+RELIANCE,CRISIL,ISIN INE002A08690,CRISIL AAA,Stable,reaffirmed,2026-09-25,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_14775_1728714_25092026101502_WEB.xml
+RELIANCE,CRISIL,ISIN INE002A08534,CRISIL AAA,Stable,reaffirmed,2026-09-25,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_14775_1728714_25092026101502_WEB.xml
+RELIANCE,CARE,ISIN INE002A08534,CARE AAA,Stable,reaffirmed,2026-09-25,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_14775_1728714_25092026101502_WEB.xml
+RELIANCE,CRISIL,ISIN INE002A08542,CRISIL AAA,Stable,reaffirmed,2026-09-25,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_14775_1728714_25092026101502_WEB.xml
+RELIANCE,CARE,ISIN INE002A08542,CARE AAA,Stable,reaffirmed,2026-09-25,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_14775_1728714_25092026101502_WEB.xml
+AFCONS,India Ratings,ISIN INE101I14EU4,IND A1+,,reaffirmed,2026-09-24,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_14774_1728045_25092026013228_WEB.xml
+AFCONS,India Ratings,ISIN INE101I14EQ2,IND A1+,,reaffirmed,2026-09-24,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_14774_1728045_25092026013228_WEB.xml
+RELIANCE,CRISIL,ISIN INE002A08567,CRISIL AAA,Stable,reaffirmed,2026-09-09,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_14713_1723119_09092026083929_WEB.xml
+RELIANCE,CARE,ISIN INE002A08567,CARE AAA,Stable,reaffirmed,2026-09-09,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_14713_1723119_09092026083929_WEB.xml
+RELIANCE,CRISIL,ISIN INE002A08690,CRISIL AAA,Stable,reaffirmed,2026-09-09,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_14713_1723119_09092026083929_WEB.xml
+RELIANCE,CARE,ISIN INE002A08690,CARE AAA,Stable,reaffirmed,2026-09-09,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_14713_1723119_09092026083929_WEB.xml
+RELIANCE,CRISIL,ISIN INE002A08534,CRISIL AAA,Stable,reaffirmed,2026-09-09,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_14713_1723119_09092026083929_WEB.xml
+RELIANCE,CARE,ISIN INE002A08534,CARE AAA,Stable,reaffirmed,2026-09-09,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_14713_1723119_09092026083929_WEB.xml
+RELIANCE,CRISIL,ISIN INE002A08542,CRISIL AAA,Stable,reaffirmed,2026-09-09,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_14713_1723119_09092026083929_WEB.xml
+RELIANCE,CARE,ISIN INE002A08542,CARE AAA,Stable,reaffirmed,2026-09-09,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_14713_1723119_09092026083929_WEB.xml
+RELIANCE,CRISIL,ISIN INE002A07809,CRISIL AAA,Stable,reaffirmed,2026-09-09,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_14713_1723119_09092026083929_WEB.xml
+RELIANCE,CARE,ISIN INE002A07809,CARE AAA,Stable,reaffirmed,2026-09-09,https://nsearchives.nseindia.com/corporate/xbrl/CDC_CR_14713_1723119_09092026083929_WEB.xml

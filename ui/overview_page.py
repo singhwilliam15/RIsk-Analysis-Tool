@@ -13,7 +13,7 @@ from disclosures import DATASETS, template
 from fundamentals import FIELDS_BY_NAME, PROFILE_FIELDS, STATEMENTS, fundamentals_template, statement_table
 from ui.foundations import OVERRIDES_KEY
 from ui.overview import render_overview
-from ui.pages import COMING_NEXT, MARKET, OVERVIEW, PAGES
+from ui.pages import BUILT, COMING_NEXT, PAGES
 
 STATEMENT_TITLES = {"income": "Income statement", "balance": "Balance sheet", "cashflow": "Cash flow"}
 
@@ -50,8 +50,8 @@ def _data_quality(ctx):
     st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch",
                  column_config={"Score": st.column_config.ProgressColumn("Score", min_value=0, max_value=100, format="%d")})
     st.caption("100 minus penalties for reversing spikes, stale prices, zero-volume days, gaps, short history and "
-               "missing fundamentals. The thresholds are assumptions (docs/methodology.md, section 7). The score feeds "
-               "the Trust grade from Phase 1. Volume for Indian stocks is NSE + BSE where Yahoo has both histories; "
+               "missing fundamentals. The thresholds are assumptions (docs/methodology.md, section 7). The lowest score "
+               "feeds every trust grade. Volume for Indian stocks is NSE + BSE where Yahoo has both histories; "
                "Yahoo often has no usable BSE history for large caps, and then NSE volume is used alone.")
     with st.expander("Every check, per holding"):
         for ticker, q in ctx.quality.items():
@@ -134,6 +134,6 @@ def _disclosures(ctx):
 
 def _pillar_status():
     st.markdown("### 🧭 Pillars")
-    rows = [{"Page": page, "Status": "built" if page in (OVERVIEW, MARKET) else f"coming next (Phase {COMING_NEXT[page][0]})"}
+    rows = [{"Page": page, "Status": "built" if page in BUILT else f"coming next (Phase {COMING_NEXT[page][0]})"}
             for page in PAGES]
     st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")

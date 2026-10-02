@@ -62,6 +62,9 @@ def render(ctx, tab5):
                        "alignment": alignment} if is_portfolio else None,
             data_layer={"positions": ctx.positions, "quality": ctx.quality, "volume_sources": ctx.volume_sources,
                         "prices_as_of": ctx.prices_as_of},
+            trust={"ranges_table": ctx.ranges_table, "grades": ctx.trust["grades"], "model_risk": ctx.trust["model_risk"],
+                   "lookback": ctx.lookback, "ghost": ctx.ghost, "block_length": ctx.trust_ranges["block_length"],
+                   "headline_model": ctx.headline_model},
         )
 
         st.download_button(

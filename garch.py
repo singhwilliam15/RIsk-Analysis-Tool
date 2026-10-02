@@ -50,8 +50,10 @@ class GarchParams:
 def fit_garch_t(returns: pd.Series) -> dict:
     """
     Fit GARCH(1,1) with Student-t errors and a constant mean.
-    Returns {"params": GarchParams | None, "converged": bool, "error": str | None}.
+    Returns {"params": GarchParams | None, "converged": bool, "error": str | None, "param_cov": ndarray | None}.
     A fit counts as converged only if the optimiser succeeded and the parameters are stationary.
+    `param_cov` is the robust (sandwich) asymptotic covariance of (mu, omega, alpha, beta, nu), in the
+    same percentage units as the parameters; the Trust layer uses it for parameter uncertainty.
     """
     try:
         from arch import arch_model
@@ -61,10 +63,18 @@ def fit_garch_t(returns: pd.Series) -> dict:
         p = res.params
         params = GarchParams(float(p["mu"]), float(p["omega"]), float(p["alpha[1]"]), float(p["beta[1]"]), float(p["nu"]))
         converged = res.convergence_flag == 0 and params.is_valid()
+        try:
+            param_cov = res.param_cov.loc[GARCH_PARAM_NAMES, GARCH_PARAM_NAMES].to_numpy(dtype=float)
+        except Exception:
+            param_cov = None
         return {"params": params if converged else None, "converged": converged,
-                "error": None if converged else "optimiser did not converge or parameters are not stationary"}
+                "error": None if converged else "optimiser did not converge or parameters are not stationary",
+                "param_cov": param_cov if converged else None}
     except Exception as exc:
-        return {"params": None, "converged": False, "error": str(exc)}
+        return {"params": None, "converged": False, "error": str(exc), "param_cov": None}
+
+
+GARCH_PARAM_NAMES = ["mu", "omega", "alpha[1]", "beta[1]", "nu"]
 
 
 def garch_filter(returns, params: GarchParams, initial_variance: float = None) -> np.ndarray:

@@ -8,7 +8,7 @@
 
 A risk dashboard for a single stock or a multi-stock portfolio on NSE, BSE or US markets. It is being extended from market risk into a full risk analysis tool with five pillars: market, liquidity, credit, concentration & factor, and event & governance risk.
 
-The pillars are linked through one integrated stress engine, because in a real crisis they hit together. Every headline number will also carry a confidence range and an A–D trust grade. The plan, phase by phase, is in [RISK_TOOL_PLAN_V3.md](RISK_TOOL_PLAN_V3.md).
+The pillars are linked through one integrated stress engine, because in a real crisis they hit together. Every headline number carries a 90% range and an A–D trust grade with its reasons. The plan, phase by phase, is in [RISK_TOOL_PLAN_V3.md](RISK_TOOL_PLAN_V3.md).
 
 **Market risk** is complete. It estimates Value at Risk (VaR) and Expected Shortfall (ES) with eight models, from historical simulation to GARCH(1,1) with Student-t errors. It then **tests which model can be trusted**:
 - every model is backtested out of sample with the Kupiec, Christoffersen and McNeil-Frey (ES) tests;
@@ -23,14 +23,32 @@ The **shared data layer** is in place for the coming pillars:
 - loaders for official Indian disclosures (pledges, ASM/GSM, price bands, F&O ban, ratings, auditor events);
 - a data-quality score for every holding.
 
-Results export to a formatted Excel report. Built in Python with Streamlit, and covered by 224 offline tests in CI.
+The **trust layer** shows how far each number can be relied on:
+- a 90% range for every model's VaR and ES, from a block bootstrap or GARCH parameter draws;
+- an A–D grade from written rules, with the reasons for every deduction;
+- the model-risk add-on across the models that pass the backtests;
+- ES on 1-year, 2-year, 5-year and full-history windows;
+- a "ghost effect" detector for Historical VaR.
+
+Results export to a formatted Excel report. Built in Python with Streamlit, and covered by 276 offline tests in CI.
 
 | Page | Status |
 | --- | --- |
-| Overview | Built: summary cards, positions, data quality, fundamentals and their sources, disclosure files. Becomes the CRO dashboard in Phase 6. |
-| Market | Built: every model, backtest, portfolio, stress and export tab. |
-| Trust · Liquidity · Credit · Concentration & Factors · Event & Governance | Coming next (Phases 1–5) |
+| Overview | Built: summary cards with 90% ranges and grades, positions, data quality, fundamentals and their sources, disclosure files. Becomes the CRO dashboard in Phase 6. |
+| Market | Built: every model (with 90% range and grade), backtest, portfolio, stress and export tab. |
+| Trust | Built: ranges, grades, model risk, lookback sensitivity, ghost effect. |
+| Liquidity · Credit · Concentration & Factors · Event & Governance | Coming next (Phases 2–5) |
 | Integrated Stress · Decisions | Coming next (Phase 6) |
+
+### How far to trust the numbers (live data to 30 Sep 2026, 95% 1-day ES on ₹10 lakh, 2-year lookback)
+
+| Position | Headline model | ES (90% range) | Grade | Main deductions |
+| --- | --- | --- | --- | --- |
+| Reliance | EWMA | ₹25,613 (₹24,068–₹27,486) | B | models disagree by 17%; 499 returns; λ is assumed |
+| HDFC Bank | EWMA | ₹26,835 (₹25,106–₹28,711) | D | EWMA is recommended on the VaR tests but fails the ES test; only FHS passes both |
+| Asian Paints | GARCH(1,1)-t | ₹30,088 (₹25,319–₹33,781) | B | range 28% wide; models disagree by 24% |
+| Jaiprakash Power | GARCH(1,1)-t (fit failed, shows EWMA) | ₹42,071 (₹34,497–₹49,313) | C | models disagree by 137% (Student-t ₹93,296 vs FHS ₹35,773) |
+| 5-stock portfolio | EWMA | ₹16,125 (₹15,165–₹17,114) | B | 499 returns; λ is assumed; HDFC Bank's data score |
 
 ## Key findings
 
@@ -63,7 +81,8 @@ Screenshots (add the files to docs/images/, then remove this comment wrapper):
 | **Positions** | Holdings entered as weights, share counts or money values, each stored as quantity, price, value, weight and sector. |
 | **Data layer** | Open, high, low, close and volume, with NSE and BSE volume summed where Yahoo has both. Annual fundamentals mapped to one set of field names, which a CSV upload can override field by field; each figure shows its source. Loaders and validators for Indian disclosure files, which you download from NSE, BSE and the rating agencies, listed in a manifest with source and date. |
 | **Data quality** | Adjusted prices, exchange-timezone dates, a visible data source, and warnings for suspicious moves. Each holding gets a 0–100 data-quality score, from checks for reversing spikes, stale prices, zero-volume days, gaps, short history and missing fundamentals. Data are never altered silently. |
-| **Excel report** | Dashboard, Portfolio Risk, Backtesting, Stress Testing, Positions & Data, and Raw Data sheets. |
+| **Trust** | 90% ranges for every model's VaR and ES: a stationary block bootstrap (Politis-White block length) for the unconditional models, a residual bootstrap with today's volatility fixed for EWMA and FHS, and asymptotic parameter draws for GARCH-t and Monte Carlo. A–D grades come from written rules: range width, model dispersion, backtest, data quality, sample length, and the share of inputs that are assumptions. Also the model-risk add-on, lookback sensitivity, and the ghost effect in Historical VaR. |
+| **Excel report** | Dashboard (with 90% ranges and grades), Portfolio Risk, Backtesting, Stress Testing, Positions & Data, Trust, and Raw Data sheets. |
 
 Every formula, test and design choice is in **[docs/methodology.md](docs/methodology.md)**, with references.
 
@@ -203,7 +222,7 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-The 224 tests run on every push and pull request through GitHub Actions, on Python 3.11 and 3.12. They run **offline**: `conftest.py` blocks outbound connections, and market data comes from a deterministic synthetic generator or mocked Yahoo responses. Every calculation is checked against an independent reference: a closed form, a simulation, a hand-worked example or known true parameters. Highlights:
+The 276 tests run on every push and pull request through GitHub Actions, on Python 3.11 and 3.12. They run **offline**: `conftest.py` blocks outbound connections, and market data comes from a deterministic synthetic generator or mocked Yahoo responses. Every calculation is checked against an independent reference: a closed form, a simulation, a hand-worked example or known true parameters. Highlights:
 - **GARCH:** recovers the true parameters from simulated GARCH-t data.
 - **Student-t ES:** matches 2 million simulated draws.
 - **Portfolio:** components add up exactly on every basis, and match the normal Euler shares on 400,000 simulated days.
@@ -212,6 +231,7 @@ The 224 tests run on every push and pull request through GitHub Actions, on Pyth
 - **McNeil-Frey:** rejects an ES understated by 30%.
 - **Fundamentals:** the field mapping is checked against real RELIANCE.NS and AAPL statements saved from yfinance, including the years and rows Yahoo leaves out.
 - **Disclosures:** the parsers read sample files laid out like NSE's downloads, reject bad rows with their row number, and apply the point-in-time dates.
+- **Trust:** the bootstrap ranges contain the true VaR and ES about 90% of the time on simulated normal returns. GARCH parameter draws reproduce the fitted covariance. Every grade rule is checked at its thresholds. The ghost detector finds a planted crash as it enters and leaves the window.
 - **Positions and data quality:** share, value and weight entry give the same portfolio, checked by hand. Each data-quality check is tested on synthetic histories with planted defects.
 - **App smoke tests:** `test_app.py` drives the full Streamlit app in both modes and on every page, including the error paths.
 
@@ -229,6 +249,7 @@ data_fetcher.py        Yahoo Finance OHLCV download with a direct-HTTP fallback;
 fundamentals.py        Annual statements and profile, field mapping, CSV overrides, point-in-time dates
 disclosures.py         Loaders, templates and validators for Indian disclosure files
 data_quality.py        Data-quality score per holding
+trust.py               TrustedMetric, 90% ranges, model risk, lookback sensitivity, ghost effect, A-D grades
 data/disclosures/      Your downloaded disclosure files, manifest.json, templates and download steps
 excel_exporter.py      Formatted Excel report
 docs/methodology.md    Formulas, tests, design choices and references
@@ -263,6 +284,7 @@ test_data/             Saved yfinance statements used as test fixtures
 - **The risk-free rate** is a user-set assumption, not a live rate.
 - **BSE volume** is often missing on Yahoo for large caps. When it is, NSE volume is used alone, and the Overview page says so for each holding.
 - **Holiday rows.** Yahoo fills some exchange holidays with the previous close and zero volume. They add zero returns to the sample, which slightly lowers volatility. They are counted in the data-quality check but not removed.
+- **Trust ranges** cover estimation error only, not a change of regime. GARCH and Monte Carlo ranges cover parameter uncertainty only. Bootstrap ranges for Historical ES are too narrow at small tail sizes (84% coverage instead of 90% in a 500-day, 95% simulation). The grade thresholds are assumptions.
 - **Disclosure layouts.** The parsers for official NSE files (except `fo_secban.csv`) match headers through an alias table that has not yet been checked against real downloads.
 
 ## License

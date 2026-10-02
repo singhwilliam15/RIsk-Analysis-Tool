@@ -48,16 +48,29 @@ def render_overview(ctx):
         if is_portfolio else
         (col1, "Current Stock Price", f"{curr_sym}{current_price:,.2f}", f"Data Points: {stats['n_obs']} Days", "metric-sub")
     )
+    trusted = ctx.trusted
+
+    def money(v):
+        return f"{curr_sym}{v:,.0f}"
+
+    def trust_line(metric):
+        return f"{metric.range_text(money)} · grade {metric.grade}"
+
     cards = [
         first_card,
         (col2, "Annualized Volatility", f"{stats['ann_vol']:.2%}", f"EWMA today: {var_ewma['sigma_forecast'] * np.sqrt(252):.2%}", "metric-sub"),
-        (col3, f"Historical VaR ({cl_label})", f"{curr_sym}{var_hist['var_scaled_amount']:,.0f}", f"Loss ({var_hist['var_daily_pct']:.2%})", "metric-sub-red"),
-        (col4, f"Expected Shortfall ({cl_label})", f"{curr_sym}{var_hist['cvar_scaled_amount']:,.0f}", f"Tail Loss ({var_hist['cvar_daily_pct']:.2%})", "metric-sub-red"),
+        (col3, f"Historical VaR ({cl_label})", money(var_hist['var_scaled_amount']),
+         f"Loss ({var_hist['var_daily_pct']:.2%})<br>{trust_line(trusted['Historical']['VaR'])}", "metric-sub-red"),
+        (col4, f"Expected Shortfall ({cl_label})", money(var_hist['cvar_scaled_amount']),
+         f"Tail Loss ({var_hist['cvar_daily_pct']:.2%})<br>{trust_line(trusted['Historical']['ES'])}", "metric-sub-red"),
         (
             (col5, "Recommended Model", recommended_model,
-             f"Lowest tick loss among passing · VaR {curr_sym}{var_selected[point_name(recommended_model)]['var_scaled_amount']:,.0f}", "metric-sub")
+             f"Lowest tick loss among passing · VaR {money(var_selected[point_name(recommended_model)]['var_scaled_amount'])}"
+             f"<br>{trust_line(trusted[point_name(recommended_model)]['VaR'])}", "metric-sub")
             if recommendation["status"] == "recommended" else
-            (col5, "No Model Passes", recommended_model, "Lowest tick loss shown; use with caution", "metric-sub-red")
+            (col5, "No Model Passes", recommended_model,
+             f"Lowest tick loss shown; use with caution<br>{trust_line(trusted[point_name(recommended_model)]['VaR'])}",
+             "metric-sub-red")
             if recommendation["status"] == "none_pass" else
             (col5, "Recommended Model", "Not enough data", f"{test_days} of {required_days} test days needed", "metric-sub-red")
         ),

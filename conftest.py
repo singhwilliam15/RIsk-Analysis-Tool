@@ -98,8 +98,13 @@ def fake_market(monkeypatch):
     import data_fetcher
     import fundamentals
     import streamlit as st
+    import trust
     monkeypatch.setattr(data_fetcher, "fetch_stock_data", fake_fetch_stock_data)
     monkeypatch.setattr(fundamentals, "fetch_fundamentals", fake_fetch_fundamentals)
+    # The app smoke tests check wiring, not the ranges (test_trust.py does), so they use few resamples
+    monkeypatch.setattr(trust, "N_BOOT", 60)
+    monkeypatch.setattr(trust, "N_BOOT_REFIT", 15)
+    monkeypatch.setattr(trust, "N_PARAM_DRAWS", 100)
     st.cache_data.clear()
     yield fake_fetch_stock_data
     st.cache_data.clear()

@@ -109,11 +109,32 @@ def test_overview_is_the_landing_page(fake_market):
 
 
 @pytest.mark.parametrize("page", ["Liquidity", "Credit", "Concentration & Factors", "Event & Governance",
-                                  "Integrated Stress", "Decisions", "Trust"])
+                                  "Integrated Stress", "Decisions"])
 def test_unbuilt_pages_say_coming_next(fake_market, page):
     at = run_app(page=page)
     assert_clean(at)
     assert any("Coming next" in i.value for i in at.info)
+
+
+@pytest.mark.parametrize("mode", ["Single Stock", "Portfolio"])
+def test_trust_page(fake_market, mode):
+    at = run_app(mode if mode == "Portfolio" else None, page="Trust")
+    assert_clean(at)
+    headings = [m.value for m in at.markdown]
+    for section in ("Every model", "Lookback sensitivity", "Ghost effect", "What this metric misses"):
+        assert any(section in h for h in headings), section
+    assert at.metric[2].label == "Trust grade" and at.metric[2].value in ("A", "B", "C", "D")
+    models = at.dataframe[0].value
+    assert len(models) == 8 and set(models["Grade"]) <= {"A", "B", "C", "D"}
+
+
+def test_headline_numbers_carry_range_and_grade(fake_market):
+    at = run_app(page="Market")
+    assert_clean(at)
+    cards = " ".join(m.value for m in at.markdown if "metric-card" in m.value)
+    assert cards.count("90% range") == 3 and cards.count("grade ") == 3
+    table = at.table[0].value
+    assert "Grade" in table.columns and any("90% range" in c for c in table.columns)
 
 
 def test_inputs_are_shared_across_pages(fake_market):

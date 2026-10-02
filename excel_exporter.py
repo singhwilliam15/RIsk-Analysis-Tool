@@ -34,6 +34,11 @@ def _plain(value):
     return value
 
 
+def _finite(value):
+    """A number openpyxl can write, or 'n/a' for NaN / infinity."""
+    return value if value is not None and np.isfinite(value) else "n/a"
+
+
 def _write_table(ws, top_row: int, columns, rows, first_col: int = 2):
     """
     Write a header row and data rows.
@@ -62,7 +67,7 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
                               benchmark_name: str, beta: float, portfolio: dict = None,
                               recommendation: dict = None, data_note: str = None, risk_free_rate: float = None,
                               vol_shock_table: pd.DataFrame = None, beta_down: float = float("nan"),
-                              data_layer: dict = None) -> bytes:
+                              data_layer: dict = None, trust: dict = None) -> bytes:
     """
     Generate the Risk Analysis Tool's Excel report and return it as .xlsx bytes.
     `var_by_level` maps model name -> {confidence level -> VaR result dict}.
@@ -71,6 +76,8 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
     "correlation" and "alignment" (portfolio.alignment_report).
     `data_layer` (optional) holds "positions" (portfolio.build_positions), "quality" (ticker ->
     data_quality.assess_holding result), "volume_sources" and "prices_as_of"; it adds a Positions & Data sheet.
+    `trust` (optional) holds "ranges_table" (trust.scale_ranges), "grades", "model_risk", "lookback", "ghost",
+    "block_length" and "headline_model"; it adds 90% ranges and grades to the Dashboard and a Trust sheet.
     """
     money = f'"{currency}" #,##0'
     wb = openpyxl.Workbook()
@@ -107,13 +114,23 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
     ws_dash["B14"].font = BOLD_FONT
     cl_pct = f"{confidence_level * 100:g}%"
     levels_shown = sorted(next(iter(var_by_level.values())))
+    trust_columns, trust_rows = [], {}
+    if trust is not None:
+        # "value (90% range, grade)" for every headline number: the range and grade sit next to each model's figures
+        trust_columns = [(f"{cl_pct} VaR 90% Low", money), (f"{cl_pct} VaR 90% High", money),
+                         (f"{cl_pct} ES 90% Low", money), (f"{cl_pct} ES 90% High", money), ("Trust Grade", "@")]
+        grades = trust["grades"].set_index("Model")["Grade"]
+        for row in trust["ranges_table"].to_dict("records"):
+            trust_rows[row["Model"]] = [_finite(row["VaR Low"]), _finite(row["VaR High"]), _finite(row["ES Low"]),
+                                        _finite(row["ES High"]), grades.get(row["Model"], "n/a")]
     _write_table(
         ws_dash, 15,
         [("Model", "@")] + [(f"{cl * 100:g}% VaR", money) for cl in levels_shown]
-        + [(f"{cl_pct} Expected Shortfall", money), ("Multi-day Rule", "@")],
+        + [(f"{cl_pct} Expected Shortfall", money), ("Multi-day Rule", "@")] + trust_columns,
         [
             (model, *[levels[cl]["var_scaled_amount"] for cl in levels_shown], levels[confidence_level]["cvar_scaled_amount"],
-             levels[confidence_level]["scaling_rule"] if holding_period > 1 else "1 day")
+             levels[confidence_level]["scaling_rule"] if holding_period > 1 else "1 day",
+             *trust_rows.get(model, ["n/a"] * len(trust_columns)))
             for model, levels in var_by_level.items()
         ],
     )
@@ -267,6 +284,53 @@ def generate_excel_var_report(symbol: str, company_name: str, currency: str, inv
             [("Ticker", "@"), ("Score (0-100)", "0"), ("Volume From", "@"), ("Issues", "@")],
             [(t, q["score"], " + ".join(volume_sources.get(t, [t])), "; ".join(q["reasons"]) or "no issues found")
              for t, q in quality.items()],
+        )
+
+    # -------------------------------------------------------------
+    # TRUST (when the app supplies it)
+    # -------------------------------------------------------------
+    if trust is not None:
+        ws_trust = wb.create_sheet(title="Trust")
+        ws_trust["B2"] = "🛡️ TRUST: 90% RANGES, GRADES AND MODEL RISK"
+        ws_trust["B2"].font = TITLE_FONT
+        ws_trust["B3"] = (f"{cl_pct}, {holding_period}-day. Ranges: 5th-95th percentile of block-bootstrap resamples "
+                          f"(mean block {trust['block_length']:.1f} days) or GARCH parameter draws. Grades follow the "
+                          "rules in docs/methodology.md section 8.")
+        ws_trust["B3"].font = SUBTITLE_FONT
+        grades = trust["grades"].set_index("Model")
+        next_row = _write_table(
+            ws_trust, 5,
+            [("Model", "@"), ("VaR", money), ("VaR 90% Low", money), ("VaR 90% High", money), ("ES", money),
+             ("ES 90% Low", money), ("ES 90% High", money), ("Backtest", "@"), ("Grade", "@"), ("Range Method", "@"),
+             ("Reasons", "@")],
+            [(r["Model"], r["VaR"], _finite(r["VaR Low"]), _finite(r["VaR High"]), r["ES"], _finite(r["ES Low"]),
+              _finite(r["ES High"]), grades.loc[r["Model"], "Backtest"], grades.loc[r["Model"], "Grade"], r["Range Method"],
+              grades.loc[r["Model"], "Reasons"]) for r in trust["ranges_table"].to_dict("records")],
+        )
+        risk = trust["model_risk"]
+        ws_trust.cell(row=next_row, column=2, value="MODEL RISK").font = BOLD_FONT
+        next_row = _write_table(
+            ws_trust, next_row + 1, [("Measure", "@"), ("Value", money)],
+            [(f"Lowest ES across {risk['basis']}", risk["low"]), (f"Highest ES across {risk['basis']}", risk["high"]),
+             ("Recommended model's ES", _finite(risk["recommended_es"])),
+             ("Model-risk add-on (highest passing ES − recommended ES)", _finite(risk["add_on"]))],
+        )
+        lookback = trust["lookback"]
+        models = [c for c in lookback.columns if c not in ("Lookback", "Days", "Available", "From", "Note")]
+        ws_trust.cell(row=next_row, column=2, value="LOOKBACK SENSITIVITY (ES)").font = BOLD_FONT
+        next_row = _write_table(
+            ws_trust, next_row + 1, [("Lookback", "@"), ("Days", "0")] + [(m, money) for m in models] + [("Note", "@")],
+            [(r["Lookback"], r["Days"], *[_finite(r.get(m, np.nan)) for m in models], r.get("Note") or "")
+             for r in lookback.to_dict("records")],
+        )
+        ghost = trust["ghost"]
+        ws_trust.cell(row=next_row, column=2, value="GHOST EFFECT IN HISTORICAL VAR").font = BOLD_FONT
+        _write_table(
+            ws_trust, next_row + 1, [("Measure", "@"), ("Value", "@")],
+            [("Window (returns)", ghost["window_days"]), ("Historical VaR now", round(ghost["var_now"])),
+             (f"Without the oldest {ghost['horizon']} days", _finite(round(ghost["var_after"])) if np.isfinite(ghost["var_after"]) else "n/a"),
+             (f"Tail losses leaving within {ghost['horizon']} days", len(ghost["leaving"])),
+             (f"Past VaR jumps > {ghost['jump']:.0%} caused by a loss leaving", ghost["exits"])],
         )
 
     # -------------------------------------------------------------

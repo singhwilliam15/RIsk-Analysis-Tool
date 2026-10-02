@@ -10,6 +10,7 @@ import streamlit as st
 
 import data_fetcher
 import fundamentals
+import trust
 from stress import run_scenarios
 from var_calculator import backtest_all_methods, calculate_all_var, fit_models, rolling_forecasts, rolling_model_fits
 
@@ -64,6 +65,22 @@ def cached_rolling_forecasts(returns: pd.Series, confidence_level: float, window
 def cached_backtest(returns: pd.Series, var: pd.DataFrame, confidence_level: float, es: pd.DataFrame,
                     sigma: pd.DataFrame) -> pd.DataFrame:
     return backtest_all_methods(returns, var, confidence_level, es, sigma)
+
+
+@st.cache_data(show_spinner="Bootstrapping 90% ranges for every model…", max_entries=32)
+def cached_trust_ranges(returns: pd.Series, confidence_level: float, num_simulations: int) -> dict:
+    # 1-day ranges as decimal losses: independent of the position size and horizon, so those reuse them
+    return trust.bootstrap_ranges(returns, confidence_level, cached_fit_models(returns), num_simulations)
+
+
+@st.cache_data(show_spinner="Recomputing ES on each lookback…", max_entries=32)
+def cached_lookback(history: pd.Series, investment: float, confidence_level: float, holding_period: int) -> pd.DataFrame:
+    return trust.lookback_sensitivity(history, investment, confidence_level, holding_period)
+
+
+@st.cache_data(show_spinner=False, max_entries=32)
+def cached_ghost(window: pd.Series, history: pd.Series, confidence_level: float, investment: float) -> dict:
+    return trust.ghost_effect(window, history, confidence_level, investment=investment)
 
 
 @st.cache_data(show_spinner=False, max_entries=64)

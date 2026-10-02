@@ -1,6 +1,6 @@
 # Methodology
 
-This document describes every calculation in the Risk Analysis Tool: the eight market-risk models, the multi-day rules, the backtests, the model-selection rule, the portfolio risk decomposition, the stress tests, and the data layer that every risk pillar shares (positions, prices and volume, fundamentals, disclosures and data quality). Section numbers match the code modules named in each heading. The pillars still to come (liquidity, credit, concentration, event risk, integration) are planned in `RISK_TOOL_PLAN_V3.md` and will be documented here as they are built.
+This document describes every calculation in the Risk Analysis Tool: the eight market-risk models, the multi-day rules, the backtests, the model-selection rule, the portfolio risk decomposition, the stress tests, and the data layer that every risk pillar shares (positions, prices and volume, fundamentals, disclosures and data quality), and the trust layer (90% ranges, model risk and A–D grades). Section numbers match the code modules named in each heading. The pillars still to come (liquidity, credit, concentration, event risk, integration) are planned in `RISK_TOOL_PLAN_V3.md` and will be documented here as they are built.
 
 **Notation.** `r_t` is the simple daily return on day t. α = 1 − confidence level is the tail probability (α = 0.01 for 99%). Losses are positive numbers, so VaR and ES are reported as positive amounts. `z = Φ⁻¹(1 − α)` is the standard normal quantile and φ is the normal density. μ and σ are the sample mean and standard deviation of daily returns. `t` (in multi-day formulas) is the holding period in days.
 
@@ -234,9 +234,71 @@ Each holding scores 100 minus penalties, floored at 0. The thresholds and penalt
 | History length | fewer than 250 returns / fewer than 500 | 25 / 10 | 250 is one estimation window. 500 is that window plus the 250 out-of-sample days a 99% backtest needs (§3.5). A 2-year lookback gives 499 returns, one short, matching the Backtesting tab's `LOW POWER` flag at 99%. |
 | Missing fundamentals | share of 10 key fields missing (revenue, EBIT, total assets and liabilities, current assets and liabilities, retained earnings, equity, cash from operations, shares outstanding) | up to 15, `round(15 × missing / 10)` | Later pillars (Altman Z, Merton) cannot run without them. Banks do not report EBIT or current assets, so they lose a few points by construction. |
 
-The data are never altered. The score feeds the Trust grade (Phase 1).
+The data are never altered. The lowest score among the holdings feeds the trust grade (§8.3).
 
 **Known effect on market risk.** Holiday filler rows add zero returns to the sample, which slightly lowers volatility and VaR. They are kept, because the tool does not alter the downloaded data, and they are now counted on the Overview page.
+
+## 8. Trust layer (`trust.py`)
+
+Every headline number is reported as **value (90% range, grade)**, a `TrustedMetric(value, low, high, grade, reasons, sources, assumptions)`. Later pillars use the same interface.
+
+### 8.1 90% ranges for VaR and ES
+
+Ranges are the 5th and 95th percentiles of the estimate recomputed many times. Each model's uncertainty is generated in the way that fits how the model works:
+
+| Models | How the estimate is recomputed | Count |
+| --- | --- | --- |
+| Historical, Normal, Student-t, Cornish-Fisher | Stationary block bootstrap of the returns (Politis and Romano, 1994). The model is re-estimated on each resample (Student-t by maximum likelihood). | 500 (Student-t: 200) |
+| EWMA, FHS | Tomorrow's EWMA volatility σ̂ is held fixed. The volatility-standardised returns `z_t = r_t/σ_t` are block-bootstrapped. FHS takes the empirical tail of the resampled `z`. EWMA multiplies its figure by `rms(z*)/rms(z)`, the sampling error in the residual scale. | 500 |
+| GARCH(1,1)-t | Parameter uncertainty only. 1,000 draws of (μ, ω, α, β, ν) come from a normal with the robust asymptotic covariance of the fit, truncated to valid parameters (ω > 0, α, β ≥ 0, α + β < 1, ν > 2.05). Each draw refilters the returns for tomorrow's σ and recomputes the closed-form t VaR and ES. | 1,000 |
+| Monte Carlo | 200 of the GARCH parameter draws, each simulated with 2,000 one-day shocks, so the range includes simulation noise. | 200 |
+
+- **Why EWMA, FHS and GARCH are not bootstrapped directly:** resampling raw returns scrambles the volatility clustering these models forecast from, and a GARCH refit per resample would add about a minute.
+- **Rejected draws:** the share of GARCH draws rejected is reported. Above 50% the range is flagged as unreliable. On real NSE stocks 17–34% were rejected, because α sits near its zero bound.
+- **Block length:** the Politis and White (2004) automatic choice, with the Patton, Politis and White (2009) correction (`arch.bootstrap.optimal_block_length`), applied to the returns and to the squared returns. The longer of the two is used, so volatility clustering is kept, clipped to [1, n/10]. If the estimate fails, the block length is `n^(1/3)`.
+- **Horizon:** ranges are computed for 1-day VaR and ES at the selected confidence level. Multi-day bounds are multiplied by each model's own ratio of t-day to 1-day figure, so they follow the model's scaling rule (§2).
+- **Coverage check:** on 300 samples of 500 i.i.d. normal days at 95%, the ranges contained the true value:
+  - 89% of the time for Historical VaR;
+  - 88% for Normal VaR and 88% for Normal ES;
+  - **only 84% for Historical ES.** The percentile bootstrap undercovers ES when the tail holds only about 25 observations. The Trust page says so.
+
+### 8.2 Model risk
+
+- **Passing models:** those with a VaR-test verdict of PASS and an ES test that did not FAIL.
+- **ES range across passing models**, and the **model-risk add-on** = highest passing ES − the recommended model's ES.
+- **When there's no clean recommendation:** if no model passes, or the recommended model itself fails the ES test, the add-on is not defined, and the range is taken across all models.
+
+**Lookback sensitivity.** Every model's ES (except Monte Carlo) on the last 252, 504 and 1,260 trading days and on the full history. These are slices of the long price history already downloaded for the crisis replay.
+- A window longer than the history is reported as not available.
+- A window containing reversing spikes (§7.5) is flagged.
+- Cornish-Fisher outside its valid region is noted, as on the Market page, and blanked when its ES is not positive. On Reliance's full history the +337% data-error spike makes Cornish-Fisher's ES −₹56 lakh, which is meaningless.
+
+**Ghost effect.** Historical VaR jumps when a large loss enters the window, and again when it leaves n days later, although nothing new happened.
+- **Ahead:** the tail losses (returns ≤ −VaR) among the oldest 21 days of today's window, and Historical VaR on the window without those 21 days.
+- **Past:** the rolling Historical VaR over the full history, with today's window length. A day-to-day change above **5%** (an assumption) is attributed by these rules:
+  - **exit**, if the return leaving the window was in the previous window's tail and the new return was not;
+  - **entry**, in the opposite case;
+  - **both**, or **reordering**, otherwise.
+- **Why 5%, not 10%:** at 95% with a 499-day window, no day-to-day move in Reliance's 30-year history exceeded 11%, so a 10% threshold found almost nothing.
+
+### 8.3 Grade A–D
+
+Each rule deducts 0, 1 or 2 points. A missing input deducts 1 point. All thresholds are assumptions, chosen so that a well-backtested model on clean data with two or more years of history earns A or B.
+
+| Rule | 0 | 1 | 2 |
+| --- | --- | --- | --- |
+| ES 90% range width ÷ ES | ≤ 20% | ≤ 40% | more |
+| ES spread across passing models ÷ recommended ES (§8.2) | ≤ 15% | ≤ 30% | more |
+| Backtest of this model | pass | low power or not tested | fail (VaR tests or ES test) |
+| Lowest data-quality score among holdings (§7.5) | ≥ 90 | ≥ 75 | lower |
+| Daily returns | ≥ 500 | ≥ 250 | fewer |
+| Share of inputs that are assumptions | ≤ 25% | ≤ 50% | more |
+
+- **Bands:** a total of 0–1 gives **A**, 2–3 **B**, 4–5 **C**, 6+ **D**.
+- **Caps:** a model that fails its backtest is graded at best C, and a data-quality score below 50 gives D.
+- **Inputs that count as assumptions:** EWMA's and FHS's λ = 0.94 (fixed, not estimated), and √t scaling for Historical and FHS at horizons over one day.
+- **Headline grade:** the recommended model's (Historical if there is none).
+- **Not graded:** the recommendation rule (§3.7) still uses the three VaR tests only. The grade also counts the ES test, so a recommended model can be graded D, as HDFC Bank's EWMA was on 2 Oct 2026. The Trust page says so.
 
 ## References
 
@@ -248,6 +310,9 @@ The data are never altered. The score feeds the Trust grade (Phase 1).
 - Bollerslev, T. (1987). A conditionally heteroskedastic time series model for speculative prices and rates of return. *Review of Economics and Statistics*, 69(3), 542–547.
 - Christoffersen, P. F. (1998). Evaluating interval forecasts. *International Economic Review*, 39(4), 841–862.
 - Giacomini, R. and Komunjer, I. (2005). Evaluation and combination of conditional quantile forecasts. *Journal of Business & Economic Statistics*, 23(4), 416–431.
+- Patton, A., Politis, D. N. and White, H. (2009). Correction to "Automatic block-length selection for the dependent bootstrap". *Econometric Reviews*, 28(4), 372–375.
+- Politis, D. N. and Romano, J. P. (1994). The stationary bootstrap. *Journal of the American Statistical Association*, 89(428), 1303–1313.
+- Politis, D. N. and White, H. (2004). Automatic block-length selection for the dependent bootstrap. *Econometric Reviews*, 23(1), 53–70.
 - J.P. Morgan/Reuters (1996). *RiskMetrics — Technical Document*, 4th edition.
 - Jarque, C. M. and Bera, A. K. (1980). Efficient tests for normality, homoscedasticity and serial independence of regression residuals. *Economics Letters*, 6(3), 255–259.
 - Koenker, R. and Bassett, G. (1978). Regression quantiles. *Econometrica*, 46(1), 33–50.

@@ -47,9 +47,15 @@ def render(ctx, tab1):
                 res = var_by_level[cl][method]
                 row[f"{pct_label(cl)} VaR"] = f"{curr_sym}{res['var_scaled_amount']:,.0f} ({res['var_scaled_pct']:.2%})"
             row[f"{cl_label} ES"] = f"{curr_sym}{var_selected[method]['cvar_scaled_amount']:,.0f} ({var_selected[method]['cvar_scaled_pct']:.2%})"
+            trusted = ctx.trusted[method]
+            row[f"{cl_label} VaR, 90% range"] = trusted["VaR"].range_text(lambda v: f"{curr_sym}{v:,.0f}").removeprefix("90% range ")
+            row[f"{cl_label} ES, 90% range"] = trusted["ES"].range_text(lambda v: f"{curr_sym}{v:,.0f}").removeprefix("90% range ")
+            row["Grade"] = trusted["ES"].grade
             row["Multi-day rule"] = var_selected[method]["scaling_rule"] if holding_period > 1 else "1 day"
             summary_rows.append(row)
         st.table(pd.DataFrame(summary_rows).set_index("Model"))
+        st.caption("90% ranges reflect estimation error at the selected confidence level; grades A–D follow written rules. "
+                   "The method behind each range and every deduction is on the Trust page.")
 
         if holding_period > 1:
             st.caption(

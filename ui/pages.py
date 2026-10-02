@@ -22,9 +22,8 @@ PAGES = (OVERVIEW, MARKET, LIQUIDITY, CREDIT, CONCENTRATION, EVENTS, INTEGRATED,
 PAGE_KEY = "page"
 
 # Pages not built yet: the roadmap phase that builds each, and what it will contain
+BUILT = (OVERVIEW, MARKET, TRUST)
 COMING_NEXT = {
-    TRUST: (1, "90% confidence ranges for every headline number, model risk across the models that pass the "
-               "backtests, lookback sensitivity, and an A–D trust grade with its reasons."),
     LIQUIDITY: (2, "Days to liquidate at a participation rate, the SEBI/AMFI-style liquidity stress test, stressed "
                    "volume, spread and market-impact cost, liquidity-adjusted VaR, Amihud illiquidity and circuit-lock risk."),
     CREDIT: (3, "Merton distance to default and model-implied PD, Altman Z and Z'', credit ratios with red flags, "

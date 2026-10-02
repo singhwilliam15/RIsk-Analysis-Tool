@@ -70,7 +70,7 @@ The **trust layer** shows how far each number can be relied on:
 - **limits** with traffic lights;
 - a **CRO dashboard** on the Overview page and a **one-page CRO memo** (PDF and Markdown, written by rules with no language model).
 
-Results export to a formatted Excel report. Built in Python with Streamlit, and covered by 424 offline tests in CI.
+Results export to a formatted Excel report. Built in Python with Streamlit, and covered by 434 offline tests in CI.
 
 | Page | Status |
 | --- | --- |
@@ -116,6 +116,23 @@ Results export to a formatted Excel report. Built in Python with Streamlit, and 
 - **The market factor is 65% of the risk** (portfolio beta 0.77), and stock-specific risk is 35%. Size, value and momentum net to almost nothing; the value tilt is a slight hedge (−2%).
 - **Crisis correlation.** In past crisis windows the average correlation doubled, from 0.18 to 0.37, so only 69% of the diversification benefit survived. Picking the market's worst days instead shows no rise (0.19), a known statistical bias that the page explains.
 - **Factor tilts differ widely.** Jaiprakash Power loads on size (+1.37) and value (+1.12). TCS and Britannia have significant negative value loadings, and Reliance has a market beta of 0.96 (t = 14).
+
+## Did it see it coming?
+
+The tool was run as of 12, 6, 3 and 1 month(s) before real Indian collapses, using only data public on each date. The results were compared with what happened, and with 10 large stable stocks at the same dates. Full method, results and the download checklist are in **[docs/case_studies.md](docs/case_studies.md)**. Only price-based pillars could be assessed so far: credit needs pre-2023 statements, and events need disclosure files, neither of which is loaded yet.
+
+| Case | 12 months before | 6 months | 3 months | 1 month | Realised loss after 12m date |
+| --- | --- | --- | --- | --- | --- |
+| Yes Bank (RBI moratorium, Mar 2020) | warned | warned | warned | warned | −93% |
+| Zee Entertainment (pledge collapse, Jan 2019) | missed | missed | missed | warned | −46% |
+| Adani Enterprises (Hindenburg report, Jan 2023) | warned* | warned* | warned* | warned* | −30% |
+| DHFL (bond default, Jun 2019) | not available: delisted, no prices on Yahoo | | | | |
+
+- **Hit rate 9 of 12 case dates; false-positive rate 8 of 120 control dates (6.7%).**
+- **\*Adani warned only because it was always volatile.** Its ES was above 5% at every date; that is not a specific early signal.
+- **Yes Bank was already falling, which prices show; Zee's risk was in promoter pledges, which they do not.** That is the case for the event pillar, and it cannot be credited until the pledge files are loaded.
+
+![Realised loss after each as-of date: red where the tool warned](docs/images/case_studies.png)
 
 ### Integrated stress (live data to 1 Oct 2026)
 
@@ -320,7 +337,7 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-The 424 tests run on every push and pull request through GitHub Actions, on Python 3.11 and 3.12. They run **offline**: `conftest.py` blocks outbound connections, and market data comes from a deterministic synthetic generator or mocked Yahoo responses. Every calculation is checked against an independent reference: a closed form, a simulation, a hand-worked example or known true parameters. Highlights:
+The 434 tests run on every push and pull request through GitHub Actions, on Python 3.11 and 3.12. They run **offline**: `conftest.py` blocks outbound connections, and market data comes from a deterministic synthetic generator or mocked Yahoo responses. Every calculation is checked against an independent reference: a closed form, a simulation, a hand-worked example or known true parameters. Highlights:
 - **GARCH:** recovers the true parameters from simulated GARCH-t data.
 - **Student-t ES:** matches 2 million simulated draws.
 - **Portfolio:** components add up exactly on every basis, and match the normal Euler shares on 400,000 simulated days.
@@ -394,6 +411,7 @@ events.py              Event signals, tier rules, pledge margin calls, jump-mixt
 integration.py         Linked multi-pillar stress engine, reverse stress (asset and macro space)
 decisions.py           Shapley risk change, Euler ES, trades, hedge, limits, top risks and actions
 memo.py                One-page CRO memo (Markdown and PDF via reportlab + matplotlib)
+case_studies/          Phase 7 evidence: cases.json, engine.py, run.py, results/, data/ (your downloaded files)
 data/disclosures/      Your downloaded disclosure files, manifest.json, templates and download steps
 excel_exporter.py      Formatted Excel report
 docs/methodology.md    Formulas, tests, design choices and references
@@ -456,6 +474,10 @@ test_data/             Saved yfinance statements used as test fixtures
   - reverse stress uses one-month covariance and ignores the macro regression's residual;
   - trades are judged on past returns without transaction costs;
   - the limits are examples.
+- **Case studies:**
+  - only 3 of 4 cases have prices, and 12 case dates are illustrative, not statistically meaningful;
+  - credit and event pillars are untested until the checklist files are loaded;
+  - the warning thresholds are assumptions.
 - **Disclosure layouts.** The parsers for official NSE files (except `fo_secban.csv`) match headers through an alias table that has not yet been checked against real downloads.
 
 ## License

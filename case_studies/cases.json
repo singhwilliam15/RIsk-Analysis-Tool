@@ -1,0 +1,28 @@
+{
+  "_about": "Phase 7 case studies (docs/case_studies.md). 'event_date' is the public event that marks each collapse; the tool is run as of 12, 6, 3 and 1 month(s) before it using only data public by then. 'enabled': false cases are candidates waiting for approval or data. Flag thresholds are assumptions, listed in docs/case_studies.md.",
+  "as_of_months_before": [12, 6, 3, 1],
+  "realised_window_days": 63,
+  "position_value": 10000000,
+  "cases": [
+    {"key": "yesbank", "name": "Yes Bank", "ticker": "YESBANK.NS", "event_date": "2020-03-05",
+     "event": "RBI places Yes Bank under a moratorium and supersedes its board", "financial": true, "enabled": true},
+    {"key": "dhfl", "name": "DHFL", "ticker": "DHFL.NS", "event_date": "2019-06-04",
+     "event": "DHFL misses interest payments on its bonds", "financial": true, "enabled": true,
+     "price_file": "case_studies/data/prices/DHFL.csv"},
+    {"key": "zee", "name": "Zee Entertainment", "ticker": "ZEEL.NS", "event_date": "2019-01-25",
+     "event": "Share price collapses on promoter-pledge and lender concerns", "financial": false, "enabled": true},
+    {"key": "adani", "name": "Adani Enterprises", "ticker": "ADANIENT.NS", "event_date": "2023-01-24",
+     "event": "Hindenburg Research publishes its short-seller report on the Adani Group", "financial": false, "enabled": true},
+    {"key": "jet", "name": "Jet Airways (candidate)", "ticker": "JETAIRWAYS.NS", "event_date": "2019-04-17",
+     "event": "Jet Airways suspends all flights", "financial": false, "enabled": false},
+    {"key": "fretail", "name": "Future Retail (candidate)", "ticker": "FRETAIL.NS", "event_date": "2020-08-29",
+     "event": "Future Group agrees to sell its retail business to Reliance after defaults", "financial": false, "enabled": false}
+  ],
+  "control_group": ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "HINDUNILVR.NS", "ITC.NS", "KOTAKBANK.NS",
+                    "ASIANPAINT.NS", "NESTLEIND.NS", "BRITANNIA.NS"],
+  "flag_rules": {
+    "market_ewma_vol_ratio_min": 1.5,
+    "market_es_95_1d_min": 0.05,
+    "stress_minus20_loss_min": 0.30
+  }
+}

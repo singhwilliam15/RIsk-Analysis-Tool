@@ -1,0 +1,2 @@
+Case,Ticker,Reason
+DHFL,DHFL.NS,no prices (Failed to fetch data for ticker 'DHFL.NS': HTTP Error 404: Not Found)

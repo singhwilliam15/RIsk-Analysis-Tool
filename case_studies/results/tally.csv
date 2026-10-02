@@ -1,0 +1,7 @@
+Pillar,Case dates,Hits,Misses,Hit rate,Control dates,False positives,False-positive rate
+market,12,9,3,0.75,120,6,0.05
+liquidity,12,0,12,0.0,120,0,0.0
+credit,0,0,0,,0,0,
+events,0,0,0,,0,0,
+stress,12,3,9,0.25,120,2,0.016666666666666666
+any,12,9,3,0.75,120,8,0.06666666666666667

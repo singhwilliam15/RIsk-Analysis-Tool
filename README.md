@@ -9,7 +9,7 @@ linked stress engine. Every headline number has a 90% range and an A–D trust g
 real Indian collapses and against every NSE stock from 2016 to 2024, and it reports where it does not beat simpler
 rules.
 
-**▶ Live demo: [var-analysis-tool-jb48f2b7syny4j2vzeartr.streamlit.app](https://var-analysis-tool-jb48f2b7syny4j2vzeartr.streamlit.app/)**.
+**▶ Live demo: [risk-analysis-tool.streamlit.app](https://risk-analysis-tool.streamlit.app/)**.
 It opens on a demo snapshot of the presets (prices to 2 Oct 2026), so they load at once. Switch **Data → Live** in
 the sidebar for today's prices, or type any NSE, BSE or US ticker.
 

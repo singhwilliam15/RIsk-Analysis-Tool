@@ -44,11 +44,10 @@ These need your GitHub and Streamlit accounts, so they are listed here rather th
    - check the app still points at the renamed repository and branch `main`; if not, delete the app and deploy it
      again from the renamed repository (steps above);
    - **Reboot** the app so it picks up the latest commit.
-4. **Links in this repository.** GitHub URLs ignore case, so the README's `singhwilliam15/Risk-Analysis-Tool`
-   links already work and keep working after the rename. The live-demo link still points at the current
-   `var-analysis-tool-….streamlit.app` address, because the new subdomain does not exist until step 3; once it does,
-   replace that one line at the top of the README (and in docs/interview_story.md if you quote it). Check the CI
-   badge turns green after the first push to the renamed repository.
+4. **Links in this repository.** Done on 4 Oct 2026: the repository is `singhwilliam15/Risk-Analysis-Tool`, the app
+   is at https://risk-analysis-tool.streamlit.app/, and the README links to both. GitHub redirects the old
+   repository URL; the old `var-analysis-tool-….streamlit.app` address may stop working, so replace it wherever
+   it was shared.
 5. **Links elsewhere:** your GitHub profile README, pinned repositories, resume (PDF and any online version),
    LinkedIn (Featured, Projects and the About section), and anything already sent out with the old
    `var-analysis-tool-….streamlit.app` link.

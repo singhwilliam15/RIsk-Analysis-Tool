@@ -2,10 +2,12 @@
 Shared test setup.
 
 - Every test runs with network access blocked, so the suite proves it needs no internet (CI runs offline).
+- The demo snapshot (ui/snapshot.py) is switched off, so app tests see only synthetic data.
 - `fake_fetch_stock_data` generates deterministic synthetic price histories with the same shape as
   data_fetcher.fetch_stock_data, so the full Streamlit app can be exercised without Yahoo Finance.
 """
 
+import os
 import socket
 import zlib
 
@@ -14,6 +16,9 @@ import pandas as pd
 import pytest
 
 from data_fetcher import SOURCE_YFINANCE, _add_return_columns
+
+# The app tests run on synthetic prices, never on the bundled demo snapshot (test_snapshot.py switches it on itself)
+os.environ["RISK_TOOL_NO_SNAPSHOT"] = "1"
 
 PERIOD_DAYS = {"1y": 250, "2y": 500, "5y": 1250, "max": 2600}
 LAST_DATE = "2026-09-30"

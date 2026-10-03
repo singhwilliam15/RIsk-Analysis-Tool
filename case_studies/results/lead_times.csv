@@ -1,0 +1,11 @@
+Rule,Cases warned,Cases,Mean earliest warning (months before),Yes Bank,Zee Entertainment,Adani Enterprises,Jet Airways,Future Retail
+market,5,5,8.0,12.0,1.0,12.0,12.0,3.0
+liquidity,1,5,3.0,,,,,3.0
+credit,4,5,6.75,6.0,,6.0,12.0,3.0
+events,0,5,,,,,,
+stress,3,5,7.0,6.0,,,12.0,3.0
+any,5,5,8.0,12.0,1.0,12.0,12.0,3.0
+drawdown_30,3,5,7.0,12.0,,,6.0,3.0
+vol_top_decile,4,5,4.75,12.0,1.0,,3.0,3.0
+below_200dma,4,5,10.5,12.0,6.0,,12.0,12.0
+any_baseline,4,5,10.5,12.0,6.0,,12.0,12.0

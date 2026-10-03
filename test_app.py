@@ -258,8 +258,13 @@ def test_events_page_with_sample_disclosures(fake_market, monkeypatch, tmp_path)
     assert "60.0% of promoter holding" in panel.loc["RELIANCE.NS", "Promoter pledge"]
     assert "+55.0 pp" in panel.loc["RELIANCE.NS", "Promoter pledge"]
     assert panel.loc["HDFCBANK.NS", "Tier"] == "🟠 Elevated" and panel.loc["TCS.NS", "Tier"] == "🟠 Elevated"
-    gap = at.metric[1].value
-    assert gap not in ("₹0", "not available")
+    # Calibrated defaults: no extra jump probability, so event risk adds exactly nothing to ES...
+    assert at.metric[1].value == "₹0"
+    # ...until a probability is set for the High tier (RELIANCE is High)
+    at.number_input(key="ev_high_p").set_value(0.5)
+    at.run()
+    assert_clean(at)
+    assert at.metric[1].value not in ("₹0", "not available")
 
 
 def test_headline_numbers_carry_range_and_grade(fake_market):

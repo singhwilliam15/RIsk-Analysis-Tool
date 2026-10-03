@@ -12,6 +12,7 @@ from portfolio import (
     current_weights,
     ENTRY_WEIGHT,
 )
+from ui import snapshot
 from ui.cache import cached_market_data
 from ui.context import export
 
@@ -103,6 +104,11 @@ def load_data(ctx):
     if any(len(v) > 1 for v in volume_sources.values()):
         data_note += "; volume summed over NSE and BSE where both report it"
     prices_as_of = max(res["df"]["Date"].iloc[-1] for res in fetched.values())
+    if snapshot.mode() == snapshot.SNAPSHOT:
+        meta = snapshot.meta()
+        st.caption(f"📸 Demo snapshot: prices to {pd.Timestamp(meta['prices_as_of']):%d %b %Y}, computed in advance "
+                   f"({meta['built'][:10]}) so the presets open instantly. Switch **Data → Live** in the sidebar for "
+                   "today's prices; tickers or settings outside the snapshot are computed live either way.")
 
     returns = df["Returns"].dropna()
 

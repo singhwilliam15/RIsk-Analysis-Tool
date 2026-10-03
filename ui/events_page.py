@@ -76,7 +76,7 @@ def render(ctx):
 - **Fraud or misstatement not yet in any disclosure.** The signals only see what has been filed or rated.
 - **Regulatory action without warning** (SEBI orders, sector bans, tax demands) and litigation.
 - **Promoter debt outside pledges**: non-disposal undertakings and loans at holding companies are only partly in the pledge data.
-- **Jump probabilities and sizes are assumptions** until the Phase 7 case studies test them against real collapses.
+- **Jump probabilities and sizes are assumptions**, calibrated on price-based proxies for the tiers (methodology §12.4), not on the disclosure tiers themselves; the table above shows how much they matter.
 - **Rules are coarse.** A tier is a flag for attention, not a probability; two holdings in the same tier can differ a lot.
 """)
     st.caption(f"Methodology: {METHODOLOGY}.")
@@ -122,10 +122,26 @@ def _overlay(ctx, money):
                            textposition="outside"))
     fig.update_layout(template="plotly_dark", height=300, margin=dict(t=30), yaxis_title=f"1-day ES ({ctx.curr_sym})")
     st.plotly_chart(fig, width="stretch")
-    rows = [{"Ticker": t, "Tier": ctx.event_tiers[t]["tier"], "Jump probability (a day)": f"{p:.2%}", "Jump size": f"{j:.0%}",
+    rows = [{"Ticker": t, "Tier": ctx.event_tiers[t]["tier"], "Jump probability (a day)": f"{p:.2%}",
+             "Chance of a jump in a year": f"{E.annual_probability(p):.0%}", "Jump size": f"{j:.0%}",
              "Share of the ES gap": money(o["by_holding"].get(t, 0.0) * inv)} for t, (p, j) in ctx.event_jumps.items()]
     st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
     st.caption(f"Base: the {ctx.event_base['model']} one-day distribution of the {'portfolio' if ctx.is_portfolio else 'stock'} "
                "return. Each holding can jump by its tier's J with its tier's probability; every combination of jumps is "
                "included exactly (closed-form Student-t tail, no simulation). Shares of the gap: each holding's jump alone, "
                "scaled to add up to the total. 1-day figures at the selected confidence level.")
+    _sensitivity(ctx, money)
+
+
+def _sensitivity(ctx, money):
+    sens = ctx.event_sensitivity
+    table = sens["table"]
+    shown = pd.DataFrame({f"J = {j:.0%}": [money(v) for v in table[j]] for j in table.columns})
+    shown.insert(0, "p a day (a year)", [f"{p:.2%} ({E.annual_probability(p):.0%})" for p in table.index])
+    who = ", ".join(sens["targets"])
+    st.markdown("**How much the jump assumptions matter**: event-adjusted ES if "
+                + (f"{who} (no holding is Elevated or High, so this is hypothetical: the largest holding)" if sens["hypothetical"]
+                   else f"the Elevated/High holding(s) {who}") + " had jump probability p and size J")
+    st.dataframe(shown, hide_index=True, width="stretch")
+    st.caption("Every other holding has no jump. A daily p compounds: 0.5% a day is a 72% chance of at least one jump "
+               "in a year. The defaults and how they were calibrated: docs/methodology.md §12.4.")

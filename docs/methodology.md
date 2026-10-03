@@ -619,14 +619,22 @@ Rating grades are read from the agencies' text (e.g. "CRISIL AA+", "[ICRA]A (Sta
 
 ### 12.4 Jump overlay on ES
 
-- **The model:** each holding can jump on a given day by J with probability p, both set by its tier. The defaults (assumptions) are:
+- **The model:** each holding can jump on a given day by J with probability p, both set by its tier. A daily p compounds: the chance of at least one jump in a year of 252 trading days is 1 − (1 − p)^252, shown next to every daily p in the app.
+- **Defaults, recalibrated in October 2026** on every NSE stock from 2016 to 2024 (`universe.jump_base_rates`; [case_studies.md](case_studies.md#jump-defaults-recalibrated-on-nse-wide-base-rates-review-m2)):
 
-  | Tier | p per day | J |
-  | --- | --- | --- |
-  | Low | 0 | – |
-  | Elevated | 0.1% | −10% |
-  | High | 0.5% | −20% |
+  | Tier | p a day (a year), before | p a day, now | J, now | Basis of the new value |
+  | --- | --- | --- | --- | --- |
+  | Low | 0 | 0 | – | – |
+  | Elevated | 0.1% (22%) | **0** | −17% | 3+ lower-circuit days: excess rate of ≥ 10% falls −0.087% a day (90% range −0.131% to −0.050%); 20,574 falls |
+  | High | 0.5% (72%) | **0** | −34% | series BE/BZ: excess rate of ≥ 20% falls −0.001% a day (−0.034% to +0.030%); 2,080 falls |
 
+  - **A jump** is a one-day fall of at least |J| on a day the Nifty fell less than 5%: market-wide crashes belong to the base distribution.
+  - **The excess** is the rate over the 63 trading days after each month-end where the proxy holds, minus the stock's own rate over the window the base model is fitted on. The base model already carries the stock's own history of falls, so only an excess belongs in the overlay. A probability cannot be negative, so the default is the excess floored at 0.
+  - **The 90% range** comes from resampling stocks, because one stock's monthly windows overlap.
+  - **J** is the mean size of the qualifying falls.
+  - **The old values** were checked only on crash-selected case dates, which is circular (review M2).
+  - **Limit:** the proxies are price-based, the only tier signals measurable point in time for every NSE stock. Disclosure-driven tiers (pledges, downgrades, auditor events) for stocks with calm prices could carry jump risk their own history does not show. That base rate is not measurable from public archives (NSE's pledge history starts in September 2021), so the default is zero rather than a guess, and the sensitivity table shows what any assumed p and J would add.
+- **ES sensitivity table** (Events page): event-adjusted ES for p ∈ {0.01, 0.05, 0.1, 0.25, 0.5, 1}% a day × J ∈ {−10, −20, −30, −50}%. It applies to the holdings in Elevated or High, or to the largest holding (labelled hypothetical) if none is. Each cell is the same closed form below.
 - **Base distribution:** the one-day return distribution of the stock or portfolio is loc + scale·T_ν. This is the fitted GARCH(1,1)-t (σ̂·√((ν − 2)/ν) as the scale), or the Student-t fit if GARCH did not converge.
 - **Portfolio:** a jump in holding i shifts the portfolio return by wᵢJᵢ. Every combination of jumps is enumerated exactly up to 12 jumping holdings; above that, up to two jumps.
 - **Calculation:**
@@ -634,7 +642,7 @@ Rating grades are read from the agencies' text (e.g. "CRISIL AA+", "[ICRA]A (Sta
   - ES uses the Student-t partial expectation E[T·1{T ≤ z}] = −(ν + z²)/(ν − 1)·f_ν(z);
   - there is no simulation, so no noise. On a 2-million-draw simulation the result agreed within 0.5%.
 - **Shares of the gap:** each holding's jump switched on alone, scaled so the shares add to the total gap.
-- **How much the assumptions matter:** on Reliance's real one-day distribution (2 Oct 2026), a High tier would lift 95% ES from ₹29,295 to ₹47,136, and 99% ES from ₹42,872 to ₹1,24,904.
+- **How much the assumptions matter:** on Reliance's real one-day distribution (2 Oct 2026), the old High-tier assumption (0.5% a day, −20%) would lift 95% ES from ₹29,295 to ₹47,136, and 99% ES from ₹42,872 to ₹1,24,904. With the calibrated defaults it adds nothing.
 
 ### 12.5 Ranges and grades
 
@@ -756,6 +764,51 @@ Each scenario hits every pillar together, holding by holding.
 
 - **Top actions**, in order: the best ES-cutting trades, the hedge if it cuts ES by more than 10%, red limits to fix, and data to load.
 - **The one-page memo** (PDF via reportlab with a matplotlib chart, and Markdown) has these sections: Bottom line · Pillar summary · Integrated stress · What the numbers miss · Limits · Actions · Data sources and caveats. Its text is assembled from rules and the computed figures, with no language model.
+
+## 15. Evidence: baselines and the wider test (`case_studies/engine.py`, `universe.py`)
+
+### 15.1 Naive baselines (review M1)
+
+Three rules from prices up to the as-of date only, fixed before the test:
+- (a) close ÷ close 126 trading days earlier − 1 ≤ −30%;
+- (b) today's 60-day standard deviation of daily returns at or above the 90th percentile of its own rolling 60-day values over the last 1,260 days (at least 500 needed);
+- (c) close below the mean of the last 200 closes.
+
+"Any baseline" is (a) or (b) or (c). On the 220 case and control dates each is tallied like a pillar (hit rate, false-positive rate) and given a lead time: for each case, the most months before the event at which it warned.
+
+### 15.2 Wider test
+
+- **Universe.** Every company share (ISIN INE…, series EQ/BE/BZ) in NSE's daily bhavcopies, 2014–2025.
+  - Prices are back-adjusted: every price before an ex-date is multiplied by the action's factor. "Bonus a:b" is b/(a + b); a face-value split from F₁ to F₂ is F₂/F₁; both together multiply.
+  - Renamed symbols are chained using NSE's symbol-change file.
+  - A stock counts on a month-end if it has 250 prior trading days and traded in the last 5 market days.
+- **Outcome.** The lowest close over the next 252 Nifty trading days is at least 50% below the as-of close.
+  - "Observed path" uses the closes there are.
+  - The upper bound also counts every stock that stopped trading inside the window and never returned. That includes mergers and buyouts, so it overstates the events.
+- **Rules.** The tool's price flags through the same function as the case studies (`engine.price_flags`), and the three baselines.
+- **Measures.** Precision P(event | flag), recall P(flag | event), base rate P(event), and lift = precision ÷ base rate; overall, for the liquid subset (median 60-day traded value ≥ ₹1 crore), by year, and without the symbols that have unexplained moves beyond ±40%.
+- **What it cannot test.** Credit (no point-in-time statements for the universe) and events (no point-in-time disclosures). Results are in [case_studies.md](case_studies.md#wider-test-every-nse-stock-20162024-review-m1).
+
+### 15.3 Tests
+
+- **Bhavcopies:** both NSE formats parse to the same columns, ETFs and bonds are dropped, and Reliance's real 1:1 bonuses (7 Sep 2017, 28 Oct 2024) become −0.56% and +0.49% days, not −50%.
+- **Rules:** every corporate-action wording seen in NSE's list parses to the right factor, and symbol chains follow A → B → C without relabelling a later, unrelated use of A.
+- **Flags and metrics:** the universe's price flags equal the case-study engine's on the same window, the baselines and metrics are checked by hand, and the jump base rates recover a planted 1% daily jump rate (with zero excess over the stock's own history).
+
+## 16. Demo snapshot (`ui/snapshot.py`, `scripts/build_snapshot.py`)
+
+- **Built by running the app.** The build runs every preset (5 NSE stocks, 3 US stocks and the default portfolio) on every page with the default settings. It records each download and each heavy cached result in `data/snapshot/snapshot.pkl.gz`, keyed by a SHA-256 of its arguments:
+  - frames and series through `pd.util.hash_pandas_object` with their column names, dtypes and shape;
+  - dicts in sorted key order;
+  - arguments bound to the function's signature, so positional and keyword calls share a key.
+- **Downloads come from the snapshot in snapshot mode.** The heavy functions therefore see identical inputs and reuse their stored results. Anything else (a new ticker, a changed setting) misses and is computed live.
+- **Results are keyed on inputs only, never on the mode.** A stored result is only ever returned for exactly the inputs it was computed from.
+- **When the snapshot is ignored:** if it was built with another pandas version or numpy major version, or if `RISK_TOOL_NO_SNAPSHOT` is set (the test suite sets it).
+- **Tests:**
+  - keys are stable across processes, ignore dict order and change with any value;
+  - hits, misses and the live switch work as intended, and a caller's changes to a snapshot download do not reach the store;
+  - the bundled snapshot renders every page of the default portfolio with the network blocked and no live calculation;
+  - `test_deploy.py` checks the cold-start peak memory against Streamlit Community Cloud's 690 MB minimum.
 
 ## References
 

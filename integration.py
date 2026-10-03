@@ -246,7 +246,8 @@ def linked_stress(holdings: pd.DataFrame, scenario: dict, params: dict, switches
         full = runs[frozenset(players)]
         interaction = values[frozenset(players)] - values[base] - sum(values[base | {p}] - values[base] for p in links)
         dd = pd_ = np.nan
-        if on["credit"] and not h["Financial"] and np.isfinite(h["Equity"]) and np.isfinite(h["Default Point"]):
+        # With the equity already wiped out (a −100% scenario return) there is no distance to default to solve
+        if on["credit"] and not h["Financial"] and np.isfinite(h["Equity"]) and np.isfinite(h["Default Point"]) and full["x"] > 0:
             stressed = C.solve_merton(h["Equity"] * full["x"], sc["sigma"] * np.sqrt(C.TRADING_DAYS), h["Default Point"],
                                       params["r"], params["T"])
             dd, pd_ = stressed["DD"], stressed["PD"]
@@ -254,7 +255,7 @@ def linked_stress(holdings: pd.DataFrame, scenario: dict, params: dict, switches
         rows.append({"Ticker": t, "Return": sc["return"], "Method": sc["method"],
                      "Market Loss": values[base], **{p.capitalize(): parts.get(p, 0.0) for p in PLAYERS},
                      "Total": values[frozenset(players)], "Interaction": interaction,
-                     "Final Price": h["Price"] * full["x"], "Feedback Fall": full["x"] / full["x_market"] - 1,
+                     "Final Price": h["Price"] * full["x"], "Feedback Fall": full["x"] / full["x_market"] - 1 if full["x_market"] > 0 else np.nan,
                      "Forced Shares": full["forced"], "Locked": full["locked"], "Locked Days in Replay": full["already"],
                      "Rounds": full["rounds"], "Converged": full["converged"], "Stressed DD": dd, "Stressed PD": pd_,
                      "JTD Loss (10% recovery)": h["Value"] * (1 - JTD_RECOVERY[0]) if jtd else np.nan,

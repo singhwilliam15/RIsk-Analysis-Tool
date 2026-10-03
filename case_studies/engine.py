@@ -22,7 +22,7 @@ import integration as I
 import liquidity as L
 from disclosures import load_disclosures
 from stress import downside_beta
-from var_calculator import calculate_all_var, ewma_volatility
+from var_calculator import calculate_all_var, calculate_historical_var, ewma_volatility
 
 ROOT = Path(__file__).resolve().parent
 CASES_PATH = ROOT / "cases.json"
@@ -69,6 +69,83 @@ def realised_loss(df: pd.DataFrame, as_of, event_date, days_after: int = 63) -> 
 
 
 # ---------------------------------------------------------------
+# Price-based flags (market, liquidity, integrated stress)
+# ---------------------------------------------------------------
+
+def price_flags(w: pd.DataFrame, mkt: pd.Series, position_value: float, flag_rules: dict, rules: dict,
+                financial: bool = False) -> dict:
+    """
+    The flags that need prices only, from the window `w` (already cut at the as-of date) and the benchmark's returns
+    up to that date. Used by evaluate() and by the wider test (universe.py), so both apply exactly the same rules:
+    market = EWMA / 1-year volatility ≥ the ratio, or historical ES95 ≥ the floor; liquidity = lower-circuit days ≥
+    the Elevated rule; stress = loss from a −20% market move (downside-β proxy) through the linked engine ≥ the floor.
+    """
+    returns = w["Returns"].dropna()
+    dated = pd.Series(returns.to_numpy(), index=w.loc[returns.index, "Date"])
+    es_hist = calculate_historical_var(returns, 1.0, CONFIDENCE, 1)["cvar_daily_pct"]
+    ewma_now = ewma_volatility(returns)[1]
+    vol_1y = float(returns.tail(252).std(ddof=1))
+    out = {"es_hist": es_hist, "ewma_vol_ratio": ewma_now / vol_1y, "vol_1y": vol_1y, "available": {}, "flags": {}}
+    out["available"]["market"] = True
+    out["flags"]["market"] = bool(ewma_now / vol_1y >= flag_rules["market_ewma_vol_ratio_min"]
+                                  or es_hist >= flag_rules["market_es_95_1d_min"])
+
+    price = float(w["Close"].iloc[-1])
+    adv60, _ = L.average_volume(w, 60)
+    lock = L.circuit_lock(w)
+    out.update(price=price, adv60=adv60, lock=lock, band=lock["band"], lower_circuit_days=lock["circuit_days"],
+               longest_run=lock["longest_run"])
+    out["available"]["liquidity"] = bool(w["Volume"].notna().any()) if "Volume" in w else False
+    out["flags"]["liquidity"] = lock["circuit_days"] >= rules["elevated"]["lower_circuit_days_min"]
+
+    # Integrated stress: a −20% market move through every pillar, with today's (as-of) inputs
+    beta = downside_beta(dated, mkt)
+    beta = beta if np.isfinite(beta) else 1.0
+    spread = L.spread_profile(w)
+    holding = pd.DataFrame([{"Ticker": "X", "Value": position_value, "Quantity": position_value / price, "Price": price,
+                             "ADV": adv60, "Spread Mean": spread["mean"], "Spread Std": spread["std"], "Band": lock["band"],
+                             "Freeze Days": lock["freeze_days"], "Equity": np.nan, "Default Point": np.nan, "PD": np.nan,
+                             "Financial": financial, "Pledged Shares": np.nan, "Volume Ratio": 1.0}])
+    scenario = {"name": "Market -20%", "kind": "custom", "market": -0.2,
+                "holdings": {"X": {"return": max(-0.2 * beta, -1.0), "method": "β-proxy", "sigma": vol_1y * 2}}}
+    linked = I.linked_stress(holding, scenario, PARAMS)["totals"]
+    out.update(downside_beta=beta, stress_loss=linked["Total"] / position_value)
+    out["available"]["stress"] = True
+    out["flags"]["stress"] = bool(linked["Total"] / position_value >= flag_rules["stress_minus20_loss_min"])
+    return out
+
+
+# ---------------------------------------------------------------
+# Naive baselines (review M1)
+# ---------------------------------------------------------------
+
+BASELINES = ("drawdown_30", "vol_top_decile", "below_200dma")
+BASELINE_LABELS = {"drawdown_30": "Down ≥ 30% over 6 months", "vol_top_decile": "60-day vol in own 5-year top decile",
+                   "below_200dma": "Below 200-day average", "any_baseline": "Any baseline"}
+VOL_HISTORY_DAYS, VOL_HISTORY_MIN = 1260, 500
+
+
+def baselines(df: pd.DataFrame, as_of) -> dict:
+    """
+    Three naive rules from prices up to `as_of` only, fixed before the test as the review states them:
+    (a) close down ≥ 30% from 126 trading days earlier; (b) today's 60-day volatility at or above the 90th percentile
+    of the stock's own rolling 60-day volatility over the last 1,260 days (at least 500 values needed); (c) close
+    below its 200-day average. A rule without enough history is "not available", never "no warning".
+    """
+    h = df[df["Date"] <= pd.Timestamp(as_of)].reset_index(drop=True)
+    close = h["Close"]
+    out = {"available": {}, "flags": {}}
+    out["available"]["drawdown_30"] = len(h) >= 127
+    out["flags"]["drawdown_30"] = bool(len(h) >= 127 and close.iloc[-1] / close.iloc[-127] - 1 <= -0.30)
+    vol = h["Returns"].rolling(60).std(ddof=1).tail(VOL_HISTORY_DAYS).dropna()
+    out["available"]["vol_top_decile"] = len(vol) >= VOL_HISTORY_MIN
+    out["flags"]["vol_top_decile"] = bool(len(vol) >= VOL_HISTORY_MIN and vol.iloc[-1] >= vol.quantile(0.90))
+    out["available"]["below_200dma"] = len(h) >= 200
+    out["flags"]["below_200dma"] = bool(len(h) >= 200 and close.iloc[-1] < close.tail(200).mean())
+    return out
+
+
+# ---------------------------------------------------------------
 # One stock as of one date
 # ---------------------------------------------------------------
 
@@ -81,36 +158,28 @@ def evaluate(df: pd.DataFrame, market: pd.Series, as_of, position_value: float, 
     disclosures.load_disclosures(...)["data"] if provided. Returns figures, flags and which pillars were available.
     """
     w = window_before(df, as_of)
-    out = {"as_of": pd.Timestamp(as_of), "days": len(w), "available": {p: False for p in PILLARS}, "flags": {}}
+    out = {"as_of": pd.Timestamp(as_of), "days": len(w), "available": {p: False for p in PILLARS}, "flags": {},
+           "baseline": baselines(df, as_of)}
     if len(w) < 250:
         out["note"] = f"only {len(w)} days of prices before the as-of date"
         return out
     returns = w["Returns"].dropna()
-    dated = pd.Series(returns.to_numpy(), index=w.loc[returns.index, "Date"])
     mkt = market[market.index <= pd.Timestamp(as_of)]
 
-    # Market
+    # Market, liquidity and integrated stress: the price-based flags (shared with the wider test in universe.py)
+    pf = price_flags(w, mkt, position_value, flag_rules, rules, financial)
+    vol_1y, lock, price, adv60 = pf.pop("vol_1y"), pf.pop("lock"), pf.pop("price"), pf.pop("adv60")
+    for p in ("market", "liquidity", "stress"):
+        out["available"][p] = pf["available"][p]
+        out["flags"][p] = pf["flags"][p]
+    out.update({k: v for k, v in pf.items() if k not in ("available", "flags")}, adv60=adv60)
     points = calculate_all_var(returns, 1.0, CONFIDENCE, 1, num_simulations=2000)
-    es_hist = points["Historical"]["cvar_daily_pct"]
-    ewma_now = ewma_volatility(returns)[1]
-    vol_1y = float(returns.tail(252).std(ddof=1))
-    out.update(es_hist=es_hist, es_garch=points["GARCH(1,1)-t"]["cvar_daily_pct"], ewma_vol_ratio=ewma_now / vol_1y)
-    out["available"]["market"] = True
-    out["flags"]["market"] = bool(ewma_now / vol_1y >= flag_rules["market_ewma_vol_ratio_min"]
-                                  or es_hist >= flag_rules["market_es_95_1d_min"])
+    out["es_garch"] = points["GARCH(1,1)-t"]["cvar_daily_pct"]
     out["data_quality"] = DQ.assess_holding(w)["score"]
     if with_grade:
         out["grade"] = market_grade(returns, points, out["data_quality"])
-
-    # Liquidity
-    price = float(w["Close"].iloc[-1])
-    adv60, _ = L.average_volume(w, 60)
-    lock = L.circuit_lock(w)
-    out.update(adv60=adv60, days_to_liquidate=float(L.days_to_liquidate(position_value / price, adv60, L.DEFAULT_PARTICIPATION)),
-               band=lock["band"], lower_circuit_days=lock["circuit_days"], longest_run=lock["longest_run"],
+    out.update(days_to_liquidate=float(L.days_to_liquidate(position_value / price, adv60, L.DEFAULT_PARTICIPATION)),
                amihud=float(L.amihud(w).dropna().iloc[-1]) if L.amihud(w).notna().any() else np.nan)
-    out["available"]["liquidity"] = bool(w["Volume"].notna().any()) if "Volume" in w else False
-    out["flags"]["liquidity"] = lock["circuit_days"] >= rules["elevated"]["lower_circuit_days_min"]
 
     # Credit (needs statements; banks and NBFCs are not modelled)
     merton = None
@@ -153,20 +222,6 @@ def evaluate(df: pd.DataFrame, market: pd.Series, as_of, position_value: float, 
         out["available"]["events"] = bool(disclosed)
         out["flags"]["events"] = bool(disclosed) and tier["tier"] != E.LOW
 
-    # Integrated stress: a −20% market move through every pillar, with today's (as-of) inputs
-    beta = downside_beta(dated, mkt)
-    beta = beta if np.isfinite(beta) else 1.0
-    spread = L.spread_profile(w)
-    holding = pd.DataFrame([{"Ticker": "X", "Value": position_value, "Quantity": position_value / price, "Price": price,
-                             "ADV": adv60, "Spread Mean": spread["mean"], "Spread Std": spread["std"], "Band": lock["band"],
-                             "Freeze Days": lock["freeze_days"], "Equity": np.nan, "Default Point": np.nan, "PD": np.nan,
-                             "Financial": financial, "Pledged Shares": np.nan, "Volume Ratio": 1.0}])
-    scenario = {"name": "Market -20%", "kind": "custom", "market": -0.2,
-                "holdings": {"X": {"return": max(-0.2 * beta, -1.0), "method": "β-proxy", "sigma": vol_1y * 2}}}
-    linked = I.linked_stress(holding, scenario, PARAMS)["totals"]
-    out.update(downside_beta=beta, stress_loss=linked["Total"] / position_value)
-    out["available"]["stress"] = True
-    out["flags"]["stress"] = bool(linked["Total"] / position_value >= flag_rules["stress_minus20_loss_min"])
     out["warning"] = any(out["flags"].values())
     return out
 
@@ -197,25 +252,59 @@ def market_grade(returns: pd.Series, points: dict, data_quality: float) -> dict:
 # Tally
 # ---------------------------------------------------------------
 
+def _rule_columns(results: pd.DataFrame, rule: str) -> tuple:
+    """(available, fired) boolean columns for a pillar, "any", a baseline or "any_baseline"."""
+    if rule == "any":
+        return results["days"] >= 250, results["warning"].fillna(False).astype(bool)
+    if rule == "any_baseline":
+        avail = pd.concat([results[f"available_{b}"].fillna(False).astype(bool) for b in BASELINES], axis=1).any(axis=1)
+        fired = pd.concat([results[f"flag_{b}"].fillna(False).astype(bool) for b in BASELINES], axis=1).any(axis=1)
+        return avail, fired
+    return results[f"available_{rule}"].fillna(False).astype(bool), results[f"flag_{rule}"].fillna(False).astype(bool)
+
+
+RULES = PILLARS + ("any",) + BASELINES + ("any_baseline",)
+
+
 def tally(results: pd.DataFrame) -> pd.DataFrame:
     """
-    For each pillar (and any warning): hits = case dates that warned, misses = case dates that did not, false
-    positives = control dates that warned; rates only over dates where the pillar was available.
+    For each pillar, any warning, each naive baseline and any baseline: hits = case dates that warned, misses = case
+    dates that did not, false positives = control dates that warned; rates only over dates where the rule was available.
     """
     rows = []
-    for pillar in PILLARS + ("any",):
-        if pillar == "any":
-            avail = results["days"] >= 250
-            fired = results["warning"].fillna(False).astype(bool)
-        else:
-            avail = results[f"available_{pillar}"].fillna(False).astype(bool)
-            fired = results[f"flag_{pillar}"].fillna(False).astype(bool)
-        cases = results["group"] == "case"
+    cases = results["group"] == "case"
+    for rule in RULES:
+        if rule in BASELINES + ("any_baseline",) and f"available_{BASELINES[0]}" not in results:
+            continue
+        avail, fired = _rule_columns(results, rule)
         n_case, n_ctrl = int((avail & cases).sum()), int((avail & ~cases).sum())
         hits, fps = int((avail & cases & fired).sum()), int((avail & ~cases & fired).sum())
-        rows.append({"Pillar": pillar, "Case dates": n_case, "Hits": hits, "Misses": n_case - hits,
+        rows.append({"Pillar": rule, "Case dates": n_case, "Hits": hits, "Misses": n_case - hits,
                      "Hit rate": hits / n_case if n_case else np.nan, "Control dates": n_ctrl, "False positives": fps,
                      "False-positive rate": fps / n_ctrl if n_ctrl else np.nan})
+    return pd.DataFrame(rows)
+
+
+def lead_times(results: pd.DataFrame) -> pd.DataFrame:
+    """
+    Lead time per rule: for each case, the earliest as-of date (most months before the event) on which the rule
+    warned; the mean over the cases it warned on at all, and how many cases it never warned on.
+    """
+    cases = results[(results["group"] == "case") & (results["days"] >= 250)]  # cases with prices only
+    names = list(dict.fromkeys(cases["case"]))
+    rows = []
+    for rule in RULES:
+        if rule in BASELINES + ("any_baseline",) and f"available_{BASELINES[0]}" not in results:
+            continue
+        avail, fired = _rule_columns(cases, rule)
+        earliest = {}
+        for name in names:
+            sel = (cases["case"] == name) & avail & fired
+            earliest[name] = int(cases.loc[sel, "months_before"].max()) if sel.any() else None
+        warned = [m for m in earliest.values() if m is not None]
+        rows.append({"Rule": rule, "Cases warned": len(warned), "Cases": len(names),
+                     "Mean earliest warning (months before)": float(np.mean(warned)) if warned else np.nan,
+                     **{name: earliest[name] for name in names}})
     return pd.DataFrame(rows)
 
 

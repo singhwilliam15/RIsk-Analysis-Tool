@@ -88,9 +88,114 @@ ES is 1-day at 95% for the recommended model, with the Trust grade. Since the Oc
   - A rule that adapts to the market's own ES would cut these. I have not changed the rule after seeing the results, to avoid fitting the test.
 - **Small sample.** Twenty case dates from five stocks illustrate what the tool can and cannot see; they are not statistically meaningful.
 
-### Phase 5 jump defaults: kept, not revised
+### Does it beat a naive rule? (review M1)
 
-Observed one-day falls over the 63 trading days after each as-of date:
+Three rules anyone could apply, fixed before the run exactly as the review states them, on the same 220 dates and using only prices up to each date (`case_studies/engine.py::baselines`):
+- (a) the stock is down **30% or more over the previous 6 months** (126 trading days);
+- (b) its **60-day volatility is in the top decile** of its own rolling 60-day volatility over the previous 5 years (at least 500 values needed, otherwise "not available");
+- (c) it closes **below its 200-day average**.
+
+| Rule | Hits (of 20) | False positives (of 200) | Cases warned at some date (of 5) | Mean earliest warning |
+| --- | --- | --- | --- | --- |
+| **Tool: any warning** | **15 (75%)** | **19 (9.5%)** | **5** | **8.0 months before** |
+| (a) Down ≥ 30% in 6 months | 7 (35%) | 0 (0%) | 3 | 7.0 |
+| (b) Volatility in own top decile | 7 (35%) | 27 (13.5%) | 4 | 4.75 |
+| (c) Below 200-day average | 15 (75%) | 55 (27.5%) | 4 | 10.5 |
+| Any baseline | 15 (75%) | 71 (35.5%) | 4 | 10.5 |
+
+Earliest warning per case, in months before the event (– = never warned):
+
+| Rule | Yes Bank | Zee | Adani Ent. | Jet Airways | Future Retail |
+| --- | --- | --- | --- | --- | --- |
+| Tool: any warning | 12 | 1 | 12 | 12 | 3 |
+| (a) Down ≥ 30% | 12 | – | – | 6 | 3 |
+| (b) Volatility top decile | 12 | 1 | – | 3 | 3 |
+| (c) Below 200-day average | 12 | 6 | – | 12 | 12 |
+
+What this says, plainly:
+- **The tool does not catch more cases than the simplest trend rule.** "Below its 200-day average" also hits 15 of 20 case dates.
+- **It gets there with far fewer false alarms:** 9.5% of control dates against 27.5% for the 200-day rule and 35.5% for any baseline. On these dates the tool's value is precision, not extra recall.
+- **The 200-day rule warned earlier on two cases the tool was late on:** Zee at 6 months (the tool only at 1 month) and Future Retail at 12 months (the tool at 3). A falling price was the earliest public sign there, and the tool's volatility-based market rule did not react to a slow decline.
+- **The tool's only case no baseline saw is Adani Enterprises**, and that "warning" is its permanently high volatility (ES above 5%), not an early signal (see above). Excluding it, every case the tool caught at some date was also caught by a baseline.
+- **"Down 30% in 6 months" never fired on a control** but caught only 7 of 20 case dates: precise and late.
+- **20 case dates from 5 stocks cannot separate these rules statistically.** The wider test below uses the whole NSE universe for that.
+
+Full rows: `case_studies/results/tally.csv` (pillars and baselines), `lead_times.csv` (earliest warning per case), `results.csv` (every date).
+
+## Wider test: every NSE stock, 2016–2024 (review M1)
+
+The 220 case and control dates select on the outcome. This test does not. It covers **every company listed on NSE** in the daily bhavcopies, including the 391 that later stopped trading, which Yahoo has dropped. It runs on the last trading day of each month from January 2016 to December 2024, and asks whether a stock **fell 50% or more from that close within the next 12 months**.
+
+**Data** (`scripts/fetch_bhavcopy.py`, `universe.py`):
+- NSE's daily bhavcopies, 2014–2025: 2,959 trading days and 2,969 companies. Only company shares are kept (ISIN INE…, series EQ, BE and BZ), not ETFs or bonds.
+- Prices are back-adjusted for 804 bonuses and splits from NSE's corporate-action list. NSE's previous close is not adjusted: Reliance's 1:1 bonuses would otherwise show as −50% days.
+- Renamed symbols are chained using NSE's symbol-change file.
+- 1,373 daily moves beyond ±40% have no listed bonus or split, in 170 symbols. They come from demergers, splits missing from NSE's list (JSW Steel 2017), and thin trading with weeks between trades. A separate run without these symbols gives the same conclusions.
+- The benchmark is the Nifty 50 index from Yahoo; an index has no survivorship problem.
+
+**Design, fixed before the run:**
+- Universe: every stock with at least 250 prior trading days that traded in the 5 days before the date: 2,312 stocks and 174,430 stock-dates.
+- Liquid subset: median 60-day traded value of at least ₹1 crore, 87,174 stock-dates.
+- The tool's rules are applied exactly as in the case studies, through the same function (`engine.price_flags`):
+  - market: EWMA ≥ 1.5× one-year volatility, or ES95 ≥ 5%;
+  - liquidity: 3 or more lower-circuit days;
+  - integrated stress: a −20% market move costing 30% or more.
+- The baselines are the same three rules as above.
+- Credit and events cannot be tested here: there are no point-in-time statements or disclosures for 2,312 companies.
+
+**Results** (stock-dates; precision = share of flagged dates followed by a ≥ 50% fall; recall = share of falls that were flagged; lift = precision ÷ the base rate):
+
+| Rule | All stocks: flagged | Precision | Recall | **Lift** | Liquid stocks: flagged | Precision | Recall | **Lift** |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| *Base rate (a ≥ 50% fall followed)* | | *15.1%* | | | | *10.6%* | | |
+| Tool: any price flag | 78.8% | 17.1% | 89.3% | **1.13** | 65.8% | 13.2% | 82.0% | **1.25** |
+| Tool: market | 72.7% | 17.1% | 82.5% | 1.14 | 62.0% | 13.0% | 76.0% | 1.23 |
+| Tool: liquidity (circuits) | 37.2% | 19.9% | 49.1% | 1.32 | 17.3% | 17.6% | 28.8% | 1.67 |
+| Tool: integrated stress | 60.0% | 19.6% | 78.1% | 1.30 | 37.6% | 17.3% | 61.5% | 1.64 |
+| (a) Down ≥ 30% in 6 months | 11.6% | **33.9%** | 26.1% | **2.25** | 6.1% | **26.4%** | 15.2% | **2.49** |
+| (b) Volatility in own top decile | 9.2% | 18.3% | 11.1% | 1.22 | 9.4% | 13.7% | 12.2% | 1.30 |
+| (c) Below 200-day average | 46.5% | 21.7% | 66.9% | 1.44 | 36.6% | 15.1% | 52.1% | 1.43 |
+| Any baseline | 51.3% | 20.8% | 70.7% | 1.38 | 42.4% | 14.4% | 57.6% | 1.36 |
+
+What this says, plainly:
+- **On the whole market, the tool's price flags barely beat chance and lose to a naive rule.** "Any price flag" fires on 79% of stock-dates with a lift of 1.13. "Down 30% in 6 months" fires on 12% with a lift of 2.25, and "below the 200-day average" does better than the tool on every measure but recall.
+- **The reason is one threshold.** Daily ES95 ≥ 5% was set with large caps in mind. It is true on 71.5% of all NSE stock-dates, because small caps routinely have one-day tail losses that large. The 220-date test hid this: its controls are ten large caps.
+  - I have not changed the threshold after seeing this, to avoid fitting the test. A rule relative to the stock's own history or to its size bucket is the obvious next step, and it would need its own out-of-sample test.
+- **The tool's better flags are the circuit and stress ones**, with lifts of 1.3 overall and about 1.65 on liquid stocks. The stress flag's lift was above 1.1 in every year from 2016 to 2024.
+- **The momentum baseline is the strongest single rule, but not a stable one.** Its lift ranges from 0.76 (2020, when the COVID crash flagged everything and the market recovered) to 4.11 (2023).
+- **The conclusions hold under the stated alternatives:**
+  - counting every stock that disappeared as a ≥ 50% loss (an upper bound, since mergers and buyouts also disappear): the tool's lift is 1.14, momentum's 2.25;
+  - dropping the 170 symbols with unexplained moves: 1.14 and 2.32.
+- **Survivorship:** delisted companies are included for as long as they traded on NSE. Companies listed only on BSE, and trading after an NSE delisting, are not.
+
+Files: `case_studies/results/universe_metrics.csv` (all variants), `universe_yearly.csv`, `universe_meta.json` (counts); the stock-level rows are rebuilt by `scripts/run_universe.py` (21 minutes on 7 cores).
+
+## Jump defaults: recalibrated on NSE-wide base rates (review M2)
+
+Until October 2026 the overlay assumed 0.1% a day for Elevated (J = −10%) and 0.5% a day for High (J = −20%). Those are **22% and 72% chances of at least one such jump a year**. They were "confirmed" on warned dates in the crash-selected case set above, which is circular: those dates were chosen because the stocks collapsed.
+
+**The new calibration** (`universe.jump_base_rates`, fixed before the run):
+- A jump is a one-day fall of 10% or more, or 20% or more, on a day the Nifty fell less than 5%. Market-wide crashes are the base model's job.
+- **Proxies for the tiers, measurable on every NSE stock:**
+  - Elevated ↔ 3 or more lower-circuit days in the window, the tool's own Elevated circuit rule;
+  - High ↔ trading in series BE or BZ, trade-for-trade, where NSE moves stocks under surveillance stages or with compliance failures.
+- **p = the jump rate over the next 63 trading days minus the stock's own trailing rate** over the window the base model is fitted on, because the GARCH-t base already carries the stock's own history of falls. J is the mean size of those falls. The 90% ranges come from resampling stocks.
+
+| Group | Falls of | Stock-dates | Jumps | Forward rate a day | Own trailing rate | **Excess p a day (90% range)** | Mean fall J |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| All stocks | ≥ 10% | 174,430 | 32,431 | 0.300% | 0.334% | −0.033% (−0.048% to −0.019%) | −16.1% |
+| All stocks | ≥ 20% | 174,430 | 3,878 | 0.036% | 0.035% | +0.001% (−0.005% to +0.006%) | −34.8% |
+| Elevated proxy | ≥ 10% | 64,865 | 20,574 | 0.529% | 0.616% | −0.087% (−0.131% to −0.050%) | −17.2% |
+| High proxy (BE/BZ) | ≥ 20% | 20,370 | 2,080 | 0.185% | 0.186% | −0.001% (−0.034% to +0.030%) | −34.2% |
+
+**Result:** none of the groups jumps more often than its own past, so **the default extra probability is now 0 for both tiers**. J is −17% for Elevated and −34% for High, used whenever a probability is set. Event-adjusted ES therefore equals standard ES by default.
+- The Events page shows ES over a grid of p (0.01% to 1% a day, with the yearly equivalent) and J (−10% to −50%), so what an assumed event risk would add is visible.
+- The sidebar takes any p.
+- **Limit:** these proxies are price-based. A stock flagged on prices has already shown its falls, so the base model has seen them. The tiers that matter most come from **disclosures** (pledges, rating downgrades, auditor resignations) for stocks whose prices still look calm, like Zee in 2018. Their base rate cannot be measured here: NSE's pledge history starts in September 2021, and ratings are not archived for every company. Zero is the honest default until such data exist; it is not proof that pledged stocks carry no extra jump risk.
+
+### Before the recalibration: what the case dates showed
+
+Observed one-day falls over the 63 trading days after each as-of date, from the case and control dates (kept for reference; these motivated the old defaults):
 
 | Dates | Days | Falls ≥ 10% | Falls ≥ 20% | P(fall ≥ 10%) a day | P(fall ≥ 20%) a day |
 | --- | --- | --- | --- | --- | --- |
@@ -99,11 +204,10 @@ Observed one-day falls over the 63 trading days after each as-of date:
 | Control, warning | 1,197 | 2 | 0 | 0.17% | 0 |
 | Control, no warning | 11,403 | 23 | 0 | 0.20% | 0 |
 
-- **On every warned date (cases and controls together),** falls of 20% or more happened on 9 of 2,142 days (0.42% a day). That is close to the High-tier default of 0.5% a day with J = −20%.
+- **On every warned date (cases and controls together),** falls of 20% or more happened on 9 of 2,142 days (0.42% a day). That looked close to the old High-tier default of 0.5% a day, but these dates were chosen because the stocks collapsed, so it could not confirm a base rate.
 - **The 9 falls are spread across four stocks:** Yes Bank 3, Jet Airways 3, Adani Enterprises 2, Zee 1. The warnings here are price flags, not the disclosure-based tiers the jump overlay uses.
 - **Large caps had falls of 10% too.** Control stocks without a warning saw them on 0.20% of days, mostly in March 2020. The GARCH-t base distribution already carries such market-wide crashes; the jump overlay is meant for stock-specific events on top.
-- **The Elevated default** (0.1% a day, −10%) cannot be tested until disclosure files give real tiers.
-- **Decision:** the defaults stay, marked "assumption", and are to be re-run once the checklist files are loaded.
+- **Superseded** by the NSE-wide calibration above (October 2026).
 
 ## Checklist of official files to download
 

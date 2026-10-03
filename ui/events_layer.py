@@ -92,8 +92,8 @@ def compute_events(ctx):
     sources = [f"{DATASETS[d].title}: " + ", ".join(sorted(set(data[d]["file"]))) for d in loaded] + [ctx.data_note]
     # Only the tiers some holding actually falls in bring their jump assumptions into the figures
     used_tiers = {r["tier"] for r in tiers.values()}
-    jump_assumptions = [f"{tier}: p = {p:.2%}/day, J = {j:.0%}" for tier, (p, j) in ctx.jump_settings.items()
-                        if p > 0 and tier in used_tiers]
+    jump_assumptions = [f"{tier}: p = {p:.2%}/day ({E.annual_probability(p):.0%} a year), J = {j:.0%}"
+                        for tier, (p, j) in ctx.jump_settings.items() if p > 0 and tier in used_tiers]
 
     def metric(name, value, low, high, assumptions, n_inputs, has_range=True, label="range across jump assumptions (½× to 2× p)"):
         if not has_range:
@@ -116,6 +116,11 @@ def compute_events(ctx):
         "high": metric("High-tier holdings", float((panel["Tier"] == E.HIGH).sum()), np.nan, np.nan,
                        ["tier thresholds (config/event_rules.json)"], 2, has_range=False),
     }
-    export(ctx, {"event_panel": panel, "event_signals": signals_by_ticker, "event_tiers": tiers, "event_margin": margin,
+    # ES sensitivity over p and J: on the holdings in Elevated or High, or (labelled hypothetical) the largest holding
+    flagged = [t for t, r in tiers.items() if r["tier"] != E.LOW]
+    targets = flagged or [max(weights, key=weights.get)]
+    sensitivity = {"table": E.es_sensitivity(base, weights, targets, ctx.confidence_level) * inv, "targets": targets,
+                   "hypothetical": not flagged}
+    export(ctx, {"event_sensitivity": sensitivity, "event_panel": panel, "event_signals": signals_by_ticker, "event_tiers": tiers, "event_margin": margin,
                  "event_overlay": overlay, "event_base": base, "event_metrics": metrics, "event_loaded": loaded,
                  "event_missing": missing, "event_jumps": jumps})

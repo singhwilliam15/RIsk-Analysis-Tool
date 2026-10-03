@@ -22,7 +22,14 @@ from disclosures import as_of as public_rows
 RULES_PATH = Path(__file__).parent / "config" / "event_rules.json"
 LOW, ELEVATED, HIGH = "Low", "Elevated", "High"
 TIERS = (LOW, ELEVATED, HIGH)
-DEFAULT_JUMPS = {LOW: (0.0, 0.0), ELEVATED: (0.001, -0.10), HIGH: (0.005, -0.20)}  # (daily probability, size)
+# (daily probability, size). Calibrated in October 2026 on every NSE stock, 2016–2024 (universe.jump_base_rates,
+# case_studies/results/universe_jumps.csv; methodology §12.4): on the price-based proxies for each tier, the rate of
+# stock-specific falls over the next 63 days was no higher than the stock's own trailing rate, which the base model
+# already carries, so the extra probability is 0 (Elevated −0.087% a day, 90% range −0.13% to −0.05%, falls ≥ 10%;
+# High −0.001%, −0.034% to +0.030%, falls ≥ 20%). J is the mean of those falls. The earlier assumptions (0.1% and
+# 0.5% a day, i.e. 22% and 72% a year) were checked only on crash-selected case dates. Editable in the sidebar.
+DEFAULT_JUMPS = {LOW: (0.0, 0.0), ELEVATED: (0.0, -0.17), HIGH: (0.0, -0.34)}
+PREVIOUS_JUMPS = {LOW: (0.0, 0.0), ELEVATED: (0.001, -0.10), HIGH: (0.005, -0.20)}  # before the calibration
 INITIAL_COVER, TRIGGER_COVER = 2.0, 1.5
 EXACT_ENUMERATION_MAX = 12
 SIGNALS = ("pledge", "surveillance", "fo_ban", "rating", "auditor", "merton", "circuit", "group")
@@ -339,6 +346,29 @@ def event_adjusted_es(base: dict, weights: dict, jumps: dict, confidence_level: 
     gap = ev_es - std_es
     shares = {t: (v / total_alone * gap if total_alone else 0.0) for t, v in alone.items()}
     return {"var": std_var, "es": std_es, "event_var": ev_var, "event_es": ev_es, "gap": gap, "by_holding": shares}
+
+
+TRADING_DAYS = 252
+SENSITIVITY_P = (0.0001, 0.0005, 0.001, 0.0025, 0.005, 0.01)
+SENSITIVITY_J = (-0.10, -0.20, -0.30, -0.50)
+
+
+def annual_probability(p_daily: float, days: int = TRADING_DAYS) -> float:
+    """Chance of at least one jump in a year of `days` independent trading days: 1 − (1 − p)^days."""
+    return 1.0 - (1.0 - p_daily) ** days
+
+
+def es_sensitivity(base: dict, weights: dict, targets: list, confidence_level: float,
+                   ps=SENSITIVITY_P, js=SENSITIVITY_J) -> pd.DataFrame:
+    """
+    Event-adjusted ES (as a fraction of value) when every holding in `targets` has jump probability p and size J and
+    no other holding jumps; rows are p (a day), columns J. The same closed form as event_adjusted_es.
+    """
+    table = pd.DataFrame(index=list(ps), columns=list(js), dtype=float)
+    for p in ps:
+        for j in js:
+            table.loc[p, j] = event_adjusted_es(base, weights, {t: (p, j) for t in targets}, confidence_level)["event_es"]
+    return table
 
 
 def base_distribution(var_selected: dict) -> dict:

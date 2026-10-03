@@ -43,6 +43,16 @@ def test_linked_engine_with_links_off_is_plain_market_stress():
     assert res["totals"][["Liquidity", "Credit", "Events", "Interaction"]].abs().sum() == pytest.approx(0)
 
 
+def test_a_scenario_that_wipes_out_the_equity_does_not_crash():
+    """A β-proxy return capped at −100% (Tesla, β > 2, in the GFC replay): the loss is the whole value, no Merton."""
+    wiped = {**SCENARIO, "holdings": {"A": {"return": -1.0, "method": "β-proxy", "sigma": 0.08},
+                                      "B": {"return": -0.45, "method": "replay", "sigma": 0.06}}}
+    res = I.linked_stress(holdings_frame(), wiped, PARAMS)
+    a = res["table"].set_index("Ticker").loc["A"]
+    assert a["Total"] == pytest.approx(600.0)
+    assert np.isnan(a["Feedback Fall"]) and np.isnan(a["Stressed DD"]) and np.isnan(a["JTD Loss (0% recovery)"])
+
+
 @pytest.mark.parametrize("link", ["liquidity", "credit", "events"])
 def test_a_single_link_alone_has_zero_interaction(link):
     res = I.linked_stress(holdings_frame(), SCENARIO, PARAMS, {**LINKS_OFF, link: True})

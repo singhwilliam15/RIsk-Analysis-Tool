@@ -3,12 +3,13 @@
 import pandas as pd
 import streamlit as st
 from credit import DEFAULT_POINT_LTD_WEIGHT, HORIZON_YEARS
-from events import DEFAULT_JUMPS, ELEVATED, HIGH, INITIAL_COVER, LOW, TRIGGER_COVER
+from events import DEFAULT_JUMPS, ELEVATED, HIGH, INITIAL_COVER, LOW, TRIGGER_COVER, annual_probability
 from debt import SENIORITIES
 from integration import JTD_DD, PERMANENT_SHARE
 from liquidity import AMFI_EXCLUDE, AMFI_PARTICIPATION, BANGIA_K, DEFAULT_PARTICIPATION, IMPACT_Y
 from ui.credit_layer import EQUITY_VOL_CHOICES
 from portfolio import BUY_AND_HOLD, ENTRY_MODES, ENTRY_SHARES, ENTRY_VALUE, ENTRY_WEIGHT, REBALANCE_DAILY
+from ui import snapshot
 from ui.context import export
 from ui.formatting import pct_label
 
@@ -24,6 +25,15 @@ HOLDINGS_KEYS = {ENTRY_WEIGHT: "holdings", ENTRY_SHARES: "holdings_shares", ENTR
 def render_sidebar(ctx):
     """Sidebar inputs: mode, ticker or holdings, lookback, position size, confidence, horizon."""
     st.sidebar.header("⚙️ Risk Parameters & Input")
+    snapshot_meta = snapshot.meta()
+    if snapshot_meta:
+        built_to = pd.Timestamp(snapshot_meta["prices_as_of"])
+        st.sidebar.radio(
+            "Data", [snapshot.SNAPSHOT, snapshot.LIVE], key=snapshot.MODE_KEY, horizontal=True,
+            format_func=lambda m: f"Demo snapshot ({built_to:%d %b %Y})" if m == snapshot.SNAPSHOT else "Live",
+            help="Demo snapshot: the presets with default settings were computed in advance with prices to the date "
+                 "shown, so they open instantly. Any other ticker or setting is downloaded and computed live. "
+                 "Live: today's prices from Yahoo Finance for everything (slower).")
 
     # Quick Select Pills
     quick_tickers = {
@@ -122,8 +132,10 @@ def render_sidebar(ctx):
                                       "0–10% recovery is shown next to the scenario (never added to it).")
 
     with st.sidebar.expander("⚠️ Event assumptions"):
-        st.caption("One-day jump per event-risk tier, added to the return distribution (assumptions, to be checked "
-                   "against the case studies).")
+        st.caption("One-day jump per event-risk tier, added to the return distribution. Default probability 0: on "
+                   "NSE-wide base rates, price-based proxies for the tiers showed no more stock-specific falls than the "
+                   "stock's own history, which the model already uses (methodology §12.4). Sizes are the mean falls "
+                   "measured there. Set a probability to see what an event would add; the Events page shows a grid.")
         c1, c2 = st.columns(2)
         elevated_p = c1.number_input("Elevated: jump probability, % a day", 0.0, 10.0, DEFAULT_JUMPS[ELEVATED][0] * 100, 0.05,
                                      key="ev_elevated_p") / 100
@@ -132,6 +144,8 @@ def render_sidebar(ctx):
         high_p = c1.number_input("High: jump probability, % a day", 0.0, 10.0, DEFAULT_JUMPS[HIGH][0] * 100, 0.05,
                                  key="ev_high_p") / 100
         high_j = c2.number_input("High: jump size, %", -90.0, 0.0, DEFAULT_JUMPS[HIGH][1] * 100, 1.0, key="ev_high_j") / 100
+        st.caption(f"A daily probability compounds: Elevated {annual_probability(elevated_p):.0%} and High "
+                   f"{annual_probability(high_p):.0%} chance of at least one jump a year.")
         initial_cover = st.number_input("Pledge: initial cover (value ÷ loan)", 1.05, 10.0, INITIAL_COVER, 0.1, key="ev_cover0")
         trigger_cover = st.number_input("Pledge: margin-call cover", 1.0, 10.0, TRIGGER_COVER, 0.1, key="ev_cover_t")
         st.caption("Group tags (e.g. Tata, Adani): two or more holdings in one group raise their tier.")

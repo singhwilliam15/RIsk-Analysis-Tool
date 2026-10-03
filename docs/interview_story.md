@@ -1,40 +1,54 @@
 # The 2-minute story
 
-A script to say out loud: about 300 words, roughly two minutes at a natural pace. Every number is from the live runs on 2 Oct 2026 (README and `docs/case_studies.md`).
+A script to say out loud: about 330 words, roughly two minutes at a natural pace. Every number is from the runs of
+2–3 Oct 2026 (README, `docs/case_studies.md`). It was rewritten after an external review that found the first
+version over-claimed; the review and its fixes are in `REVIEW_FIXES_V4.md`.
 
 ---
 
-**1. The problem: siloed risk tools (20 seconds)**
+**1. The problem (20 seconds)**
 
-Most risk tools put market, liquidity and credit risk on separate pages, as if they were independent. In a real crisis they arrive together. Prices fall, volume dries up, leverage worsens, and pledged promoter shares get sold, which pushes prices down further. I wanted a tool that measures those links, and that is honest about how far each number can be trusted.
+Most risk tools put market, liquidity and credit risk on separate pages. In an Indian crisis they arrive together:
+prices fall, the stock locks at its lower circuit, and lenders sell pledged promoter shares, which pushes the price
+down further. I wanted a tool that models that spiral, and that says how far each number can be trusted.
 
 **2. What I built (40 seconds)**
 
-It's a risk analysis tool for Indian and US stocks and portfolios, built in Python and Streamlit, with 434 offline tests.
+It's a risk tool for Indian and US stocks and portfolios, in Python and Streamlit, with 584 offline tests.
 
-- **Five pillars:** market, liquidity, credit, concentration and factors, and event and governance risk.
-- **A trust layer:** every headline number carries a 90% range and an A-to-D grade from written rules, so a fragile number looks fragile.
-- **A linked stress engine:** it runs one crisis through every pillar at once, lets forced selling and circuits move the price round after round, and measures what appears only when the pillars act together.
-- **A decision layer:** a reverse stress test, limits, risk-reducing trades, and a one-page memo for a chief risk officer, written by rules, not a language model.
+- **Five pillars** (market, liquidity, credit, concentration, and event risk), plus a check of banks against RBI's
+  Prompt Corrective Action triggers.
+- **A trust layer:** every headline number has a 90% range and an A-to-D grade.
+- **A linked stress engine.** Forced pledge selling and circuit locks move the price round after round until it
+  settles, and an exact Shapley split shows how much each pillar adds. With real NSE pledge data, Jaiprakash
+  Power loses 64% on a 20% market fall, three times the market move alone. Without pledges the cross effect is
+  zero, and the tool says so.
 
-**3. A result from a real collapse (40 seconds)**
+**3. Testing it honestly (40 seconds)**
 
-I ran it as of 12, 6, 3 and 1 month before five Indian collapses, using only data public at the time.
+I ran it before five Indian collapses using only data public at the time. It warned on 15 of 20 dates. Yes Bank was
+inside RBI's first PCA threshold six months before its moratorium.
 
-Take Future Retail. Three months before the August 2020 sale, a standard model showed a volatile stock: 9% daily Expected Shortfall. The liquidity pillar showed what really mattered. The stock had been locked at its 5% lower circuit on 26 days, 18 of them in a row, so a holder could not sell. The linked stress put the loss from a 20% market fall at 70%.
+Then I checked it against simple rules. "Price below its 200-day average" also caught 15 of 20, with three times
+the false alarms, so my edge there is precision. On every NSE stock from 2016 to 2024, delisted ones included, my
+price flags barely beat chance: one tail-risk threshold, set with large caps in mind, fires on 72% of all NSE stock-days. "Down 30% in six months"
+did twice as well. I reported that rather than re-tuning after the fact.
 
-Across the cases it warned on 15 of 20 dates, with false alarms on about one in ten control dates.
+**4. What I changed because of the evidence (20 seconds)**
 
-**4. What it still cannot do (20 seconds)**
-
-- **Zee and Future Retail were missed at 12 months,** because their risk sat in promoter pledges and group debt, which need disclosure files I have not loaded yet.
-- **With today's data the cross-pillar interaction is zero.** Without pledge data, only the liquidity link can act. The tool says so rather than inventing an effect; with a hypothetical pledge, the circuit-then-margin-call spiral appears.
-- **The jump sizes are assumptions** until those files can test them.
+The event overlay assumed a high-risk stock had a 72% yearly chance of a 20% crash. NSE-wide base rates didn't
+support it, so the default is now zero, with a grid showing what any assumption would add. The next step is a
+size-aware volatility rule, tested out of sample.
 
 ---
 
 **Likely follow-up questions, and the short answers**
 
-- *Why Shapley for risk change?* It splits a change exactly, whatever the order in which the factors moved.
+- *Why Shapley?* It splits a loss exactly across market, liquidity, credit and events, whatever the order in which
+  they act, and the interaction is what is left when they act together.
+- *Why didn't credit add a loss for shareholders?* The Merton PD is implied from the share price, which the scenario
+  already marks down, so adding it would count the same risk twice. Credit is a signal there, and a loss only for
+  bonds and loans.
+- *How do you avoid survivorship bias?* The wider test uses NSE's daily files, which keep delisted stocks. Prices are
+  adjusted for bonuses and splits with NSE's corporate-action list, because NSE's previous close is not adjusted.
 - *Why grades?* A VaR with a ±40% range should not look as solid as one with ±10%.
-- *What would you add next?* The disclosure data for the case studies, then FX for mixed INR/USD portfolios.

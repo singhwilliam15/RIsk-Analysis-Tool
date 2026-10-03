@@ -1,0 +1,20 @@
+{
+  "as_of_start": "2016-01-29",
+  "as_of_end": "2024-12-31",
+  "month_ends": 108,
+  "symbols_evaluated": 2312,
+  "stock_dates": 174430,
+  "liquid_stock_dates": 87174,
+  "events_observed": 26306,
+  "dates_without_future_prices": 96,
+  "disappeared_stock_dates": 4261,
+  "symbols_that_disappeared": 391,
+  "unexplained_moves": 1373,
+  "symbols_with_unexplained_moves": 170,
+  "errors": 0,
+  "error_examples": [],
+  "panel_start": "2014-01-01",
+  "panel_end": "2025-12-31",
+  "panel_symbols": 2969,
+  "runtime_s": 1285
+}

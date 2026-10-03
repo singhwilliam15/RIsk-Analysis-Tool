@@ -39,10 +39,14 @@ def prices_for(ticker: str, price_file: str = None):
 
 
 def flatten(r: dict) -> dict:
-    out = {k: v for k, v in r.items() if k not in ("flags", "available", "grade")}
+    out = {k: v for k, v in r.items() if k not in ("flags", "available", "grade", "baseline")}
     for p in K.PILLARS:
         out[f"available_{p}"] = r.get("available", {}).get(p, False)
         out[f"flag_{p}"] = r.get("flags", {}).get(p, False)
+    base = r.get("baseline") or {"available": {}, "flags": {}}
+    for b in K.BASELINES:
+        out[f"available_{b}"] = base["available"].get(b, False)
+        out[f"flag_{b}"] = base["flags"].get(b, False)
     for k, v in (r.get("grade") or {}).items():
         out[f"grade_{k}"] = v
     return out
@@ -97,11 +101,14 @@ def main() -> int:
     results.to_csv(RESULTS / "results.csv", index=False)
     tally = K.tally(results)
     tally.to_csv(RESULTS / "tally.csv", index=False)
+    leads = K.lead_times(results)
+    leads.to_csv(RESULTS / "lead_times.csv", index=False)
     jumps = K.jump_frequencies(frames, results)
     jumps.to_csv(RESULTS / "jump_frequencies.csv", index=False)
     pd.DataFrame(missing).to_csv(RESULTS / "missing.csv", index=False)
     chart(results)
     print(tally.to_string(index=False))
+    print(leads.to_string(index=False))
     print(jumps.to_string(index=False))
     print(f"done in {time.time() - started:.0f}s")
     return 0

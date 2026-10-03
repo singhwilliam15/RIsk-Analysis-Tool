@@ -227,3 +227,25 @@ def test_excel_events_sheet():
     values = [c.value for row in sheet.iter_rows(min_col=2, max_col=5) for c in row]
     assert "High" in values and "Gap from ABC.NS" in values and "60.0% of promoter shares pledged" in values
     assert "F&O ban list" in sheet["B3"].value
+
+
+def test_annual_probability_by_hand():
+    # 0.5% a day over 252 days: 1 − 0.995^252 = 0.7171 (the review's "about 72% a year"): 0.7172
+    assert E.annual_probability(0.005) == pytest.approx(1 - 0.995 ** 252)
+    assert E.annual_probability(0.005) == pytest.approx(0.7172, abs=1e-4)
+    assert E.annual_probability(0.001) == pytest.approx(0.2229, abs=1e-4)
+    assert E.annual_probability(0.0) == 0.0
+
+
+def test_es_sensitivity_is_monotone_and_matches_the_overlay():
+    weights = {"A": 0.6, "B": 0.4}
+    table = E.es_sensitivity(BASE, weights, ["A"], 0.95)
+    assert list(table.index) == list(E.SENSITIVITY_P) and list(table.columns) == list(E.SENSITIVITY_J)
+    # More likely or bigger jumps never lower ES
+    assert (table.diff(axis=0).dropna() >= -1e-12).all().all()
+    assert (table.diff(axis=1).dropna(axis=1) >= -1e-12).all().all()
+    # Each cell is exactly the overlay with that (p, J) on the target holding only
+    direct = E.event_adjusted_es(BASE, weights, {"A": (0.005, -0.20)}, 0.95)["event_es"]
+    assert table.loc[0.005, -0.20] == pytest.approx(direct, rel=1e-12)
+    # and never below the standard ES
+    assert (table >= E.event_adjusted_es(BASE, weights, {}, 0.95)["es"] - 1e-12).all().all()

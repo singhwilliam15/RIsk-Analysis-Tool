@@ -1,0 +1,30 @@
+{
+  "_about": "RBI Prompt Corrective Action risk thresholds, as published. Each indicator lists its three risk-threshold edges in percent; 'direction' says whether breaching means falling below ('below') or rising to/above ('at_or_above' / 'above'). Check RBI for amendments after the dates below.",
+  "bank": {
+    "circular": "RBI/2021-22/118, DOS.CO.PPG.SEC.No.4/11.01.005/2021-22, 2 November 2021 (effective 1 January 2022): PCA Framework for Scheduled Commercial Banks (excluding Small Finance Banks, Payment Banks and Regional Rural Banks)",
+    "url": "https://www.rbi.org.in/Scripts/NotificationUser.aspx?Id=12186",
+    "indicators": {
+      "crar": {"label": "CRAR", "direction": "below", "edges": [11.5, 9.0, 7.5],
+               "basis": "Indicator = 9% minimum CRAR + 2.5% capital conservation buffer = 11.5%; RT1 up to 250 bps below, RT2 250-400 bps below, RT3 more than 400 bps below."},
+      "cet1": {"label": "CET1 ratio", "direction": "below", "edges": [8.625, 7.0, 5.5],
+               "basis": "Indicator = CET1 pre-specified trigger 6.125% (RBI Basel III AT1 trigger from 31 March 2019) + 2.5% CCB = 8.625%; RT1 up to 162.5 bps below, RT2 162.5-312.5 bps below, RT3 more than 312.5 bps below."},
+      "nnpa": {"label": "Net NPA ratio", "direction": "at_or_above", "edges": [6.0, 9.0, 12.0],
+               "basis": "Net NPA to net advances: RT1 >= 6.0%, RT2 >= 9.0%, RT3 >= 12.0%."},
+      "leverage": {"label": "Tier-1 leverage ratio", "direction": "below", "edges_dsib": [4.0, 3.5, 3.0], "edges": [3.5, 3.0, 2.5],
+                   "basis": "Regulatory minimum 4% for D-SIBs and 3.5% for other banks (RBI/2018-19/225, DBR.BP.BC.No.49/21.06.201/2018-19, 28 June 2019, effective 1 October 2019, https://www.rbi.org.in/scripts/NotificationUser.aspx?Id=11606); RT1 up to 50 bps below, RT2 50-100 bps below, RT3 more than 100 bps below."}
+    }
+  },
+  "nbfc": {
+    "circular": "RBI/2021-22/139, DoS.CO.PPG.SEC.7/11.01.005/2021-22, 14 December 2021 (effective 1 October 2022): PCA Framework for NBFCs. Applies to deposit-taking NBFCs and middle/upper/top-layer non-deposit-taking NBFCs, excluding NBFCs not accepting public funds, government companies, primary dealers and housing finance companies.",
+    "url": "https://www.rbi.org.in/Scripts/NotificationUser.aspx?Id=12208&Mode=0",
+    "indicators": {
+      "crar": {"label": "CRAR", "direction": "below", "edges": [15.0, 12.0, 9.0],
+               "basis": "Regulatory minimum 15%; RT1 up to 300 bps below, RT2 300-600 bps below, RT3 more than 600 bps below."},
+      "tier1": {"label": "Tier-1 capital ratio", "direction": "below", "edges": [10.0, 8.0, 6.0],
+                "basis": "Regulatory minimum 10%; RT1 up to 200 bps below, RT2 200-400 bps below, RT3 more than 400 bps below."},
+      "nnpa": {"label": "Net NPA ratio (incl. NPIs)", "direction": "above", "edges": [6.0, 9.0, 12.0],
+               "basis": "RT1 > 6% and <= 9%, RT2 > 9% and <= 12%, RT3 > 12%."}
+    }
+  },
+  "lcr_minimum": {"value": 100.0, "basis": "Basel III Liquidity Coverage Ratio minimum of 100% (RBI LCR guidelines, fully phased in from 1 January 2019; not a PCA indicator)."}
+}

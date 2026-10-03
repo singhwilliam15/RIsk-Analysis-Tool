@@ -1,0 +1,13 @@
+{
+  "_about": "Assumptions for debt positions (debt.py). Every value here is an assumption, shown on the Credit and Integrated Stress pages; change it to see how much the results depend on it.",
+  "lgd": {
+    "secured": 0.25,
+    "senior unsecured": 0.45,
+    "subordinated": 0.75
+  },
+  "lgd_basis": "Senior unsecured 45% and subordinated 75% are the Basel II foundation-IRB supervisory LGDs (BCBS, International Convergence of Capital Measurement and Capital Standards, June 2006, paras 287-288). Secured 25% is an assumption (F-IRB secured LGD depends on collateral type, 0-40%).",
+  "widening_bps_severe": {"AAA": 150, "AA": 250, "A": 400, "BBB": 600, "BB": 1000, "B": 1500, "C": 2500, "D": 0, "unrated": 1000},
+  "severe_market_fall": 0.50,
+  "max_scale": 1.5,
+  "widening_basis": "Assumed spread widening by rating category in a severe market fall (equity market -50%), scaled linearly by the scenario's market fall and capped at 1.5x. Used only for issuers not held as equity with Merton inputs; for those, the widening comes from the stressed Merton PD instead."
+}

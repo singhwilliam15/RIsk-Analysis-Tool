@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- excerpt of https://nsearchives.nseindia.com/corporate/xbrl/BANKING_55031_250185_08052020021731_WEB.xml -->
+<xbrli:xbrl xmlns:in-bse-fin="http://www.bseindia.com/xbrl/fin/2018-03-31/in-bse-fin" xmlns:in-bse-fin-roles="http://www.bseindia.com/xbrl/fin/2018-03-31/in-bse-fin-roles" xmlns:in-bse-fin-ent="http://www.bseindia.com/xbrl/fin/2018-03-31/in-bse-fin/in-bse-fin-ent" xmlns:in-bse-fin-type="http://www.bseindia.com/xbrl/fin/2018-03-31/in-bse-fin-types" xmlns:xbrldt="http://xbrl.org/2005/xbrldt" xmlns:nonnum="http://www.xbrl.org/dtr/type/non-numeric" xmlns:link="http://www.xbrl.org/2003/linkbase" xmlns:net="http://www.xbrl.org/2009/role/net" xmlns:num="http://www.xbrl.org/dtr/type/numeric" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:iso4217="http://www.xbrl.org/2003/iso4217" xmlns:negated="http://www.xbrl.org/2009/role/negated" xmlns:xbrldi="http://xbrl.org/2006/xbrldi" xmlns:xbrli="http://www.xbrl.org/2003/instance" xmlns:xl="http://www.xbrl.org/2003/XLink">
+<in-bse-fin:InterestOrDiscountOnAdvancesOrBills contextRef="OneD" unitRef="INR" decimals="-5">45809000000.00</in-bse-fin:InterestOrDiscountOnAdvancesOrBills>
+<in-bse-fin:ProfitLossForThePeriod contextRef="OneD" unitRef="INR" decimals="-5">26286200000.00</in-bse-fin:ProfitLossForThePeriod>
+<in-bse-fin:GrossNonPerformingAssets contextRef="OneD" unitRef="INR" decimals="-5">328775879000.00</in-bse-fin:GrossNonPerformingAssets>
+<in-bse-fin:NonPerformingAssets contextRef="OneD" unitRef="INR" decimals="-5">86237791000.00</in-bse-fin:NonPerformingAssets>
+<in-bse-fin:PercentageOfGrossNpa contextRef="OneD" unitRef="pure" decimals="INF">0.168</in-bse-fin:PercentageOfGrossNpa>
+<in-bse-fin:PercentageOfNpa contextRef="OneD">0.0503</in-bse-fin:PercentageOfNpa>
+<in-bse-fin:ReturnOnAssets contextRef="OneD" unitRef="INR" decimals="-5">0.0004</in-bse-fin:ReturnOnAssets>
+<in-bse-fin:InterestOrDiscountOnAdvancesOrBills contextRef="FourD" unitRef="INR" decimals="-5">212611900000.00</in-bse-fin:InterestOrDiscountOnAdvancesOrBills>
+<in-bse-fin:ProfitLossForThePeriod contextRef="FourD" unitRef="INR" decimals="-5">-164180200000.00</in-bse-fin:ProfitLossForThePeriod>
+<in-bse-fin:GrossNonPerformingAssets contextRef="FourD" unitRef="INR" decimals="-5">328775879000.00</in-bse-fin:GrossNonPerformingAssets>
+<in-bse-fin:NonPerformingAssets contextRef="FourD" unitRef="INR" decimals="-5">86237791000.00</in-bse-fin:NonPerformingAssets>
+<in-bse-fin:PercentageOfGrossNpa contextRef="FourD" unitRef="pure" decimals="INF">0.168</in-bse-fin:PercentageOfGrossNpa>
+<in-bse-fin:PercentageOfNpa contextRef="FourD">0.0503</in-bse-fin:PercentageOfNpa>
+<in-bse-fin:ReturnOnAssets contextRef="FourD" unitRef="INR" decimals="-5">0.0005</in-bse-fin:ReturnOnAssets>
+<in-bse-fin:SegmentAssets contextRef="OneD" unitRef="INR" decimals="-5">2578269200000.00</in-bse-fin:SegmentAssets>
+<in-bse-fin:NetSegmentLiabilities contextRef="OneI">2578269192000.00</in-bse-fin:NetSegmentLiabilities>
+</xbrli:xbrl>

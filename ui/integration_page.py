@@ -71,8 +71,8 @@ def render(ctx):
                         "JTD Loss (10% recovery)", "JTD Loss (0% recovery)"):
                 detail[col] = detail[col].map(money)
             for col in ("Return", "Feedback Fall"):
-                detail[col] = detail[col].map(lambda v: f"{v:.2%}")
-            detail["Stressed PD"] = detail["Stressed PD"].map(lambda v: f"{v:.3%}" if np.isfinite(v) else "-")
+                detail[col] = detail[col].map(lambda v: f"{v:.2%}" if pd.notna(v) and np.isfinite(v) else "-")
+            detail["Stressed PD"] = detail["Stressed PD"].map(lambda v: f"{v:.3%}" if pd.notna(v) and np.isfinite(v) else "-")
             st.dataframe(detail, hide_index=True, width="stretch")
             st.caption("Feedback Fall: how far the price fell beyond the market shock because of selling and circuits. "
                        "Credit is a signal for equity holders: Merton re-solved at the final equity value (Stressed DD; "
@@ -105,7 +105,8 @@ def _jump_to_default(linked, money):
     rows = []
     for r in linked.to_dict("records"):
         d = r["detail"]
-        for h in d[d["JTD Loss (0% recovery)"].notna()].to_dict("records"):
+        equity = d[~d["Ticker"].astype(str).str.startswith("Debt:")]  # debt jump-to-default is on the Credit page
+        for h in equity[equity["JTD Loss (0% recovery)"].notna()].to_dict("records"):
             rows.append({"Scenario": r["Scenario"], "Ticker": h["Ticker"], "Stressed DD": f"{h['Stressed DD']:.2f}",
                          "Stressed PD (risk-neutral)": f"{h['Stressed PD']:.2%}",
                          "Loss if it defaults": f"{money(h['JTD Loss (10% recovery)'])} to {money(h['JTD Loss (0% recovery)'])}"})

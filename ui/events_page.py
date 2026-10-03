@@ -14,7 +14,7 @@ from disclosures import as_of_stamp
 METHODOLOGY = "docs/methodology.md, section 12"
 TIER_ICONS = {E.LOW: "🟢 Low", E.ELEVATED: "🟠 Elevated", E.HIGH: "🔴 High"}
 SIGNAL_LABELS = {"pledge": "Promoter pledge", "surveillance": "ASM / GSM", "fo_ban": "F&O ban", "rating": "Rating actions",
-                 "auditor": "Auditor events", "merton": "Merton DD trend", "circuit": "Circuit history", "group": "Group tag"}
+                 "auditor": "Auditor events", "merton": "Credit (Merton DD trend; RBI PCA for banks)", "circuit": "Circuit history", "group": "Group tag"}
 
 
 def _signal_text(name, s):
@@ -32,6 +32,9 @@ def _signal_text(name, s):
         return f"{s['latest'] or 'no rating on file'}; " + ", ".join(parts)
     if name == "auditor":
         return ", ".join(s["events"]) if s["events"] else "no events in 24 months"
+    if name == "merton" and "pca_band" in s:
+        return f"RBI PCA band {s['pca_band']}" + (f" ({s['pca_detail']})" if s["pca_detail"] else "") + (
+            f"; {len(s['warnings'])} early warning(s)" if s["warnings"] else "")
     if name == "merton":
         trend = f" (6 months ago {s['dd_6m_ago']:.2f})" if np.isfinite(s["dd_6m_ago"]) else ""
         return f"DD {s['dd']:.2f}{trend}"

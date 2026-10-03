@@ -83,6 +83,51 @@ def pledge_row(symbol: str, filing: dict, parsed: dict) -> dict:
 
 
 # ---------------------------------------------------------------
+# Bank results XBRL (analytical ratios)
+# ---------------------------------------------------------------
+
+PLAUSIBLE_YIELD = (0.02, 0.25)  # annual interest on advances ÷ gross advances, for the scale check
+
+
+def bank_results_ratios(text: str, annual: bool) -> tuple:
+    """
+    Gross and net NPA % and ROA from a bank's results XBRL (SEBI results format, "analytical ratios"), in
+    percent, and a note. Context 'OneD' is the quarter, 'FourD' the year to date; NPA ratios are period-end stocks.
+    ROA is taken only from an annual filing's full-year context, since quarterly ROA is not annualised.
+
+    Scale check: some filings enter the ratios 100× too small (e.g. 16.9% filed as 0.0017). The filing's own
+    figures expose this: gross NPA amount ÷ gross NPA ratio = implied gross advances, and the quarter's interest on
+    advances × 4 ÷ those advances = implied yield. A filing whose implied yield is outside 2–25% is dropped: the
+    ratios are rounded to four decimals as filed, so ×100 cannot recover them to better than ±0.5 pp.
+    ROA check: the year's profit ÷ period-end total assets (both in the same filing) must agree with the filed ROA
+    in sign and within a factor of two, or the ROA is dropped.
+    """
+    raw = {key: _number(xbrl_fact(text, tag, "OneD")) for key, tag in (("gnpa", "PercentageOfGrossNpa"), ("nnpa", "PercentageOfNpa"))}
+    amount = _number(xbrl_fact(text, "GrossNonPerformingAssets", "OneD"))
+    interest = _number(xbrl_fact(text, "InterestOrDiscountOnAdvancesOrBills", "OneD"))
+    if raw["gnpa"] > 0 and amount > 0 and interest > 0:
+        y = interest * 4 / (amount / raw["gnpa"])
+        if not PLAUSIBLE_YIELD[0] <= y <= PLAUSIBLE_YIELD[1]:
+            return {}, (f"NPA ratios dropped: as filed they imply a {y:.2%} yield on advances (interest ÷ (gross NPA "
+                        f"amount ÷ ratio)); 100× too small and rounded, so not recoverable")
+    out = {key: value * 100 for key, value in raw.items() if np.isfinite(value)}
+    note = ""
+    if annual:
+        roa = _number(xbrl_fact(text, "ReturnOnAssets", "FourD"))
+        profit = _number(xbrl_fact(text, "ProfitLossForThePeriod", "FourD"))
+        # Total assets: the balance-sheet total, or in older filings the segment totals (which add up to it)
+        assets = next((v for v in (_number(xbrl_fact(text, "CapitalAndLiabilities", "OneI")),
+                                   _number(xbrl_fact(text, "NetSegmentLiabilities", "OneI")),
+                                   _number(xbrl_fact(text, "SegmentAssets", "OneD"))) if np.isfinite(v) and v > 0), np.nan)
+        implied = profit / assets if np.isfinite(profit) and np.isfinite(assets) and assets > 0 else np.nan
+        if np.isfinite(roa) and np.isfinite(implied) and (np.sign(roa) != np.sign(implied) or not 0.5 <= roa / implied <= 2.0):
+            note = f"ROA dropped: filed {roa:.2%}, but profit ÷ total assets in the same filing is {implied:.2%}"
+        elif np.isfinite(roa):
+            out["roa"] = roa * 100
+    return out, note
+
+
+# ---------------------------------------------------------------
 # Surveillance
 # ---------------------------------------------------------------
 

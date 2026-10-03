@@ -4,6 +4,7 @@ import pandas as pd
 import streamlit as st
 from credit import DEFAULT_POINT_LTD_WEIGHT, HORIZON_YEARS
 from events import DEFAULT_JUMPS, ELEVATED, HIGH, INITIAL_COVER, LOW, TRIGGER_COVER
+from debt import SENIORITIES
 from integration import JTD_DD, PERMANENT_SHARE
 from liquidity import AMFI_EXCLUDE, AMFI_PARTICIPATION, BANGIA_K, DEFAULT_PARTICIPATION, IMPACT_Y
 from ui.credit_layer import EQUITY_VOL_CHOICES
@@ -139,5 +140,17 @@ def render_sidebar(ctx):
         group_tags = st.data_editor(pd.DataFrame({"Ticker": tag_tickers, "Group": [""] * len(tag_tickers)}),
                                     hide_index=True, width="stretch", key=f"group_tags_{'p' if is_portfolio else 's'}",
                                     disabled=["Ticker"])
+    with st.sidebar.expander("🧾 Debt holdings (bonds, NCDs, loans)"):
+        st.caption("Optional. Each row is priced off the risk-free rate + its spread, with a credit loss = market value × "
+                   "PD (the rating's published default rate) × LGD (by seniority). Give the issuer's ticker to link its "
+                   "spread to the issuer's equity in the linked stress.")
+        debt_input = st.data_editor(
+            pd.DataFrame({"Name": pd.Series(dtype=str), "Issuer Ticker": pd.Series(dtype=str),
+                          "Face Value": pd.Series(dtype=float), "Coupon %": pd.Series(dtype=float),
+                          "Maturity": pd.Series(dtype="datetime64[ns]"), "Rating": pd.Series(dtype=str),
+                          "Seniority": pd.Series(dtype=str), "Spread bps": pd.Series(dtype=float)}),
+            num_rows="dynamic", hide_index=True, width="stretch", key="debt_holdings",
+            column_config={"Seniority": st.column_config.SelectboxColumn(options=list(SENIORITIES)),
+                           "Maturity": st.column_config.DateColumn()})
     jump_settings = {LOW: DEFAULT_JUMPS[LOW], ELEVATED: (elevated_p, elevated_j), HIGH: (high_p, high_j)}
     export(ctx, locals())

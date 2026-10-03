@@ -442,7 +442,7 @@ The thresholds are common credit-analysis rules of thumb, not regulatory limits.
   - These are **real-world, historical** frequencies. Merton's PD is **risk-neutral and model-implied**. The Credit page shows both, side by side.
 - **DD percentile (since October 2026).** For strong firms Merton's PD is around 10⁻³⁰, which means nothing on its own. So the Credit page leads with the distance to default and its percentile in a reference universe: `data/credit/dd_universe.csv`, built by `scripts/build_dd_universe.py` with the app's own code path and default inputs, from the covered stocks of §7.4. Percentile = share of the universe with a lower DD (ties count half).
 - **Financial companies:** banks, NBFCs and insurers are identified by Yahoo sector "Financial Services" or industry keywords. Merton, Altman and leverage ratios are skipped for them: deposits and policyholder liabilities are their business, not debt in the Merton sense.
-- **Manual panel for financials:** GNPA, NNPA, capital adequacy (CAR), CASA and net interest margin, typed in from the annual report. CAR is compared with the RBI minimum of 11.5% (9% CRAR plus the 2.5% capital conservation buffer; RBI Master Circular on Basel III capital regulations).
+- **Banks and NBFCs with a metrics file** are assessed against RBI's PCA thresholds (§10.6). Without a file, a fallback panel lets you type in GNPA, NNPA, CAR, CASA and NIM; CAR is compared with the RBI minimum of 11.5% (9% CRAR plus the 2.5% capital conservation buffer).
 
 ### 10.5 Portfolio view, ranges and grades
 
@@ -455,6 +455,66 @@ The thresholds are common credit-analysis rules of thumb, not regulatory limits.
   - **Assumptions:** 3 of 6 Merton inputs (default-point weight, T, r).
   - **Extra deductions:** a balance sheet older than 15 months, or any unmodelled value.
 - **Altman score:** no range, so that rule is skipped.
+
+### 10.6 Banks and NBFCs: RBI Prompt Corrective Action (`banks.py`, `config/pca_thresholds.json`)
+
+Merton, Altman and leverage ratios do not apply to lenders, whose deposits and borrowings are the business. Banks and NBFCs are instead measured against RBI's own supervisory triggers.
+
+- **Metrics** (`data/banks/<SYMBOL>.csv`, long format, one row per metric and period, with the filing date and source):
+  - **asset quality:** gross NPA %, net NPA %, provision coverage (excluding written-off assets, as printed);
+  - **capital:** CRAR, CET1, Tier-1 capital ratio, Tier-1 leverage ratio;
+  - **funding and liquidity:** CASA %, credit-deposit ratio, LCR;
+  - **profitability:** NIM, ROA.
+  - **Sources:**
+    - NPA ratios and ROA come from NSE results XBRL (quarterly and annual; `scripts/fetch_bank_results.py`).
+    - The rest is transcribed from annual reports, each value with its PDF page.
+    - The credit-deposit ratio is derived from the printed balance-sheet advances and deposits (labelled).
+    - Slippage is not printed in the reports used, so it is missing rather than estimated.
+- **Point in time:** a value is used only once its filing date has passed. Results XBRL is dated by NSE's broadcast date, annual reports by their NSE filing date. When the same period is filed twice, the later filing wins.
+- **XBRL checks** (on the filing's own figures):
+  - **NPA ratios:** gross NPA amount ÷ gross NPA ratio = implied gross advances, and the quarter's interest on advances × 4 ÷ that = implied yield. Outside 2–25%, the ratios are dropped. Several Yes Bank filings from 2020 onwards entered the ratios 100× too small and rounded them to four decimals, so they cannot be recovered.
+  - **ROA:** it must agree in sign, and within a factor of two, with the filing's profit ÷ total assets. Yes Bank's FY2020 filing says +0.05% in a year with a ₹16,418 crore loss (−6.4%), so it is dropped.
+  - Annual-report net NPA matches the XBRL to 0.00 pp in every period where both exist (HDFC Bank FY2022–24, Yes Bank FY2019).
+- **PCA bands.**
+  - **Banks:** RBI/2021-22/118, 2 Nov 2021, effective 1 Jan 2022; scheduled commercial banks excluding small finance, payment and regional rural banks.
+
+    | Indicator | Risk threshold 1 | Risk threshold 2 | Risk threshold 3 |
+    | --- | --- | --- | --- |
+    | CRAR (9% + 2.5% CCB = 11.5%) | < 11.5% | < 9.0% | < 7.5% |
+    | CET1 (pre-specified trigger 6.125% + 2.5% CCB = 8.625%) | < 8.625% | < 7.0% | < 5.5% |
+    | Net NPA ratio | ≥ 6% | ≥ 9% | ≥ 12% |
+    | Tier-1 leverage ratio (minimum 4% for D-SIBs, 3.5% for others; RBI/2018-19/225, 28 Jun 2019) | up to 50 bps below | 50–100 bps below | more than 100 bps below |
+
+  - **NBFCs:** RBI/2021-22/139, 14 Dec 2021, effective 1 Oct 2022. It covers deposit-taking NBFCs and middle/upper/top-layer non-deposit-taking NBFCs, excluding housing finance companies, government companies and primary dealers.
+
+    | Indicator | Risk threshold 1 | Risk threshold 2 | Risk threshold 3 |
+    | --- | --- | --- | --- |
+    | CRAR | < 15% | < 12% | < 9% |
+    | Tier-1 | < 10% | < 8% | < 6% |
+    | Net NPA (incl. NPIs) | > 6% | > 9% | > 12% |
+
+  - DHFL was a housing finance company, outside this framework.
+- **Distance to trigger** = headroom to risk threshold 1 in percentage points (negative = breached).
+- **Early warnings** (assumptions, `banks.EARLY_WARNING`):
+  - a capital indicator within 1 pp of its trigger;
+  - net NPA within 1 pp of 6%;
+  - gross NPA up 1 pp or more in a year;
+  - ROA < 0;
+  - LCR below the 100% minimum.
+- **Event tier:** for a bank or NBFC the credit signal is its PCA band: risk threshold 2 or 3 → High; risk threshold 1 or any early warning → Elevated.
+- **Limitation:** the PCA thresholds are those of the 2021–22 circulars. Applied to earlier dates (the Yes Bank case study), they are a benchmark, not the rules then in force. The circulars may have been amended since; check RBI.
+
+### 10.7 Debt positions (`debt.py`, `config/debt_assumptions.json`)
+
+- **Input:** bonds, NCDs or loans in the sidebar, each with face value, coupon, maturity, rating, seniority, spread over the risk-free rate, and optionally the issuer's ticker.
+- **Pricing:** clean price with annual coupons on calendar coupon dates, at y = risk-free + spread; modified (= spread) duration and convexity analytically (checked against a numerical derivative).
+- **Expected loss over one year** = market value × PD × LGD.
+  - PD is the rating's published 1-year default rate (§10.4).
+  - LGD by seniority: senior unsecured 45% and subordinated 75% (Basel II foundation IRB, paras 287–288); secured 25% (an assumption). All are editable.
+- **Stress (Integrated Stress page, credit link):** loss = full repricing at y + Δs, plus the one-year expected loss. The duration–convexity approximation is accurate to third order in Δs (tested against full repricing: within 0.1% at 100 bp).
+  - **Issuer held as equity with Merton inputs:** Δs = s(PD stressed) − s(PD today), with s = −ln(1 − PD·LGD)/T and the risk-neutral Merton PD re-solved at the issuer's linked-stress price. This is the right measure for a spread, and it carries the equity feedback (pledge selling, circuits) into the bond: a cross-pillar interaction.
+  - **Otherwise:** an assumed widening by rating category for a 50% market fall (AAA 150 bp … C 2,500 bp), scaled by the scenario's fall and capped at 1.5×.
+- **Not modelled:** interest-rate risk on the bonds (the risk-free curve is held fixed), floating-rate and callable structures, and accrued interest. The VaR/ES pillars remain equity-only.
 
 ## 11. Concentration and factor risk (`concentration.py`, `factor_data.py`)
 

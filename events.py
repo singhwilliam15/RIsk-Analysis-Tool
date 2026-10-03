@@ -204,7 +204,15 @@ def classify(signals: dict, rules: dict) -> dict:
         elif mild:
             fire(ELEVATED, "auditor: " + ", ".join(mild) + " in 24 months")
     d = signals.get("merton")
-    if d is not None:
+    if d is not None and "pca_band" in d:
+        # Banks and NBFCs: the credit signal is the RBI PCA band (banks.py), not Merton
+        if d["pca_band"] in ("RT2", "RT3"):
+            fire(HIGH, f"RBI PCA risk threshold {d['pca_band'][-1]} breached ({d['pca_detail']})")
+        elif d["pca_band"] == "RT1":
+            fire(ELEVATED, f"RBI PCA risk threshold 1 breached ({d['pca_detail']})")
+        for w in d.get("warnings", []):
+            fire(ELEVATED, w)
+    elif d is not None:
         if d["dd"] < hi["merton_dd_below"]:
             fire(HIGH, f"Merton DD {d['dd']:.2f}")
         elif d["dd"] < el["merton_dd_below"]:

@@ -9,6 +9,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 import credit as C
+import debt as D
 from ui.credit_layer import EQUITY_VOL_CHOICES
 from ui.formatting import MODEL_COLORS
 
@@ -47,6 +48,48 @@ def render(ctx):
                "rates**. Merton's PD is a model-implied, risk-neutral probability: for strong firms it is astronomically "
                "small and its exact value means little.")
 
+    banks_assessed = [r["bank"] for r in ctx.credit_results.values() if (r.get("bank") or {}).get("available")]
+    if banks_assessed and not view["table"]["DD"].notna().any():
+        _bank_headline(banks_assessed)
+    else:
+        _headline(ctx, m, view, money)
+    st.caption(f"{view['coverage']:.0%} of the portfolio value is modelled by Merton. Credit-implied expected loss (Σ Merton "
+               f"PD × value, LGD 100%): {money(m['expected_loss'].value)}. Reference universe for the DD percentile: "
+               + (f"{view['dd_universe']['size']} NSE stocks (the presets, Jaiprakash Power and the five most-pledged "
+                  f"mid/small caps; data/credit/dd_universe.csv, built {view['dd_universe']['built_on']})."
+                  if view["dd_universe"]["size"] else "not built yet (scripts/build_dd_universe.py)."))
+
+    _portfolio_table(ctx, money)
+    _debt_book(ctx, money)
+    for ticker, res in ctx.credit_results.items():
+        with st.expander(f"{ticker}: details", expanded=len(ctx.credit_results) == 1):
+            if res["financial"]:
+                _financial_panel(ticker, res, ctx)
+            else:
+                _merton(res, ctx, money)
+                _altman(res)
+                _ratios(res, ctx)
+            _rating(res)
+    _misses()
+
+
+def _bank_headline(banks_assessed):
+    """Headline cards when every holding is a bank or NBFC: the RBI PCA view instead of Merton's."""
+    worst = max(banks_assessed, key=lambda b: (("none", "RT1", "RT2", "RT3").index(b["pca"]["worst"])
+                                               if b["pca"]["worst"] in ("none", "RT1", "RT2", "RT3") else -1,
+                                               -b["pca"]["min_headroom"]))
+    values = worst["values"]
+    cols = st.columns(4)
+    cols[0].metric(f"Worst RBI PCA band ({worst['symbol']})", worst["pca"]["worst"])
+    cols[0].caption("Risk threshold 1–3 breached, or none (RBI PCA framework; see the panel below).")
+    cols[1].metric("Smallest headroom to a PCA trigger", f"{worst['pca']['min_headroom']:+.2f} pp")
+    for col, key, label in ((cols[2], "crar", "CRAR"), (cols[3], "nnpa", "Net NPA")):
+        col.metric(label, f"{values[key][0]:.2f}%" if key in values else "not available")
+        if key in values:
+            col.caption(f"as at {values[key][1]:%b %Y}")
+
+
+def _headline(ctx, m, view, money):
     universe = view["dd_universe"]
     weakest = m["weakest_dd"]
     t = view["table"]
@@ -65,23 +108,9 @@ def render(ctx):
         col.metric(label, fmt(metric.value))
         col.caption(f"{metric.range_text(fmt)} · grade **{metric.grade}**")
         col.caption("; ".join(metric.reasons) or "no deductions")
-    st.caption(f"{view['coverage']:.0%} of the portfolio value is modelled by Merton. Credit-implied expected loss (Σ Merton "
-               f"PD × value, LGD 100%): {money(m['expected_loss'].value)}. Reference universe for the DD percentile: "
-               + (f"{universe['size']} NSE stocks (the presets, Jaiprakash Power and the five most-pledged mid/small caps; "
-                  f"data/credit/dd_universe.csv, built {universe['built_on']})." if universe["size"] else
-                  "not built yet (scripts/build_dd_universe.py)."))
 
-    _portfolio_table(ctx, money)
-    for ticker, res in ctx.credit_results.items():
-        with st.expander(f"{ticker}: details", expanded=len(ctx.credit_results) == 1):
-            if res["financial"]:
-                _financial_panel(ticker, res, ctx)
-            else:
-                _merton(res, ctx, money)
-                _altman(res)
-                _ratios(res, ctx)
-            _rating(res)
 
+def _misses():
     st.markdown("### 🕳️ What this metric misses")
     st.markdown("""
 - **Off-balance-sheet debt**: guarantees, leases not on the balance sheet, supplier finance and contingent liabilities.
@@ -105,8 +134,32 @@ def _portfolio_table(ctx, money):
         "Altman": [f"{m}: {_num(s)} ({z})" if m != "not applicable" else "not applicable"
                    for m, s, z in zip(t["Altman Model"], t["Altman Score"], t["Altman Zone"])],
         "Red flags": t["Red Flags"], "Rating": t["Rating"], "Direction": t["Rating Direction"],
+        "RBI PCA band (banks)": t["PCA Band"],
         "Balance sheet": t["Balance Sheet"].map(lambda d: f"FY ending {d:%b %Y}" if pd.notna(d) else "not available")}),
         hide_index=True, width="stretch")
+
+
+def _debt_book(ctx, money):
+    for e in ctx.debt_errors:
+        st.warning(e)
+    book = ctx.debt_book
+    if book is None or book.empty:
+        return
+    st.markdown("### 🧾 Debt holdings")
+    cfg = D.load_config()
+    shown = pd.DataFrame({
+        "Name": book["Name"], "Issuer": book["Issuer Ticker"].replace("", "-"), "Rating": book["Rating"],
+        "Seniority": book["Seniority"], "Market value": book["Market Value"].map(money),
+        "Yield": book["Yield"].map(lambda v: f"{v:.2%}"), "Modified duration": book["Modified Duration"].map(lambda v: f"{v:.2f}"),
+        "PD (1y, agency)": book["PD (1y, agency)"].map(lambda v: _pct(v, 2)), "LGD": book["LGD"].map(lambda v: f"{v:.0%}"),
+        "Expected loss (1y)": book["Expected Loss (1y)"].map(money), "Loss if it defaults": book["Jump-to-Default Loss"].map(money)})
+    st.dataframe(shown, hide_index=True, width="stretch")
+    total_el = book["Expected Loss (1y)"].sum(min_count=1)
+    st.caption(f"Expected loss over one year = market value × PD × LGD: {money(total_el)} in total. PD is the rating's "
+               "published 1-year default rate (data/credit/rating_default_rates.csv; CRISIL's table for agencies without "
+               "a study on file). LGD by seniority, assumptions: " + "; ".join(f"{k} {v:.0%}" for k, v in cfg["lgd"].items())
+               + f". {cfg['lgd_basis']} Prices are clean, annual coupons, discounted at the risk-free rate + the spread. "
+               "Stressed spread losses are on the Integrated Stress page.")
 
 
 def _merton(res, ctx, money):
@@ -198,6 +251,39 @@ def _rating(res):
 def _financial_panel(ticker, res, ctx):
     for note in res["notes"]:
         st.info(note)
+    bank = res.get("bank") or {}
+    if bank.get("available"):
+        _bank_panel(bank)
+        return
+    _manual_bank_panel(ticker, res, ctx)
+
+
+def _bank_panel(bank):
+    pca = bank["pca"]
+    kind = "Bank" if bank["entity_type"] == "bank" else "NBFC"
+    st.markdown(f"**RBI Prompt Corrective Action: {kind}{' (D-SIB)' if bank['d_sib'] else ''}, latest data "
+                f"{bank['latest_period']:%b %Y}** — worst band: **{pca['worst']}**, smallest headroom "
+                f"{pca['min_headroom']:+.2f} pp ({pca['coverage']} available)")
+    table = pca["table"].copy()
+    table["Value"] = table["Value"].map(lambda v: f"{v:.2f}%" if np.isfinite(v) else "not available")
+    table["Distance to trigger (pp)"] = table["Distance to trigger (pp)"].map(lambda v: f"{v:+.2f}" if np.isfinite(v) else "-")
+    table["RT1 trigger"] = table["RT1 trigger"].map(lambda v: f"{v:g}%")
+    st.dataframe(table.drop(columns=["Key"]), hide_index=True, width="stretch")
+    st.caption(f"Thresholds: {pca['circular']} ({pca['url']}); see config/pca_thresholds.json. Distance to trigger is the "
+               "headroom to risk threshold 1 (negative = breached). Each value is the latest one public by the "
+               "analysis date: results XBRL for NPA ratios and ROA, annual reports (page cited in data/banks/) for the rest.")
+    if bank["warnings"]:
+        st.warning("Early warnings (assumed buffers, banks.EARLY_WARNING): " + "; ".join(bank["warnings"]))
+    else:
+        st.success("No early-warning rule fired.")
+    if len(bank["trend"]):
+        st.markdown("**Five-year trend (fiscal year ends)**")
+        st.dataframe(bank["trend"].map(lambda v: f"{v:.2f}" if pd.notna(v) else "-"), width="stretch")
+        st.caption("Credit-deposit ratio is derived from the balance sheet (advances ÷ deposits); FY2024 NIM is core NIM "
+                   "as printed. Slippage is not printed in these annual reports, so it is not shown.")
+
+
+def _manual_bank_panel(ticker, res, ctx):
     st.markdown("**Bank / NBFC / insurer metrics, from the annual report**")
     key = f"bank_metrics_{ticker}"
     table = st.data_editor(pd.DataFrame({"Metric": BANK_METRICS, "Value": [None] * len(BANK_METRICS),

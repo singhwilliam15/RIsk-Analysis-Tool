@@ -1,0 +1,36 @@
+symbol,entity_type,d_sib,period_end,metric,value_pct,filing_date,source
+YESBANK,bank,False,2018-03-31,casa,36.5,2018-06-21,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_12405_YESBANK_2017_2018_21062018135642.zip), PDF page 108"
+YESBANK,bank,False,2018-03-31,cd_ratio,101.39,2018-06-21,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_12405_YESBANK_2017_2018_21062018135642.zip), PDF page 116; derived: advances ÷ deposits (₹ million)"
+YESBANK,bank,False,2018-03-31,cet1,9.7,2018-06-21,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_12405_YESBANK_2017_2018_21062018135642.zip), PDF page 232"
+YESBANK,bank,False,2018-03-31,crar,18.4,2018-06-21,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_12405_YESBANK_2017_2018_21062018135642.zip), PDF page 232"
+YESBANK,bank,False,2018-03-31,nim,3.5,2018-06-21,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_12405_YESBANK_2017_2018_21062018135642.zip), PDF page 108"
+YESBANK,bank,False,2018-03-31,nnpa,0.64,2018-06-21,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_12405_YESBANK_2017_2018_21062018135642.zip), PDF page 241"
+YESBANK,bank,False,2018-03-31,pcr,50.02,2018-06-21,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_12405_YESBANK_2017_2018_21062018135642.zip), PDF page 241; as per RBI guidelines"
+YESBANK,bank,False,2018-03-31,tier1,13.2,2018-06-21,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_12405_YESBANK_2017_2018_21062018135642.zip), PDF page 232"
+YESBANK,bank,False,2018-06-30,gnpa,1.31,2018-08-08,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_37270_29408_26072018035129_WEB.xml
+YESBANK,bank,False,2018-06-30,nnpa,0.59,2018-08-08,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_37270_29408_26072018035129_WEB.xml
+YESBANK,bank,False,2018-12-31,gnpa,2.1,2019-01-28,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_41693_77292_24012019044011_WEB.xml
+YESBANK,bank,False,2018-12-31,nnpa,1.18,2019-01-28,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_41693_77292_24012019044011_WEB.xml
+YESBANK,bank,False,2019-03-31,casa,33.1,2019-05-16,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_14483_YESBANK_2018_2019_16052019224128_16052019230003.zip), PDF page 151"
+YESBANK,bank,False,2019-03-31,cd_ratio,106.1,2019-05-16,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_14483_YESBANK_2018_2019_16052019224128_16052019230003.zip), PDF page 159; derived: advances ÷ deposits (₹ million)"
+YESBANK,bank,False,2019-03-31,cet1,8.4,2019-05-16,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_14483_YESBANK_2018_2019_16052019224128_16052019230003.zip), PDF page 273"
+YESBANK,bank,False,2019-03-31,crar,16.5,2019-05-16,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_14483_YESBANK_2018_2019_16052019224128_16052019230003.zip), PDF page 273"
+YESBANK,bank,False,2019-03-31,gnpa,3.22,2019-05-10,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_43655_99590_26042019082042_WEB.xml
+YESBANK,bank,False,2019-03-31,nim,3.2,2019-05-16,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_14483_YESBANK_2018_2019_16052019224128_16052019230003.zip), PDF page 152"
+YESBANK,bank,False,2019-03-31,nnpa,1.86,2019-05-10,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_43655_99590_26042019082042_WEB.xml
+YESBANK,bank,False,2019-03-31,nnpa,1.86,2019-05-16,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_14483_YESBANK_2018_2019_16052019224128_16052019230003.zip), PDF page 282"
+YESBANK,bank,False,2019-03-31,pcr,43.1,2019-05-16,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_14483_YESBANK_2018_2019_16052019224128_16052019230003.zip), PDF page 282; as per RBI guidelines"
+YESBANK,bank,False,2019-03-31,roa,0.5,2019-05-10,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_43655_99590_26042019082042_WEB.xml
+YESBANK,bank,False,2019-03-31,tier1,11.3,2019-05-16,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_14483_YESBANK_2018_2019_16052019224128_16052019230003.zip), PDF page 273"
+YESBANK,bank,False,2019-06-30,gnpa,5.01,2019-09-09,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_46013_119839_17072019083605_WEB.xml
+YESBANK,bank,False,2019-06-30,nnpa,2.91,2019-09-09,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_46013_119839_17072019083605_WEB.xml
+YESBANK,bank,False,2019-09-30,gnpa,7.39,2019-11-19,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_49217_159879_05112019111228_WEB.xml
+YESBANK,bank,False,2019-09-30,nnpa,4.35,2019-11-19,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_49217_159879_05112019111228_WEB.xml
+YESBANK,bank,False,2019-12-31,gnpa,18.87,2020-03-18,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_54883_229416_16032020122404_WEB.xml
+YESBANK,bank,False,2019-12-31,nnpa,5.97,2020-03-18,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_54883_229416_16032020122404_WEB.xml
+YESBANK,bank,False,2020-03-31,gnpa,16.8,2020-05-13,"https://nsearchives.nseindia.com/corporate/xbrl/BANKING_55031_250185_08052020021731_WEB.xml (ROA dropped: filed 0.05%, but profit ÷ total assets in the same filing is -6.37%)"
+YESBANK,bank,False,2020-03-31,nnpa,5.03,2020-05-13,"https://nsearchives.nseindia.com/corporate/xbrl/BANKING_55031_250185_08052020021731_WEB.xml (ROA dropped: filed 0.05%, but profit ÷ total assets in the same filing is -6.37%)"
+YESBANK,bank,False,2020-06-30,gnpa,17.3,2020-09-30,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_58412_298228_28072020075111_WEB.xml
+YESBANK,bank,False,2020-06-30,nnpa,4.96,2020-09-30,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_58412_298228_28072020075111_WEB.xml
+YESBANK,bank,False,2021-12-31,gnpa,14.65,2022-01-22,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_80360_597903_22012022041908_WEB.xml
+YESBANK,bank,False,2021-12-31,nnpa,5.29,2022-01-22,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_80360_597903_22012022041908_WEB.xml

@@ -12,6 +12,16 @@ DISCLOSURE_SETS = ("pledges", "surveillance", "fo_ban", "ratings", "auditor_even
 MISSING_DATASET_CAP = 2
 
 
+def pca_signal(bank: dict):
+    """The credit signal of a bank or NBFC: its worst RBI PCA band and early warnings (None without a bank file)."""
+    if not bank or not bank.get("available"):
+        return None
+    table = bank["pca"]["table"]
+    breached = table[table["Band"].isin(("RT1", "RT2", "RT3"))]
+    detail = "; ".join(f"{r['Indicator']} {r['Value']:.2f}%" for r in breached.to_dict("records"))
+    return {"pca_band": bank["pca"]["worst"], "pca_detail": detail, "warnings": bank["warnings"]}
+
+
 def holding_signals(ticker: str, data: dict, as_of, credit_result: dict, liquidity_row: dict, group: str,
                     group_counts: dict, rules: dict) -> dict:
     """Every early-warning signal of one holding, public by `as_of`; None where the data are not loaded."""
@@ -23,7 +33,8 @@ def holding_signals(ticker: str, data: dict, as_of, credit_result: dict, liquidi
         "fo_ban": E.fo_ban_signal(data["fo_ban"], symbol, as_of, rules["elevated"]["fo_ban_days"]) if indian else None,
         "rating": E.rating_signal(data["ratings"], symbol, as_of, rules["investment_grade_floor"]),
         "auditor": E.auditor_signal(data["auditor_events"], symbol, as_of),
-        "merton": E.dd_signal(credit_result.get("rolling"), as_of) if credit_result and not credit_result["financial"] else None,
+        "merton": (E.dd_signal(credit_result.get("rolling"), as_of) if credit_result and not credit_result["financial"]
+                   else pca_signal(credit_result.get("bank")) if credit_result else None),
         "circuit": {"lower_circuit_days": int(liquidity_row["Lower-Circuit Days"]), "longest_run": int(liquidity_row["Longest Run"])}
         if liquidity_row is not None and indian else None,
         "group": {"group": group, "same_group_holdings": group_counts.get(group, 0)} if group else None,

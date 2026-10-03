@@ -1,0 +1,113 @@
+symbol,entity_type,d_sib,period_end,metric,value_pct,filing_date,source
+HDFCBANK,bank,True,2018-06-30,gnpa,1.33,2018-08-10,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_37206_29076_26072018063602_WEB.xml
+HDFCBANK,bank,True,2018-06-30,nnpa,0.41,2018-08-10,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_37206_29076_26072018063602_WEB.xml
+HDFCBANK,bank,True,2018-12-31,gnpa,1.38,2019-01-21,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_41595_75813_21012019115230_WEB.xml
+HDFCBANK,bank,True,2018-12-31,nnpa,0.42,2019-01-21,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_41595_75813_21012019115230_WEB.xml
+HDFCBANK,bank,True,2019-03-31,gnpa,1.36,2019-04-23,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_43594_98455_22042019125125_WEB.xml
+HDFCBANK,bank,True,2019-03-31,nnpa,0.39,2019-04-23,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_43594_98455_22042019125125_WEB.xml
+HDFCBANK,bank,True,2019-03-31,roa,1.9,2019-04-23,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_43594_98455_22042019125125_WEB.xml
+HDFCBANK,bank,True,2019-06-30,gnpa,1.4,2019-09-09,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_46085_123671_22072019025254_WEB.xml
+HDFCBANK,bank,True,2019-06-30,nnpa,0.43,2019-09-09,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_46085_123671_22072019025254_WEB.xml
+HDFCBANK,bank,True,2019-09-30,gnpa,1.38,2019-10-25,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_48706_156370_22102019025859_WEB.xml
+HDFCBANK,bank,True,2019-09-30,nnpa,0.42,2019-10-25,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_48706_156370_22102019025859_WEB.xml
+HDFCBANK,bank,True,2019-12-31,gnpa,1.42,2020-01-21,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_51533_206515_20012020023420_WEB.xml
+HDFCBANK,bank,True,2019-12-31,nnpa,0.48,2020-01-21,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_51533_206515_20012020023420_WEB.xml
+HDFCBANK,bank,True,2020-03-31,gnpa,1.26,2020-04-20,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_54909_241135_20042020115703_WEB.xml
+HDFCBANK,bank,True,2020-03-31,nnpa,0.36,2020-04-20,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_54909_241135_20042020115703_WEB.xml
+HDFCBANK,bank,True,2020-03-31,roa,2.01,2020-04-20,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_54909_241135_20042020115703_WEB.xml
+HDFCBANK,bank,True,2020-06-30,gnpa,1.36,2020-07-29,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_57946_291697_20072020012909_WEB.xml
+HDFCBANK,bank,True,2020-06-30,nnpa,0.33,2020-07-29,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_57946_291697_20072020012909_WEB.xml
+HDFCBANK,bank,True,2020-09-30,gnpa,1.08,2020-11-05,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_62163_344514_19102020112356_WEB.xml
+HDFCBANK,bank,True,2020-09-30,nnpa,0.17,2020-11-05,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_62163_344514_19102020112356_WEB.xml
+HDFCBANK,bank,True,2020-12-31,gnpa,0.81,2021-01-18,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_66020_392289_18012021123514_WEB.xml
+HDFCBANK,bank,True,2020-12-31,nnpa,0.09,2021-01-18,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_66020_392289_18012021123514_WEB.xml
+HDFCBANK,bank,True,2021-03-31,gnpa,1.32,2021-04-19,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_69365_440095_19042021065032_WEB.xml
+HDFCBANK,bank,True,2021-03-31,nnpa,0.4,2021-04-19,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_69365_440095_19042021065032_WEB.xml
+HDFCBANK,bank,True,2021-06-30,gnpa,1.47,2021-07-19,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_73090_488992_19072021114537_WEB.xml
+HDFCBANK,bank,True,2021-06-30,nnpa,0.48,2021-07-19,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_73090_488992_19072021114537_WEB.xml
+HDFCBANK,bank,True,2021-09-30,gnpa,1.35,2021-10-18,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_76417_536395_18102021054807_WEB.xml
+HDFCBANK,bank,True,2021-09-30,nnpa,0.4,2021-10-18,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_76417_536395_18102021054807_WEB.xml
+HDFCBANK,bank,True,2021-12-31,gnpa,1.26,2022-04-26,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_80103_589317_17012022113957_WEB.xml
+HDFCBANK,bank,True,2021-12-31,nnpa,0.37,2022-04-26,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_80103_589317_17012022113957_WEB.xml
+HDFCBANK,bank,True,2022-03-31,casa,48.2,2022-06-21,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_20085_HDFCBANK_2021_2022_21062022163130_06212022170003.zip), PDF page 151"
+HDFCBANK,bank,True,2022-03-31,cd_ratio,91.2,2022-06-21,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_20085_HDFCBANK_2021_2022_21062022163130_06212022170003.zip), PDF page 322; derived: advances ÷ deposits, standalone balance sheet"
+HDFCBANK,bank,True,2022-03-31,cet1,16.67,2022-06-21,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_20085_HDFCBANK_2021_2022_21062022163130_06212022170003.zip), PDF page 253"
+HDFCBANK,bank,True,2022-03-31,crar,18.9,2022-06-21,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_20085_HDFCBANK_2021_2022_21062022163130_06212022170003.zip), PDF page 253"
+HDFCBANK,bank,True,2022-03-31,gnpa,1.17,2022-04-18,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_83531_638244_18042022023039_WEB.xml
+HDFCBANK,bank,True,2022-03-31,gnpa,1.17,2022-06-21,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_20085_HDFCBANK_2021_2022_21062022163130_06212022170003.zip), PDF page 271"
+HDFCBANK,bank,True,2022-03-31,lcr,111.89,2022-06-21,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_20085_HDFCBANK_2021_2022_21062022163130_06212022170003.zip), PDF page 303; average for the quarter ended 31 March"
+HDFCBANK,bank,True,2022-03-31,leverage,10.62,2022-06-21,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_20085_HDFCBANK_2021_2022_21062022163130_06212022170003.zip), PDF page 253"
+HDFCBANK,bank,True,2022-03-31,nim,4.0,2022-06-21,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_20085_HDFCBANK_2021_2022_21062022163130_06212022170003.zip), PDF page 146"
+HDFCBANK,bank,True,2022-03-31,nnpa,0.32,2022-04-18,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_83531_638244_18042022023039_WEB.xml
+HDFCBANK,bank,True,2022-03-31,nnpa,0.32,2022-06-21,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_20085_HDFCBANK_2021_2022_21062022163130_06212022170003.zip), PDF page 271"
+HDFCBANK,bank,True,2022-03-31,pcr,72.69,2022-06-21,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_20085_HDFCBANK_2021_2022_21062022163130_06212022170003.zip), PDF page 271; excludes written-off assets"
+HDFCBANK,bank,True,2022-03-31,roa,2.03,2022-04-18,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_83531_638244_18042022023039_WEB.xml
+HDFCBANK,bank,True,2022-03-31,tier1,17.87,2022-06-21,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_20085_HDFCBANK_2021_2022_21062022163130_06212022170003.zip), PDF page 253"
+HDFCBANK,bank,True,2022-06-30,gnpa,1.28,2022-07-16,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_587891_2510_16072022184059_WEB.xml
+HDFCBANK,bank,True,2022-06-30,nnpa,0.35,2022-07-16,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_587891_2510_16072022184059_WEB.xml
+HDFCBANK,bank,True,2022-09-30,gnpa,1.23,2022-10-18,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_770683_4851_18102022135343_WEB.xml
+HDFCBANK,bank,True,2022-09-30,nnpa,0.33,2022-10-18,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_770683_4851_18102022135343_WEB.xml
+HDFCBANK,bank,True,2022-12-31,gnpa,1.23,2023-01-14,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_87441_766934_14012023033930_WEB.xml
+HDFCBANK,bank,True,2022-12-31,nnpa,0.33,2023-01-14,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_87441_766934_14012023033930_WEB.xml
+HDFCBANK,bank,True,2023-03-31,casa,44.4,2023-07-19,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_22445_HDFCBANK_2022_2023_19072023141052_07192023150000.zip), PDF page 195"
+HDFCBANK,bank,True,2023-03-31,cd_ratio,88.28,2023-07-19,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_22445_HDFCBANK_2022_2023_19072023141052_07192023150000.zip), PDF page 338; derived: advances ÷ deposits, standalone balance sheet"
+HDFCBANK,bank,True,2023-03-31,cet1,16.4,2023-07-19,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_22445_HDFCBANK_2022_2023_19072023141052_07192023150000.zip), PDF page 265"
+HDFCBANK,bank,True,2023-03-31,crar,19.26,2023-07-19,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_22445_HDFCBANK_2022_2023_19072023141052_07192023150000.zip), PDF page 265"
+HDFCBANK,bank,True,2023-03-31,gnpa,1.12,2023-04-17,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_90715_821266_17042023022426.xml
+HDFCBANK,bank,True,2023-03-31,gnpa,1.12,2023-07-19,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_22445_HDFCBANK_2022_2023_19072023141052_07192023150000.zip), PDF page 282"
+HDFCBANK,bank,True,2023-03-31,lcr,114.85,2023-07-19,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_22445_HDFCBANK_2022_2023_19072023141052_07192023150000.zip), PDF page 317; average for the quarter ended 31 March"
+HDFCBANK,bank,True,2023-03-31,leverage,10.04,2023-07-19,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_22445_HDFCBANK_2022_2023_19072023141052_07192023150000.zip), PDF page 265"
+HDFCBANK,bank,True,2023-03-31,nim,4.1,2023-07-19,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_22445_HDFCBANK_2022_2023_19072023141052_07192023150000.zip), PDF page 194"
+HDFCBANK,bank,True,2023-03-31,nnpa,0.27,2023-04-17,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_90715_821266_17042023022426.xml
+HDFCBANK,bank,True,2023-03-31,nnpa,0.27,2023-07-19,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_22445_HDFCBANK_2022_2023_19072023141052_07192023150000.zip), PDF page 282"
+HDFCBANK,bank,True,2023-03-31,pcr,75.76,2023-07-19,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_22445_HDFCBANK_2022_2023_19072023141052_07192023150000.zip), PDF page 282; excludes written-off assets"
+HDFCBANK,bank,True,2023-03-31,roa,2.07,2023-04-17,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_90715_821266_17042023022426.xml
+HDFCBANK,bank,True,2023-03-31,tier1,17.13,2023-07-19,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_22445_HDFCBANK_2022_2023_19072023141052_07192023150000.zip), PDF page 265"
+HDFCBANK,bank,True,2023-06-30,gnpa,1.17,2023-07-17,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_94218_888372_17072023062652.xml
+HDFCBANK,bank,True,2023-06-30,nnpa,0.3,2023-07-17,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_94218_888372_17072023062652.xml
+HDFCBANK,bank,True,2023-09-30,gnpa,1.34,2023-10-17,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_97616_956099_17102023052102.xml
+HDFCBANK,bank,True,2023-09-30,nnpa,0.35,2023-10-17,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_97616_956099_17102023052102.xml
+HDFCBANK,bank,True,2023-12-31,gnpa,1.26,2024-01-16,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_101078_1023175_16012024051131.xml
+HDFCBANK,bank,True,2023-12-31,nnpa,0.31,2024-01-16,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_101078_1023175_16012024051131.xml
+HDFCBANK,bank,True,2024-03-31,casa,38.2,2024-07-18,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_24576_HDFCBANK_2023_2024_18072024183453.pdf), PDF page 242"
+HDFCBANK,bank,True,2024-03-31,cd_ratio,107.95,2024-07-18,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_24576_HDFCBANK_2023_2024_18072024183453.pdf), PDF page 437; derived: advances ÷ deposits, standalone balance sheet"
+HDFCBANK,bank,True,2024-03-31,cet1,16.3,2024-07-18,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_24576_HDFCBANK_2023_2024_18072024183453.pdf), PDF page 336"
+HDFCBANK,bank,True,2024-03-31,crar,18.8,2024-07-18,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_24576_HDFCBANK_2023_2024_18072024183453.pdf), PDF page 336"
+HDFCBANK,bank,True,2024-03-31,gnpa,1.24,2024-04-21,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_104623_1105106_21042024122701.xml
+HDFCBANK,bank,True,2024-03-31,gnpa,1.24,2024-07-18,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_24576_HDFCBANK_2023_2024_18072024183453.pdf), PDF page 355"
+HDFCBANK,bank,True,2024-03-31,lcr,114.73,2024-07-18,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_24576_HDFCBANK_2023_2024_18072024183453.pdf), PDF page 345; average for the quarter ended 31 March"
+HDFCBANK,bank,True,2024-03-31,leverage,10.4,2024-07-18,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_24576_HDFCBANK_2023_2024_18072024183453.pdf), PDF page 336"
+HDFCBANK,bank,True,2024-03-31,nim,3.53,2024-07-18,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_24576_HDFCBANK_2023_2024_18072024183453.pdf), PDF page 236; core NIM as printed"
+HDFCBANK,bank,True,2024-03-31,nnpa,0.33,2024-04-21,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_104623_1105106_21042024122701.xml
+HDFCBANK,bank,True,2024-03-31,nnpa,0.33,2024-07-18,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_24576_HDFCBANK_2023_2024_18072024183453.pdf), PDF page 355"
+HDFCBANK,bank,True,2024-03-31,pcr,74.04,2024-07-18,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_24576_HDFCBANK_2023_2024_18072024183453.pdf), PDF page 355; excludes written-off assets"
+HDFCBANK,bank,True,2024-03-31,roa,1.98,2024-04-21,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_104623_1105106_21042024122701.xml
+HDFCBANK,bank,True,2024-03-31,tier1,16.79,2024-07-18,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_24576_HDFCBANK_2023_2024_18072024183453.pdf), PDF page 336"
+HDFCBANK,bank,True,2024-06-30,gnpa,1.33,2024-07-21,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_109234_1198406_21072024124658.xml
+HDFCBANK,bank,True,2024-06-30,nnpa,0.39,2024-07-21,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_109234_1198406_21072024124658.xml
+HDFCBANK,bank,True,2024-09-30,gnpa,1.36,2024-10-20,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_112945_1281169_20102024121301.xml
+HDFCBANK,bank,True,2024-09-30,nnpa,0.41,2024-10-20,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_112945_1281169_20102024121301.xml
+HDFCBANK,bank,True,2024-12-31,gnpa,1.42,2025-01-23,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_117524_1359008_23012025122553.xml
+HDFCBANK,bank,True,2024-12-31,nnpa,0.46,2025-01-23,https://nsearchives.nseindia.com/corporate/xbrl/BANKING_117524_1359008_23012025122553.xml
+HDFCBANK,bank,True,2025-03-31,casa,34.8,2025-07-25,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_27115_HDFCBANK_2024_2025_U_25072025220054.pdf), PDF page 211"
+HDFCBANK,bank,True,2025-03-31,cd_ratio,100.52,2025-07-25,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_27115_HDFCBANK_2024_2025_U_25072025220054.pdf), PDF page 442; derived: advances ÷ deposits, standalone balance sheet"
+HDFCBANK,bank,True,2025-03-31,cet1,17.23,2025-07-25,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_27115_HDFCBANK_2024_2025_U_25072025220054.pdf), PDF page 342"
+HDFCBANK,bank,True,2025-03-31,crar,19.55,2025-07-25,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_27115_HDFCBANK_2024_2025_U_25072025220054.pdf), PDF page 342"
+HDFCBANK,bank,True,2025-03-31,gnpa,1.33,2025-07-25,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_27115_HDFCBANK_2024_2025_U_25072025220054.pdf), PDF page 363"
+HDFCBANK,bank,True,2025-03-31,lcr,118.96,2025-07-25,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_27115_HDFCBANK_2024_2025_U_25072025220054.pdf), PDF page 352; average for the quarter ended 31 March"
+HDFCBANK,bank,True,2025-03-31,leverage,10.91,2025-07-25,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_27115_HDFCBANK_2024_2025_U_25072025220054.pdf), PDF page 342"
+HDFCBANK,bank,True,2025-03-31,nim,3.48,2025-07-25,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_27115_HDFCBANK_2024_2025_U_25072025220054.pdf), PDF page 211"
+HDFCBANK,bank,True,2025-03-31,nnpa,0.43,2025-07-25,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_27115_HDFCBANK_2024_2025_U_25072025220054.pdf), PDF page 363"
+HDFCBANK,bank,True,2025-03-31,pcr,67.86,2025-07-25,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_27115_HDFCBANK_2024_2025_U_25072025220054.pdf), PDF page 363; excludes written-off assets"
+HDFCBANK,bank,True,2025-03-31,tier1,17.69,2025-07-25,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_27115_HDFCBANK_2024_2025_U_25072025220054.pdf), PDF page 342"
+HDFCBANK,bank,True,2026-03-31,casa,34.1,2026-07-11,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_29735_HDFCBANK_2025_2026_A_12667766_11072026001055.pdf), PDF page 280"
+HDFCBANK,bank,True,2026-03-31,cd_ratio,98.42,2026-07-11,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_29735_HDFCBANK_2025_2026_A_12667766_11072026001055.pdf), PDF page 496; derived: advances ÷ deposits, standalone balance sheet"
+HDFCBANK,bank,True,2026-03-31,cet1,17.28,2026-07-11,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_29735_HDFCBANK_2025_2026_A_12667766_11072026001055.pdf), PDF page 403"
+HDFCBANK,bank,True,2026-03-31,crar,19.71,2026-07-11,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_29735_HDFCBANK_2025_2026_A_12667766_11072026001055.pdf), PDF page 403"
+HDFCBANK,bank,True,2026-03-31,gnpa,1.15,2026-07-11,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_29735_HDFCBANK_2025_2026_A_12667766_11072026001055.pdf), PDF page 425"
+HDFCBANK,bank,True,2026-03-31,lcr,114.17,2026-07-11,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_29735_HDFCBANK_2025_2026_A_12667766_11072026001055.pdf), PDF page 415; average for the quarter ended 31 March"
+HDFCBANK,bank,True,2026-03-31,leverage,10.99,2026-07-11,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_29735_HDFCBANK_2025_2026_A_12667766_11072026001055.pdf), PDF page 403"
+HDFCBANK,bank,True,2026-03-31,nim,3.34,2026-07-11,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_29735_HDFCBANK_2025_2026_A_12667766_11072026001055.pdf), PDF page 272"
+HDFCBANK,bank,True,2026-03-31,nnpa,0.38,2026-07-11,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_29735_HDFCBANK_2025_2026_A_12667766_11072026001055.pdf), PDF page 425"
+HDFCBANK,bank,True,2026-03-31,pcr,67.21,2026-07-11,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_29735_HDFCBANK_2025_2026_A_12667766_11072026001055.pdf), PDF page 425; excludes written-off assets"
+HDFCBANK,bank,True,2026-03-31,tier1,17.73,2026-07-11,"Annual report (https://nsearchives.nseindia.com/annual_reports/AR_29735_HDFCBANK_2025_2026_A_12667766_11072026001055.pdf), PDF page 403"

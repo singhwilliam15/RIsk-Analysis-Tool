@@ -19,6 +19,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 import pandas as pd  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import banks as B  # noqa: E402
 import data_fetcher  # noqa: E402
 from case_studies import engine as K  # noqa: E402
 from data_fetcher import _add_return_columns  # noqa: E402
@@ -83,8 +84,10 @@ def main() -> int:
                     continue
                 frames[ticker] = cdf
             for months, as_of in K.as_of_dates(case["event_date"], config["as_of_months_before"]):
+                symbol = ticker.split(".")[0]
+                is_bank = (B.BANKS_DIR / f"{symbol}.csv").exists()  # a control bank is assessed as a bank
                 r = K.evaluate(frames[ticker], market, as_of, config["position_value"], config["flag_rules"], rules,
-                               False, K.load_case_fundamentals(ticker), disclosures, ticker.split(".")[0])
+                               is_bank, K.load_case_fundamentals(ticker), disclosures, symbol)
                 r.update(group="control", case=case["name"], ticker=ticker, months_before=months,
                          **{f"realised_{k}": v for k, v in K.realised_loss(frames[ticker], as_of, case["event_date"],
                                                                             config["realised_window_days"]).items()})

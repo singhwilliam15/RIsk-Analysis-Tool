@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
+import debt as D
 import decisions as Dz
 import integration as I
 import liquidity as L
@@ -57,7 +58,9 @@ def compute_integration(ctx):
     base = pd.DataFrame(base_rows)
     params = {"bangia_k": ctx.bangia_k, "impact_y": ctx.impact_y, "r": ctx.risk_free_pct / 100, "T": ctx.merton_horizon,
               "initial_cover": ctx.initial_cover, "trigger_cover": ctx.trigger_cover,
-              "permanent_share": ctx.permanent_share, "jtd_dd": ctx.jtd_dd}
+              "permanent_share": ctx.permanent_share, "jtd_dd": ctx.jtd_dd, "as_of": ctx.prices_as_of,
+              "debt_config": D.load_config()}
+    debt_book = ctx.debt_book
 
     def with_ratios(scenario):
         frame = base.copy()
@@ -72,7 +75,7 @@ def compute_integration(ctx):
 
     rows = []
     for sc in scenarios:
-        table = I.run_linked(with_ratios(sc), [sc], params)
+        table = I.run_linked(with_ratios(sc), [sc], params, debt=debt_book)
         rows.append(table.iloc[0])
     linked = pd.DataFrame(rows).reset_index(drop=True) if rows else pd.DataFrame()
 
@@ -98,7 +101,7 @@ def compute_integration(ctx):
     reverse_scenario = {"name": f"Reverse stress: lose {loss:.0%} in a month", "kind": "reverse", "market": np.nan,
                         "holdings": {t: {"return": float(x), "method": "reverse", "sigma": today_sigma[t] * scale}
                                      for t, x in zip(weights.index, reverse["full"]["shock"])}}
-    reverse["linked"] = I.run_linked(with_ratios(reverse_scenario), [reverse_scenario], params).iloc[0]
+    reverse["linked"] = I.run_linked(with_ratios(reverse_scenario), [reverse_scenario], params, debt=debt_book).iloc[0]
 
     region = region_for(tickers)
     macro_names = MACRO.get(region or "", {})
@@ -115,6 +118,12 @@ def compute_integration(ctx):
     # Links that can act at all: pledge selling needs pledge data, and credit adds no loss to equity holders
     active = ["liquidity"] + (["events"] if base["Pledged Shares"].fillna(0).gt(0).any() else [])
     export(ctx, {"linked": linked, "linked_active": active, "reverse": reverse, "scenario_count": len(scenarios)})
+
+
+def debt_value(ctx) -> float:
+    """Market value of the debt holdings (0 without any)."""
+    book = getattr(ctx, "debt_book", None)
+    return float(book["Market Value"].sum()) if book is not None and len(book) else 0.0
 
 
 def compute_decisions(ctx):
@@ -186,7 +195,8 @@ def compute_decisions(ctx):
     worst = None
     if len(ctx.linked):
         row = ctx.linked.loc[ctx.linked["Linked Total"].idxmax()]
-        worst = {"name": row["Scenario"], "loss_pct": row["Linked Total"] / inv, "interaction_pct": row["Interaction"] / inv}
+        book = inv + debt_value(ctx)  # equity plus any debt holdings in the linked stress
+        worst = {"name": row["Scenario"], "loss_pct": row["Linked Total"] / book, "interaction_pct": row["Interaction"] / book}
     risks = Dz.top_risks(limits_table, worst, components, weights, tiers, grades, ctx.event_missing)
     actions = Dz.top_actions(pd.DataFrame(effects), hedge, limits_table, ctx.event_missing, inv)
     export(ctx, {"risk_change": change, "risk_change_old": old, "risk_snapshot_now": new, "es_components": components,
@@ -249,7 +259,7 @@ def memo_content(ctx) -> dict:
     stress = None
     if len(ctx.linked):
         row = ctx.linked.loc[ctx.linked["Linked Total"].idxmax()]
-        inv = ctx.investment_amount
+        inv = ctx.investment_amount + debt_value(ctx)  # equity plus any debt holdings
         stress = {"name": row["Scenario"], "market": money(row["Market"]), "liquidity": money(row["Liquidity"]),
                   "credit": money(row["Credit"]), "events": money(row["Events"]), "linked": money(row["Linked Total"]),
                   "plain": money(row["Market Loss"]), "interaction": money(row["Interaction"]),

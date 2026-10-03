@@ -13,6 +13,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+import banks as B
 import credit as C
 import data_quality as DQ
 import events as E
@@ -126,6 +127,15 @@ def evaluate(df: pd.DataFrame, market: pd.Series, as_of, position_value: float, 
         out["flags"]["credit"] = bool((merton is not None and merton["DD"] < rules["elevated"]["merton_dd_below"])
                                       or z2[1] == C.DISTRESS)
     out["credit_note"] = "bank / NBFC: not modelled" if financial else ("no statements loaded" if fund is None else "")
+    if financial and symbol is not None:
+        bank = B.assess(symbol, as_of)
+        if bank["available"]:
+            # Banks: RBI PCA bands (today's 2021 thresholds, applied as a benchmark) and the early-warning rules
+            out.update(pca_band=bank["pca"]["worst"], pca_headroom=bank["pca"]["min_headroom"],
+                       bank_warnings="; ".join(bank["warnings"]))
+            out["available"]["credit"] = True
+            out["flags"]["credit"] = bool(bank["pca"]["worst"] in ("RT1", "RT2", "RT3") or bank["warnings"])
+            out["credit_note"] = "bank: RBI PCA thresholds of 2021 applied as a benchmark"
 
     # Events (needs disclosure files)
     if disclosures is not None and symbol is not None:

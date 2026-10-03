@@ -5,7 +5,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+import banks as B
 import credit as C
+import debt as D
 from disclosures import normalise_symbol
 from garch import PCT, garch_filter, garch_variance_term_structure
 from trust import TrustedMetric, grade
@@ -52,8 +54,11 @@ def analyse_holding(ticker: str, prices: pd.DataFrame, fund: dict, vols: dict, s
     out["financial"] = C.is_financial(sector, industry, config)
     out["ratios"] = C.credit_ratios(years) if len(years) else pd.DataFrame()
     if out["financial"]:
+        out["bank"] = B.assess(normalise_symbol(ticker), as_of) if ticker.upper().endswith(INDIAN) else {"available": False}
         out["notes"].append("Bank, NBFC or insurer: Merton, Altman and leverage ratios are not meaningful when deposits "
-                            "and policy liabilities are the business; see the manual panel.")
+                            "and policy liabilities are the business. "
+                            + ("Assessed against RBI's Prompt Corrective Action thresholds instead." if out["bank"]["available"]
+                               else "No bank metrics file (data/banks/); see the manual panel."))
         out.update(merton={}, kmv={}, flags=[], z=(None, C.NOT_AVAILABLE), z2=(None, C.NOT_AVAILABLE),
                    primary="not applicable", altman_missing=[], rolling=pd.DataFrame())
         return out
@@ -105,6 +110,7 @@ def portfolio_view(results: dict, positions: pd.DataFrame, vol_choice: str) -> d
                      "Altman Model": res["primary"], "Altman Score": primary[0] if primary[0] is not None else np.nan,
                      "Altman Zone": primary[1], "Red Flags": len(res["flags"]),
                      "Rating": res["rating"]["rating"] or "not available", "Rating Direction": res["rating"]["direction"],
+                     "PCA Band": (res.get("bank") or {}).get("pca", {}).get("worst", "-") if res["financial"] else "-",
                      "Balance Sheet": res["period_end"]})
     table = pd.DataFrame(rows)
     modelled = table["PD"].notna()
@@ -205,6 +211,7 @@ def compute_credit(ctx):
                                            ctx.risk_free_pct / 100, ctx.ltd_weight, ctx.merton_horizon, config,
                                            ctx.prices_as_of)
     view = portfolio_view(results, ctx.positions, ctx.equity_vol_choice)
+    debt_book, debt_errors = build_debt_book(ctx)
     # Where each DD sits in the reference universe, and the agency's historical default rate for its rating
     universe = load_dd_universe()
     dd_col = f"DD {ctx.equity_vol_choice}"
@@ -224,4 +231,19 @@ def compute_credit(ctx):
     data_q = float(min(q["score"] for q in ctx.quality.values())) if ctx.quality else np.nan
     sources = ["Yahoo Finance statements or your CSV overrides (Overview)", ctx.data_note]
     metrics = credit_metrics(results, view, ctx.equity_vol_choice, data_q, sources, config, ctx.ltd_weight)
-    export(ctx, {"credit_results": results, "credit_view": view, "credit_metrics": metrics, "credit_config": config})
+    export(ctx, {"credit_results": results, "credit_view": view, "credit_metrics": metrics, "credit_config": config,
+                 "debt_book": debt_book, "debt_errors": debt_errors})
+
+
+def build_debt_book(ctx) -> tuple:
+    """The sidebar's debt holdings, validated and priced; issuer tickers matched to equity holdings (with or
+    without the .NS suffix) so the linked stress can tie each bond to its issuer's shares."""
+    raw = getattr(ctx, "debt_input", None)
+    if raw is None or raw.empty:
+        return pd.DataFrame(), []
+    clean, errors = D.validate(raw)
+    if clean.empty:
+        return pd.DataFrame(), errors
+    held = {normalise_symbol(t): t for t in ctx.positions["Ticker"]}
+    clean["Issuer Ticker"] = clean["Issuer Ticker"].map(lambda t: held.get(normalise_symbol(t), t) if t else "")
+    return D.prepare(clean, ctx.risk_free_pct / 100, ctx.prices_as_of), errors

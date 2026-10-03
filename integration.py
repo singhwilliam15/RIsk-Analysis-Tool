@@ -29,6 +29,7 @@ import pandas as pd
 from scipy.stats import chi2, f as f_dist, norm, t as t_dist
 
 import credit as C
+import debt as D
 import events as E
 import liquidity as L
 from stress import downside_beta, market_drawdown, replay_return
@@ -171,7 +172,52 @@ def shapley(values: dict, players) -> dict:
     return out
 
 
-def linked_stress(holdings: pd.DataFrame, scenario: dict, params: dict, switches: dict = None) -> dict:
+def debt_spread_change(d: dict, scenario: dict, params: dict, s: frozenset, runs_by_ticker: dict) -> tuple:
+    """
+    Spread change (decimal) of one debt holding with the players in `s` switched on, and how it was set.
+    Credit off: no change. Issuer held as equity with Merton inputs: from the risk-neutral PD re-solved at the
+    issuer's price under `s` (so selling and circuits on the shares widen the bond's spread), s = −ln(1 − PD·LGD)/T.
+    Otherwise the rating-bucket widening for the scenario's market fall (market on), an assumption.
+    """
+    if "credit" not in s:
+        return 0.0, "credit link off"
+    issuer = runs_by_ticker.get(d["Issuer Ticker"])
+    if issuer is not None:
+        h, sc, runs = issuer
+        if not h["Financial"] and np.isfinite(h["Equity"]) and np.isfinite(h["Default Point"]):
+            sigma = sc["sigma"] * np.sqrt(C.TRADING_DAYS)
+            now = C.solve_merton(h["Equity"], sigma, h["Default Point"], params["r"], params["T"])["PD"]
+            stressed = C.solve_merton(h["Equity"] * runs[s]["x"], sigma, h["Default Point"], params["r"], params["T"])["PD"]
+            lgd = d["LGD"]
+            change = D.spread_from_pd(stressed, lgd, params["T"]) - D.spread_from_pd(now, lgd, params["T"])
+            if np.isfinite(change):
+                return float(change), "issuer's stressed Merton PD"
+    move = scenario["market"] if "market" in s and np.isfinite(scenario["market"]) else 0.0
+    return D.bucket_widening(d["Rating"], move, params["debt_config"]), "rating-bucket widening (assumption)"
+
+
+def debt_row(d: dict, scenario: dict, params: dict, players: list, base: frozenset, links: list, runs_by_ticker: dict) -> dict:
+    """One debt holding through every coalition: repricing loss for the spread change, plus the one-year expected
+    loss when the credit link is on; Shapley parts and interaction as for equity."""
+    values, how = {}, {}
+    for s in _subsets(players):
+        change, how[s] = debt_spread_change(d, scenario, params, s, runs_by_ticker)
+        loss = D.stressed_loss(d, d, params["r"], params["as_of"], change)["loss"] if change else 0.0
+        el = d["Expected Loss (1y)"] if "credit" in s and np.isfinite(d["Expected Loss (1y)"]) else 0.0
+        values[s] = loss + el
+    full = frozenset(players)
+    parts = shapley(values, players)
+    change, method = debt_spread_change(d, scenario, params, full, runs_by_ticker)
+    return {"Ticker": f"Debt: {d['Name']}", "Return": -values[full] / d["Market Value"] if d["Market Value"] else np.nan,
+            "Method": method, "Market Loss": values[base], **{p.capitalize(): parts.get(p, 0.0) for p in PLAYERS},
+            "Total": values[full],
+            "Interaction": values[full] - values[base] - sum(values[base | {p}] - values[base] for p in links),
+            "Spread Change bps": change * 1e4, "Rounds": 1, "Converged": True,
+            "JTD Loss (0% recovery)": d["Jump-to-Default Loss"], "JTD Loss (10% recovery)": np.nan}
+
+
+def linked_stress(holdings: pd.DataFrame, scenario: dict, params: dict, switches: dict = None,
+                  debt: pd.DataFrame = None) -> dict:
     """
     One scenario through every pillar. `holdings` has one row per ticker with: Value, Quantity, Price, ADV,
     Volume Ratio (that crisis's volume ÷ normal, NaN if unknown), Spread Mean, Spread Std, Band, Freeze Days,
@@ -189,10 +235,12 @@ def linked_stress(holdings: pd.DataFrame, scenario: dict, params: dict, switches
     links = [p for p in players if p != "market"]
     base = frozenset({"market"}) if on["market"] else frozenset()
     rows = []
+    runs_by_ticker = {}
     for h in holdings.to_dict("records"):
         t = h["Ticker"]
         sc = scenario["holdings"][t]
         runs = {s: holding_loss(h, sc, params, {p: p in s for p in PLAYERS}) for s in _subsets(players)}
+        runs_by_ticker[t] = (h, sc, runs)
         values = {s: r["loss"] for s, r in runs.items()}
         parts = shapley(values, players)
         full = runs[frozenset(players)]
@@ -211,6 +259,8 @@ def linked_stress(holdings: pd.DataFrame, scenario: dict, params: dict, switches
                      "Rounds": full["rounds"], "Converged": full["converged"], "Stressed DD": dd, "Stressed PD": pd_,
                      "JTD Loss (10% recovery)": h["Value"] * (1 - JTD_RECOVERY[0]) if jtd else np.nan,
                      "JTD Loss (0% recovery)": h["Value"] * (1 - JTD_RECOVERY[1]) if jtd else np.nan})
+    for d in (debt.to_dict("records") if debt is not None and len(debt) else []):
+        rows.append(debt_row(d, scenario, params, players, base, links, runs_by_ticker))
     table = pd.DataFrame(rows)
     totals = table[["Market Loss", "Market", "Liquidity", "Credit", "Events", "Total", "Interaction"]].sum()
     totals["Rounds"] = int(table["Rounds"].max())
@@ -219,11 +269,12 @@ def linked_stress(holdings: pd.DataFrame, scenario: dict, params: dict, switches
             "totals": totals}
 
 
-def run_linked(holdings: pd.DataFrame, scenarios: list, params: dict, switches: dict = None) -> pd.DataFrame:
+def run_linked(holdings: pd.DataFrame, scenarios: list, params: dict, switches: dict = None,
+               debt: pd.DataFrame = None) -> pd.DataFrame:
     """Linked totals for every scenario: plain market loss, Shapley parts, interaction and feedback rounds."""
     rows = []
     for sc in scenarios:
-        res = linked_stress(holdings, sc, params, switches)
+        res = linked_stress(holdings, sc, params, switches, debt)
         tot = res["totals"]
         rows.append({"Scenario": sc["name"], "Kind": sc["kind"], "Market Move": sc["market"],
                      "Market Loss": tot["Market Loss"], "Market": tot["Market"], "Liquidity": tot["Liquidity"],

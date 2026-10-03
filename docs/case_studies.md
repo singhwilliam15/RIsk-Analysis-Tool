@@ -27,7 +27,7 @@ At each as-of date, using the last 500 trading days up to it:
 | --- | --- |
 | Market | EWMA volatility ≥ **1.5×** the past year's volatility, **or** 1-day 95% historical ES ≥ **5%** |
 | Liquidity | ≥ 3 lower-circuit days in the window (the Elevated event rule, §12.2 of the methodology) |
-| Credit | Merton DD < 3, or Altman Z'' in the distress zone (needs statements; banks and NBFCs are not modelled) |
+| Credit | Merton DD < 3, or Altman Z'' in the distress zone (needs statements). Banks: any RBI PCA risk threshold breached, or an early warning (2021 thresholds applied as a benchmark) |
 | Events | event tier Elevated or High (needs disclosure files) |
 | Integrated stress | a −20% market move, run through the linked engine (downside beta, volatility doubled, liquidity, circuit freeze), loses ≥ **30%** of a ₹1 crore position |
 
@@ -69,13 +69,14 @@ ES is 1-day at 95% for the recommended model, with the Trust grade. Since the Oc
 | --- | --- | --- | --- | --- | --- |
 | Market | 20 | 15 | 5 | 200 | 15 (7.5%) |
 | Liquidity (circuits) | 20 | 2 | 18 | 200 | 0 |
-| Credit | 16 | 9 (56%) | 7 | 0 | – (no control-group statements) |
+| Credit | 20 | 12 (60%) | 8 | 17 | 0 (HDFC Bank, PCA; no statements for the other controls) |
 | Events | 0 | – | – | 0 | – (not available) |
 | Integrated stress | 20 | 6 | 14 | 200 | 4 (2.0%) |
 | **Any warning** | **20** | **15 (75%)** | **5** | **200** | **19 (9.5%)** |
 
 ### What this shows, honestly
 
+- **Yes Bank's bank panel saw it 6 months out, on public data** (October 2026, bank module). Its FY2019 annual report (filed 16 May 2019) showed CET1 at 8.4%: below today's PCA trigger of 8.625% (risk threshold 1). By December 2019 its September-quarter results showed gross NPA up 6.08 pp in a year (1.31% → 7.39%). It was not flagged 12 months out, when CET1 was 9.7%. **Caveat:** these are the 2021 PCA thresholds, applied as a benchmark; the 2017 framework in force in 2019 used different CET1 levels, which were not verified here. HDFC Bank, a control, was never flagged (17 dates, at least 5.5 pp clear of every trigger).
 - **Yes Bank and Jet Airways were visible in prices a year ahead.** Both had already fallen hard, so their ES was 6–19% a day and every date warned. A price-based tool flags a stock that is already falling; that is not a forecast of the moratorium or the grounding.
 - **Zee was missed for a year, and Future Retail for six months.** Their volatility looked ordinary until shortly before the end, while a holder at the 12-month date went on to lose 46% (Zee) and 84% (Future Retail).
   - Zee's risk was in promoter pledges, and Future Retail's in group debt and pledges.
